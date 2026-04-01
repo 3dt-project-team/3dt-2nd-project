@@ -18,12 +18,10 @@ WORKDIR /app
 # 소스 코드가 변경되어도 이 파일들이 바뀌지 않으면 이 레이어는 재실행되지 않음.
 COPY pyproject.toml uv.lock* ./
 
-# uv sync로 pyproject.toml의 기본 의존성을 가상환경에 설치.
-#   --no-dev            : pytest, ruff 등 개발 도구 제외 (프로덕션 이미지 경량화)
-#   --no-install-project: 소스 코드(패키지 본체)는 아직 없으므로 의존성만 설치.
-#                         소스 복사 후 .venv에 있는 Python으로 바로 실행 가능.
-# uv.lock이 있으면 정확한 버전으로 고정 → 재현 가능 빌드 보장.
-RUN uv sync --no-dev --no-install-project
+# uv sync로 pyproject.toml의 전체 의존성(dev 포함) 설치.
+# CI/CD 및 테스트 일관성을 위해 개발 도구도 이미지에 포함.
+# --no-install-project: 소스 없이 의존성만 먼저 설치해 레이어 캐시 활용.
+RUN uv sync --no-install-project
 
 # ── 2단계: 소스 코드 복사 ──────────────────────────────────────────────────
 # 소스 변경 시 이 레이어부터 재빌드됨 (의존성 레이어는 캐시 유지).
