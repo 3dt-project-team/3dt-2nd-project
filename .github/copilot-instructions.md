@@ -1,7 +1,9 @@
 # Project Guidelines
 
 ## Source Of Truth
-- Use [guide01.md](guide01.md) as the primary project policy document.
+- 아키텍처 및 서비스 구조: [docs/architecture.md](docs/architecture.md)
+- uv 통합 가이드: [docs/uv_integration_guide.md](docs/uv_integration_guide.md)
+- 프로젝트 구성 및 실행: [README.md](README.md)
 - Keep this file minimal; do not duplicate long process docs.
 
 ## Repository Workflow
@@ -19,11 +21,12 @@
   - Related issue (if any)
 
 ## Project Structure
-- Follow monorepo structure defined in [guide01.md](guide01.md):
+- Monorepo structure:
   - adf for ADF pipeline JSON
   - src/utils and src/models for shared Python modules
   - notebooks for EDA and experiments
   - docs for architecture, schema, and meeting notes
+  - See [docs/architecture.md](docs/architecture.md) for full data flow.
 
 ## Data And Security Rules
 - Do not commit data files such as csv/parquet to Git.
@@ -34,7 +37,7 @@
 - Azure Data Factory:
   - Switch to your feature branch before editing.
   - Coordinate in chat before touching the same pipeline to avoid JSON merge conflicts.
-  - After merge to main, publish from ADF main branch.
+  - After merge to dev, publish from ADF dev branch.
 - Databricks Repos:
   - Work on feature branches and sync frequently with Pull.
 - ML Studio:
