@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 환경 설정
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+ENV/
+
+# ============================================================
+# 데이터 파일 — 절대 Git에 커밋하지 말 것
+# 모든 데이터는 ADLS Gen2(Azure Data Lake)에 보관하세요.
+# ============================================================
+*.csv
+*.parquet
+*.xlsx
+*.json.gz
+*.feather
+*.pkl
+data/
+raw/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# MLflow
+mlruns/
+mlartifacts/
