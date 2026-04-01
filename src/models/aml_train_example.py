@@ -3,9 +3,12 @@
 로컬 또는 Compute Instance 터미널에서 실행합니다.
 
 사전 요구 사항:
-  pip install uv
-  uv sync --extra ml        # azure-ai-ml, mlflow 설치
-  az login                  # 로컬 개발 시 인증
+  # uv 설치 (최초 1회)
+  curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS/Linux
+  # irm https://astral.sh/uv/install.ps1 | iex      # Windows PowerShell
+
+  uv sync --extra ml   # azure-ai-ml, mlflow 설치
+  az login             # 로컬 개발 시 인증
 """
 
 from azure.ai.ml import MLClient, command

@@ -2,44 +2,57 @@
 name = "3dt-2nd-project"
 version = "0.1.0"
 description = "Azure 데이터 플랫폼 팀 프로젝트 2차 — ADF, Databricks, ML Studio 통합"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
+
+# ── 기본 의존성 ────────────────────────────────────────────────────────────────
+# 모든 환경(ADF, Databricks, ML Studio)에서 공통으로 필요한 패키지.
+# 설치: uv sync
 dependencies = [
-    "azure-identity>=1.19.0",
-    "azure-keyvault-secrets>=4.9.0",
-    "azure-storage-file-datalake>=12.19.0",
-    "python-dotenv>=1.0.0",
-    "pyodbc>=5.2.0",
-    "sqlalchemy>=2.0.0",
+    "azure-identity>=1.19.0",                # Managed Identity / az login 인증
+    "azure-keyvault-secrets>=4.9.0",         # Key Vault 시크릿 조회
+    "azure-storage-file-datalake>=12.19.0",  # ADLS Gen2 파일 접근
+    "python-dotenv>=1.0.0",                  # 로컬 .env 파일 로드
+    "pyodbc>=5.2.0",                         # Azure SQL ODBC 드라이버 연결
+    "sqlalchemy>=2.0.0",                     # Azure SQL ORM / pandas read_sql 지원
 ]
 
+# ── 선택 의존성 (extras) ────────────────────────────────────────────────────────
+# 필요한 역할에 따라 선택 설치. 기본 uv sync에는 포함되지 않음.
+#   ML 엔지니어  : uv sync --extra ml
+#   데이터 엔지니어: uv sync --extra databricks
 [project.optional-dependencies]
-# uv sync --extra ml
 ml = [
-    "azure-ai-ml>=1.24.0",
-    "mlflow>=2.20.0",
+    "azure-ai-ml>=1.24.0",  # ML Studio v2 SDK (잡 제출·환경 관리)
+    "mlflow>=2.20.0",       # 실험 트래킹 (Git commit hash 태깅)
 ]
-# uv sync --extra databricks
 databricks = [
-    "databricks-sdk>=0.44.0",
+    "databricks-sdk>=0.44.0",  # Repos·클러스터·DBFS API 접근
 ]
 
+# ── 개발 전용 도구 ──────────────────────────────────────────────────────────────
+# 로컬 개발 시 자동 포함 (uv sync). Docker 빌드 시 --no-dev 플래그로 제외.
 [dependency-groups]
 dev = [
-    "pytest>=8.0.0",
-    "ruff>=0.9.0",
-    "black>=25.0.0",
+    "pytest>=8.0.0",  # 테스트 러너
+    "ruff>=0.9.0",    # 린터 + import 정렬 (E, F, I 규칙)
+    "black>=25.0.0",  # 코드 포매터
 ]
 
+# ── ruff 린터 설정 ──────────────────────────────────────────────────────────────
+# E: PEP8 스타일, F: Pyflakes(미사용 변수 등), I: isort(import 정렬)
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 
 [tool.ruff]
 line-length = 100
 
+# ── black 포매터 설정 ───────────────────────────────────────────────────────────
 [tool.black]
 line-length = 100
-target-version = ["py310"]
+target-version = ["py311"]
 
+# ── 빌드 백엔드 ────────────────────────────────────────────────────────────────
+# uv build / pip install -e . 사용 시 필요. 순수 스크립트만 있다면 제거 가능.
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

@@ -6,8 +6,10 @@ uv는 Rust로 작성된 Python 패키지 관리자로, pip 대비 10–100배 �
 ## 로컬 개발 — 기본 워크플로
 
 ```bash
-# uv 설치 (최초 1회)
-pip install uv
+# uv 설치 (최초 1회) — 공식 설치 스크립트 사용 권장
+curl -LsSf https://astral.sh/uv/install.sh | sh  # macOS/Linux
+# Windows PowerShell:
+# irm https://astral.sh/uv/install.ps1 | iex
 
 # 의존성 설치 (pyproject.toml 기준)
 uv sync                    # 기본 의존성
@@ -32,12 +34,29 @@ ADF가 호출하는 **Custom Activity 컨테이너** 안에서 uv를 사용합�
 **핵심 파일:** [`adf/custom_activity/Dockerfile`](../adf/custom_activity/Dockerfile)
 
 ```dockerfile
-# uv 바이너리를 ghcr.io 공식 이미지에서 복사 (별도 설치 없음)
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+FROM python:3.11-slim
 
-# --system: 컨테이너 시스템 Python에 직접 설치 (가상 환경 불필요)
-RUN uv pip install --system -r requirements.txt
+# ghcr.io 공식 이미지에서 uv/uvx 바이너리 복사
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# pyproject.toml을 먼저 복사해 Docker 레이어 캐시 활용
+COPY pyproject.toml uv.lock* ./
+
+# pyproject.toml 기본 의존성 설치
+# --no-dev: 개발 도구 제외  --no-install-project: 소스 없이 의존성만 설치
+RUN uv sync --no-dev --no-install-project
+
+COPY src/ ./src/
+CMD [".venv/bin/python", "main.py"]
 ```
+
+**핵심 옵션 설명:**
+
+| 옵션 | 설명 |
+|---|---|
+| `--no-dev` | `[dependency-groups.dev]`(pytest, ruff 등) 제외 |
+| `--no-install-project` | 소스를 복사하기 전에 의존성만 먼저 설치해 레이어 캐시 활용 |
+| `uv.lock*` COPY | lockfile이 있으면 정확한 버전 고정, 없으면 최신 해상도로 설치 |
 
 **설정 흐름:**
 1. 이 저장소를 Azure Container Registry(ACR)에 빌드·푸시
