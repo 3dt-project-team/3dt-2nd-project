@@ -113,7 +113,7 @@ job = command(
     command=(
         "uv pip install --system "
         "azure-identity azure-keyvault-secrets azure-storage-file-datalake "
-        "python-dotenv sqlalchemy && "
+        "python-dotenv psycopg sqlalchemy && "
         "python models/train.py"
     ),
     environment_variables={
@@ -139,7 +139,7 @@ uv로 패키지가 미리 설치된 이미지를 ACR에 빌드·등록하면, �
 "azure-keyvault-secrets>=4.9.0",
 "azure-storage-file-datalake>=12.19.0",
 "python-dotenv>=1.0.0",
-"pyodbc>=5.2.0",
+"psycopg[binary]>=3.2.0",
 "sqlalchemy>=2.0.0",
 ```
 
@@ -158,11 +158,11 @@ uv로 패키지가 미리 설치된 이미지를 ACR에 빌드·등록하면, �
 | `adls-client-id` | Service Principal 클라이언트 ID | Databricks |
 | `adls-client-secret` | Service Principal 클라이언트 시크릿 | Databricks |
 | `adls-tenant-id` | Azure AD 테넌트 ID | Databricks |
-| `sql-connection-string` | Azure SQL ODBC 연결 문자열 | Azure SQL 사용 시 |
+| `pg-connection-string` | PostgreSQL 연결 문자열 | PostgreSQL 사용 시 |
 
-**`sql-connection-string` 예시 (Managed Identity, 비밀번호 없음):**
+**`pg-connection-string` 예시:**
 ```
-Driver={ODBC Driver 18 for SQL Server};Server=tcp:{server}.database.windows.net,1433;Database={db};Authentication=ActiveDirectoryMsi;
+host={server}.postgres.database.azure.com dbname={db} user={user} password={pass} sslmode=require
 ```
 
 ---

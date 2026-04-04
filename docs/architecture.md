@@ -25,7 +25,7 @@ Azure ML Studio
  ├─ MLflow 실험 트래킹 (Git commit hash 태깅)
  └─ 결과 저장 → Azure SQL Database
 
-Azure SQL Database
+Azure Database for PostgreSQL
  └─ 최종 예측·분석 결과 서빙
 ```
 
@@ -37,7 +37,7 @@ Azure SQL Database
 | ADLS Gen2 | 데이터 레이크 (raw·curated·feature) | _데이터는 Git에 없음_ |
 | Databricks | 대용량 전처리·피처 엔지니어링 | `src/`, `notebooks/` |
 | ML Studio | 모델 학습·실험 관리 | `src/models/` |
-| Azure SQL Database | 결과 데이터 저장·서빙 | _인프라, Git 외부_ |
+| Azure Database for PostgreSQL | 결과 데이터 저장·서빙 | _인프라, Git 외부_ |
 | Azure Key Vault | 모든 자격 증명 중앙 관리 | `src/utils/vault_manager.py` |
 
 ## 인증 구조
@@ -54,20 +54,20 @@ DefaultAzureCredential
         Azure Key Vault
          ├─ adls-account-name
          ├─ adls-client-id / adls-client-secret / adls-tenant-id  (Databricks Spark용)
-         └─ sql-connection-string
+         └─ pg-connection-string
 ```
 
 `src/utils/vault_manager.py` 가 이 인증 흐름을 추상화합니다.
 - `vault.get_storage_client()` → ADLS Gen2 DataLakeServiceClient (또는 Databricks Spark conf 설정)
-- `vault.get_sql_connection()` → pyodbc.Connection 또는 SQLAlchemy Engine
+- `vault.get_pg_connection()` → psycopg.Connection 또는 SQLAlchemy Engine
 
 ## 서비스별 연동 방식 요약
 
-| 서비스 | ADLS Gen2 | Azure SQL | Key Vault |
+| 서비스 | ADLS Gen2 | PostgreSQL | Key Vault |
 |---|---|---|---|
-| Databricks | Spark conf OAuth (Service Principal) | JDBC Spark Connector | vault_manager 또는 dbutils.secrets |
+| Databricks | Spark conf OAuth (Service Principal) | psycopg / JDBC | vault_manager 또는 dbutils.secrets |
 | Data Factory | Linked Service (Managed Identity) | Linked Service (KV 비밀 참조) | UI에서 Key Vault 직접 연결 |
-| ML Studio | vault_manager + DataLakeServiceClient | vault_manager + pyodbc/SQLAlchemy | DefaultAzureCredential (Managed Identity) |
+| ML Studio | vault_manager + DataLakeServiceClient | vault_manager + psycopg/SQLAlchemy | DefaultAzureCredential (Managed Identity) |
 
 ## 로컬 개발 환경 설정
 
