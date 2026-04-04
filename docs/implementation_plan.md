@@ -24,7 +24,7 @@ Azure Data Factory, Databricks, ML Studio를 활용한 데이터 파이프라인
 | Issue 템플릿 (Feature/Bug) | ✅ PR #3 pending merge | M0-E — set/github-templates |
 | PR 템플릿 | ✅ PR #3 pending merge | M0-E — set/github-templates |
 | CODEOWNERS | ✅ PR #3 pending merge | M0-E — set/github-templates |
-| main branch protection | ⬜ main 브랜치 없음 | M0-D — 생성 후 적용 필요 |
+| main branch protection | N/A | dev가 메인 브랜치 — M0-D 불필요 |
 
 ### M0-A: 레이블 추가/수정
 
@@ -71,19 +71,9 @@ gh api repos/3dt-project-team/3dt-2nd-project/branches/dev/protection \
   --field required_conversation_resolution=true
 ```
 
-### M0-D: main Branch Protection 생성
+### M0-D: main Branch Protection — N/A
 
-```bash
-# main: 더 엄격한 보호 (2명 Approve + CI 필수)
-gh api repos/3dt-project-team/3dt-2nd-project/branches/main/protection \
-  --method PUT \
-  --field required_status_checks=null \
-  --field enforce_admins=false \
-  --field required_pull_request_reviews='{"required_approving_review_count":2,"require_code_owner_reviews":true,"dismiss_stale_reviews":true}' \
-  --field restrictions=null \
-  --field allow_force_pushes=false \
-  --field allow_deletions=false
-```
+> `dev`가 기본(메인) 브랜치이므로 별도 `main` 브랜치 보호 설정 불필요.
 
 ### M0-E: Issue 템플릿 + PR 템플릿 + CODEOWNERS 파일 생성
 
@@ -98,7 +88,7 @@ gh api repos/3dt-project-team/3dt-2nd-project/branches/main/protection \
 └── CODEOWNERS
 ```
 
-> **다음 구현 단계**: PR #3 merge → main 브랜치 생성 후 M0-D 적용
+> **다음 구현 단계**: PR #3 merge → M0 완료
 
 ---
 
