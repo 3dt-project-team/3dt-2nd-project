@@ -30,6 +30,9 @@ uv sync
 
 cp .env.example .env   # KEY_VAULT_URL 입력 후 az login 실행
 python src/utils/vault_manager.py
+
+# pre-commit hook 등록 (최초 1회)
+uv run pre-commit install
 ```
 
 ## 핵심 문서

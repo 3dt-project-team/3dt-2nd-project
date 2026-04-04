@@ -313,3 +313,40 @@ Tasks 설정 예시 (`.vscode/tasks.json` 직접 추가):
 ```
 
 > ty 공식 확장 출시 후 `.vscode/settings.json`의 `python.analysis.typeCheckingMode` 주석 처리된 부분을 활성화하고 이 섹션을 업데이트하세요.
+
+---
+
+## pre-commit — Git Hook 자동화
+
+[`.pre-commit-config.yaml`](../.pre-commit-config.yaml) 파일이 프로젝트 루트에 구성되어 있습니다.
+`git commit` 실행 시 아래 검사가 자동으로 수행됩니다.
+
+| Hook | 역할 |
+|---|---|
+| `ruff` | 린트 검사 + 자동 수정 (`--fix`) |
+| `ruff-format` | 코드 포맷 (black 호환) |
+| `detect-secrets` | 시크릿 유출 방지 |
+
+### 설치 및 활성화
+
+```bash
+# dev 의존성에 포함되어 있으므로 uv sync만으로 설치됨
+uv sync
+
+# Git hook 등록 (최초 1회)
+uv run pre-commit install
+
+# 전체 파일 대상 수동 실행 (CI 테스트용)
+uv run pre-commit run --all-files
+```
+
+### secrets baseline 생성
+
+detect-secrets hook은 `.secrets.baseline` 파일을 참조합니다.
+최초 실행 전에 baseline을 생성해야 합니다.
+
+```bash
+uv run detect-secrets scan > .secrets.baseline
+```
+
+> **상세 설정:** [docs/git_guide/git_guide_workflow/05_precommit_setup.md](git_guide/git_guide_workflow/05_precommit_setup.md)
