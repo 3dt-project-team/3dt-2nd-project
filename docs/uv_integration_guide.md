@@ -6,15 +6,26 @@ uv는 Rust로 작성된 Python 패키지 관리자로, pip 대비 10–100배 �
 ## 로컬 개발 — 기본 워크플로
 
 ```bash
-# uv 설치 (최초 1회) — 공식 설치 스크립트 사용 권장
-curl -LsSf https://astral.sh/uv/install.sh | sh  # macOS/Linux
-# Windows PowerShell:
-# irm https://astral.sh/uv/install.ps1 | iex
+# uv 설치 (최초 1회)
+# Windows PowerShell (권장):
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+# macOS/Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # 의존성 설치 (pyproject.toml 기준)
+# .python-version 파일 덕분에 항상 Python 3.11 가상환경이 생성됨
 uv sync                    # 기본 의존성
 uv sync --extra ml         # ML 관련 (azure-ai-ml, mlflow)
 uv sync --extra databricks # Databricks SDK
+
+# Python 스크립트 실행 — uv run 사용 (venv 자동 적용)
+# 'python src/...' 대신 반드시 'uv run python src/...' 를 사용할 것
+# 이유: uv는 .venv를 만들지만 자동 활성화하지 않으므로 bare 'python'은 시스템 Python을 가리킴
+uv run python src/utils/vault_manager.py
+
+# 또는 venv를 직접 활성화 후 실행
+# Windows: .\.venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
 
 # 패키지 추가
 uv add requests            # pyproject.toml에 자동 반영
@@ -113,7 +124,7 @@ job = command(
     command=(
         "uv pip install --system "
         "azure-identity azure-keyvault-secrets azure-storage-file-datalake "
-        "python-dotenv sqlalchemy && "
+        "python-dotenv psycopg sqlalchemy && "
         "python models/train.py"
     ),
     environment_variables={
@@ -139,7 +150,7 @@ uv로 패키지가 미리 설치된 이미지를 ACR에 빌드·등록하면, �
 "azure-keyvault-secrets>=4.9.0",
 "azure-storage-file-datalake>=12.19.0",
 "python-dotenv>=1.0.0",
-"pyodbc>=5.2.0",
+"psycopg[binary]>=3.2.0",
 "sqlalchemy>=2.0.0",
 ```
 
@@ -158,11 +169,11 @@ uv로 패키지가 미리 설치된 이미지를 ACR에 빌드·등록하면, �
 | `adls-client-id` | Service Principal 클라이언트 ID | Databricks |
 | `adls-client-secret` | Service Principal 클라이언트 시크릿 | Databricks |
 | `adls-tenant-id` | Azure AD 테넌트 ID | Databricks |
-| `sql-connection-string` | Azure SQL ODBC 연결 문자열 | Azure SQL 사용 시 |
+| `pg-connection-string` | PostgreSQL 연결 문자열 | PostgreSQL 사용 시 |
 
-**`sql-connection-string` 예시 (Managed Identity, 비밀번호 없음):**
+**`pg-connection-string` 예시:**
 ```
-Driver={ODBC Driver 18 for SQL Server};Server=tcp:{server}.database.windows.net,1433;Database={db};Authentication=ActiveDirectoryMsi;
+host={server}.postgres.database.azure.com dbname={db} user={user} password={pass} sslmode=require
 ```
 
 ---
@@ -313,3 +324,40 @@ Tasks 설정 예시 (`.vscode/tasks.json` 직접 추가):
 ```
 
 > ty 공식 확장 출시 후 `.vscode/settings.json`의 `python.analysis.typeCheckingMode` 주석 처리된 부분을 활성화하고 이 섹션을 업데이트하세요.
+
+---
+
+## pre-commit — Git Hook 자동화
+
+[`.pre-commit-config.yaml`](../.pre-commit-config.yaml) 파일이 프로젝트 루트에 구성되어 있습니다.
+`git commit` 실행 시 아래 검사가 자동으로 수행됩니다.
+
+| Hook | 역할 |
+|---|---|
+| `ruff` | 린트 검사 + 자동 수정 (`--fix`) |
+| `ruff-format` | 코드 포맷 (black 호환) |
+| `detect-secrets` | 시크릿 유출 방지 |
+
+### 설치 및 활성화
+
+```bash
+# dev 의존성에 포함되어 있으므로 uv sync만으로 설치됨
+uv sync
+
+# Git hook 등록 (최초 1회)
+uv run pre-commit install
+
+# 전체 파일 대상 수동 실행 (CI 테스트용)
+uv run pre-commit run --all-files
+```
+
+### secrets baseline 생성
+
+detect-secrets hook은 `.secrets.baseline` 파일을 참조합니다.
+최초 실행 전에 baseline을 생성해야 합니다.
+
+```bash
+uv run detect-secrets scan > .secrets.baseline
+```
+
+> **상세 설정:** [docs/git_guide/git_guide_workflow/05_precommit_setup.md](git_guide/git_guide_workflow/05_precommit_setup.md)

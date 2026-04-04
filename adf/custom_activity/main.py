@@ -30,11 +30,11 @@ def run():
     # paths = list(file_system.get_paths("/input"))
     # print(f"[OK] 파일 수: {len(paths)}")
 
-    # ── Azure SQL 연결 ─────────────────────────────────────────────────────
-    # Key Vault 시크릿 'sql-connection-string' 을 읽어 pyodbc.Connection 반환
-    # with vault.get_sql_connection() as conn:
+    # ── PostgreSQL 연결 ───────────────────────────────────────────────────
+    # Key Vault 시크릿 'pg-connection-string' 을 읽어 psycopg.Connection 반환
+    # with vault.get_pg_connection() as conn:
     #     cursor = conn.cursor()
-    #     cursor.execute("SELECT TOP 5 * FROM dbo.your_table")
+    #     cursor.execute("SELECT * FROM results LIMIT 5")
     #     for row in cursor.fetchall():
     #         print(row)
 

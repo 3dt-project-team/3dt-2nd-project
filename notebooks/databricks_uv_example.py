@@ -44,12 +44,12 @@ vault.get_storage_client()  # Spark conf 설정 완료 → None 반환 (정상)
 # display(df)
 
 # ==============================================================================
-# [셀 4] Azure SQL 연결 (pandas로 결과 조회 예시)
+# [셀 4] PostgreSQL 연결 (pandas로 결과 조회 예시)
 # ==============================================================================
 
 # import pandas as pd
-# engine = vault.get_sql_connection(engine="sqlalchemy")
-# df_result = pd.read_sql("SELECT TOP 100 * FROM dbo.your_table", engine)
+# conn = vault.get_pg_connection(engine="sqlalchemy")
+# df_result = pd.read_sql("SELECT * FROM results LIMIT 100", conn)
 # display(df_result)
 
 # ==============================================================================
@@ -57,7 +57,8 @@ vault.get_storage_client()  # Spark conf 설정 완료 → None 반환 (정상)
 # Key Vault 연동 Secret Scope 등록 방법:
 #   databricks secrets create-scope --scope kv-scope \
 #     --scope-backend-type AZURE_KEYVAULT \
-#     --resource-id /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.KeyVault/vaults/{kv}
+#     --resource-id /subscriptions/{sub}/resourceGroups/{rg}/providers/ \
+#       Microsoft.KeyVault/vaults/{kv}
 # ==============================================================================
 
 # KEY_VAULT_URL = dbutils.secrets.get(scope="kv-scope", key="KEY-VAULT-URL")

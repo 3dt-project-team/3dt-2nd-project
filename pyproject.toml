@@ -2,7 +2,7 @@
 name = "3dt-2nd-project"
 version = "0.1.0"
 description = "Azure 데이터 플랫폼 팀 프로젝트 2차 — ADF, Databricks, ML Studio 통합"
-requires-python = ">=3.11"
+requires-python = "==3.11.*"
 
 # ── 기본 의존성 ────────────────────────────────────────────────────────────────
 # 모든 환경(ADF, Databricks, ML Studio)에서 공통으로 필요한 패키지.
@@ -12,8 +12,8 @@ dependencies = [
     "azure-keyvault-secrets>=4.9.0",         # Key Vault 시크릿 조회
     "azure-storage-file-datalake>=12.19.0",  # ADLS Gen2 파일 접근
     "python-dotenv>=1.0.0",                  # 로컬 .env 파일 로드
-    "pyodbc>=5.2.0",                         # Azure SQL ODBC 드라이버 연결
-    "sqlalchemy>=2.0.0",                     # Azure SQL ORM / pandas read_sql 지원
+    "psycopg[binary]>=3.2.0",               # PostgreSQL 네이티브 드라이버
+    "sqlalchemy>=2.0.0",                     # PostgreSQL ORM / pandas read_sql 지원
 ]
 
 # ── 선택 의존성 (extras) ────────────────────────────────────────────────────────
@@ -38,6 +38,7 @@ dev = [
     "ruff>=0.9.0",     # 린터 + import 정렬 (E, F, I 규칙)
     "black>=25.0.0",   # 코드 포매터
     "ty>=0.0.1a6",     # Astral 타입 체커 (Rust 기반 신표준, mypy 대체 방향)
+    "pre-commit>=4.0.0",  # Git hook 관리 (린트·포맷·시크릿 감지 자동화)
 ]
 
 # ── ruff 린터 설정 ──────────────────────────────────────────────────────────────
@@ -60,6 +61,13 @@ target-version = ["py311"]
 [tool.ty]
 src = ["src"]
 python-version = "3.11"
+
+# ── hatchling 빌드 패키지 범위 ──────────────────────────────────────────────────
+# 프로젝트 이름(3dt-2nd-project)과 src/ 디렉터리 이름이 달라 hatchling이
+# 패키지를 자동 탐색하지 못하므로 명시적으로 지정해야 함.
+# 지정하지 않으면 pre-commit / uv pip install -e . 실행 시 build_editable 오류 발생.
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 # ── 빌드 백엔드 ────────────────────────────────────────────────────────────────
 # uv build / pip install -e . 사용 시 필요. 순수 스크립트만 있다면 제거 가능.

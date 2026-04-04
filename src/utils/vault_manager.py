@@ -1,8 +1,9 @@
 import os
-from dotenv import load_dotenv
+
+from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
-from azure.core.exceptions import ResourceNotFoundError, HttpResponseError
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -104,7 +105,9 @@ class KeyVaultManager:
           adls-client-secret : (Databricks 전용) Service Principal 클라이언트 시크릿
           adls-tenant-id     : (Databricks 전용) Azure AD 테넌트 ID
         """
-        acct = account_name or self.get_secret("adls-account-name") or os.getenv("ADLS_ACCOUNT_NAME")
+        acct = (
+            account_name or self.get_secret("adls-account-name") or os.getenv("ADLS_ACCOUNT_NAME")
+        )
         if not acct:
             raise ValueError(
                 "ADLS 계정 이름을 확인할 수 없습니다. "
@@ -128,6 +131,7 @@ class KeyVaultManager:
         """Databricks 환경에서 활성 SparkSession에 Service Principal OAuth 설정을 적용합니다."""
         try:
             from pyspark.sql import SparkSession
+
             spark = SparkSession.getActiveSession()
             if spark is None:
                 raise RuntimeError("활성화된 Spark 세션이 없습니다.")
@@ -164,45 +168,41 @@ class KeyVaultManager:
         print(f"[OK] Spark conf ADLS Gen2 OAuth 설정 완료: {account_name}")
         return None
 
-    def get_sql_connection(self, engine: str = "pyodbc"):
-        """Azure SQL Database 연결 객체를 반환합니다.
+    def get_pg_connection(self, engine: str = "psycopg"):
+        """Azure Database for PostgreSQL 연결 객체를 반환합니다.
 
-        Key Vault 시크릿 'sql-connection-string' 에서 연결 문자열을 읽어 인증합니다.
-        Managed Identity 사용 시 연결 문자열에 비밀번호가 필요 없습니다.
+        Key Vault 시크릿 'pg-connection-string' 에서 연결 문자열을 읽어 인증합니다.
 
         Args:
-            engine: "pyodbc" (기본값) | "sqlalchemy"
-              - "pyodbc"    → pyodbc.Connection. 컨텍스트 매니저(with 구문)로 사용하세요.
+            engine: "psycopg" (기본값) | "sqlalchemy"
+              - "psycopg"   → psycopg.Connection. 컨텍스트 매니저(with 구문)로 사용하세요.
               - "sqlalchemy" → sqlalchemy.Engine. pd.read_sql / Session과 함께 사용하세요.
 
         Key Vault 시크릿:
-          sql-connection-string : ODBC 드라이버 형식 연결 문자열
+          pg-connection-string : PostgreSQL 연결 문자열 (libpq 형식)
 
-        연결 문자열 예시 (Managed Identity, 비밀번호 없음):
-          "Driver={ODBC Driver 18 for SQL Server};
-           Server=tcp:{server}.database.windows.net,1433;
-           Database={db};Authentication=ActiveDirectoryMsi;"
+        연결 문자열 예시:
+          "host={server}.postgres.database.azure.com dbname={db}
+           user={user} password={pass} sslmode=require"
         """
-        connection_string = self.get_secret("sql-connection-string")
+        connection_string = self.get_secret("pg-connection-string")
         if not connection_string:
             raise ValueError(
-                "Azure SQL 연결 문자열을 찾을 수 없습니다. "
-                "KV 시크릿 'sql-connection-string' 또는 환경 변수 SQL_CONNECTION_STRING을 설정하세요."
+                "PostgreSQL 연결 문자열을 찾을 수 없습니다. "
+                "KV 시크릿 'pg-connection-string' 또는 환경 변수 PG_CONNECTION_STRING을 설정하세요."
             )
 
         if engine == "sqlalchemy":
-            import urllib.parse
             from sqlalchemy import create_engine
 
-            params = urllib.parse.quote_plus(connection_string)
             return create_engine(
-                f"mssql+pyodbc:///?odbc_connect={params}",
+                f"postgresql+psycopg:///?{connection_string}",
                 pool_pre_ping=True,
             )
 
-        import pyodbc
+        import psycopg
 
-        return pyodbc.connect(connection_string)
+        return psycopg.connect(connection_string)
 
 
 # 모듈 레벨 싱글톤 — 다른 모듈에서 바로 import해서 사용

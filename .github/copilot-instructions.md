@@ -3,6 +3,8 @@
 ## Source Of Truth
 - 아키텍처 및 서비스 구조: [docs/architecture.md](docs/architecture.md)
 - uv 통합 가이드: [docs/uv_integration_guide.md](docs/uv_integration_guide.md)
+- Git 가이드 (범용): [docs/git_guide/git_guide_general/](docs/git_guide/git_guide_general/)
+- Git 가이드 (프로젝트 워크플로우): [docs/git_guide/git_guide_workflow/](docs/git_guide/git_guide_workflow/)
 - 프로젝트 구성 및 실행: [README.md](README.md)
 - Keep this file minimal; do not duplicate long process docs.
 
@@ -32,6 +34,8 @@
 - Do not commit data files such as csv/parquet to Git.
 - Do not commit secrets or env files.
 - Ensure gitignore blocks local data and secret files.
+- Database: Azure Database for PostgreSQL (psycopg + SQLAlchemy).
+- pre-commit hooks must pass before commit (ruff, detect-secrets). See [docs/git_guide/git_guide_workflow/05_precommit_setup.md](docs/git_guide/git_guide_workflow/05_precommit_setup.md).
 
 ## Tool-Specific Collaboration Notes
 - Azure Data Factory:

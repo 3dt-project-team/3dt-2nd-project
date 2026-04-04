@@ -15,10 +15,10 @@ from azure.ai.ml import MLClient, command
 from azure.identity import DefaultAzureCredential
 
 # ── 접속 정보 (환경 변수나 Key Vault에서 읽도록 수정 권장) ──────────────────
-SUBSCRIPTION_ID = ""   # Azure 구독 ID
-RESOURCE_GROUP  = ""   # 리소스 그룹 이름
-WORKSPACE_NAME  = ""   # ML Studio 워크스페이스 이름
-COMPUTE_NAME    = "cpu-cluster"  # 사전 생성된 컴퓨팅 클러스터 이름
+SUBSCRIPTION_ID = ""  # Azure 구독 ID
+RESOURCE_GROUP = ""  # 리소스 그룹 이름
+WORKSPACE_NAME = ""  # ML Studio 워크스페이스 이름
+COMPUTE_NAME = "cpu-cluster"  # 사전 생성된 컴퓨팅 클러스터 이름
 
 ml_client = MLClient(
     credential=DefaultAzureCredential(),
