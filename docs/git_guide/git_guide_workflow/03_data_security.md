@@ -61,7 +61,7 @@ DefaultAzureCredential
        └─ 클라우드 : Managed Identity
               │
               ▼
-        Azure Key Vault (kv-3dt-team1)
+        Azure Key Vault ({your-kv-name})
          ├─ adls-account-name
          ├─ adls-client-id / adls-client-secret / adls-tenant-id
          └─ pg-connection-string
@@ -106,8 +106,8 @@ PG_CONNECT_TIMEOUT_SECONDS=5
 
 ```bash
 # .env — .gitignore에 의해 제외됩니다
-KEY_VAULT_URL=https://kv-3dt-team1.vault.azure.net/
-ADLS_ACCOUNT_NAME=3dtadlsaccount
+KEY_VAULT_URL=https://{your-kv-name}.vault.azure.net/
+ADLS_ACCOUNT_NAME={your-adls-account-name}
 PG_CONNECT_TIMEOUT_SECONDS=5
 ```
 
@@ -117,7 +117,7 @@ PG_CONNECT_TIMEOUT_SECONDS=5
 cp .env.example .env
 # .env 파일에 실제 Key Vault URL 입력
 az login
-python src/utils/vault_manager.py  # 연결 테스트
+uv run python src/utils/vault_manager.py  # 연결 테스트
 ```
 
 ---

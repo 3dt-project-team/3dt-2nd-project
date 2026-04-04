@@ -76,7 +76,9 @@ git clone https://github.com/3dt-project-team/3dt-2nd-project.git
 cd 3dt-2nd-project
 git checkout dev
 
-pip install uv
+# uv 설치 (최초 1회, Windows PowerShell)
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
 uv sync              # 기본 의존성
 uv sync --extra ml   # ML 관련 추가 의존성
 
@@ -84,5 +86,5 @@ cp .env.example .env
 # .env 에 KEY_VAULT_URL 입력 후:
 az login
 
-python src/utils/vault_manager.py   # 연결 테스트
+uv run python src/utils/vault_manager.py   # 연결 테스트
 ```
