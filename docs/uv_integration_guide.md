@@ -6,15 +6,26 @@ uv는 Rust로 작성된 Python 패키지 관리자로, pip 대비 10–100배 �
 ## 로컬 개발 — 기본 워크플로
 
 ```bash
-# uv 설치 (최초 1회) — 공식 설치 스크립트 사용 권장
-curl -LsSf https://astral.sh/uv/install.sh | sh  # macOS/Linux
-# Windows PowerShell:
-# irm https://astral.sh/uv/install.ps1 | iex
+# uv 설치 (최초 1회)
+# Windows PowerShell (권장):
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+# macOS/Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # 의존성 설치 (pyproject.toml 기준)
+# .python-version 파일 덕분에 항상 Python 3.11 가상환경이 생성됨
 uv sync                    # 기본 의존성
 uv sync --extra ml         # ML 관련 (azure-ai-ml, mlflow)
 uv sync --extra databricks # Databricks SDK
+
+# Python 스크립트 실행 — uv run 사용 (venv 자동 적용)
+# 'python src/...' 대신 반드시 'uv run python src/...' 를 사용할 것
+# 이유: uv는 .venv를 만들지만 자동 활성화하지 않으므로 bare 'python'은 시스템 Python을 가리킴
+uv run python src/utils/vault_manager.py
+
+# 또는 venv를 직접 활성화 후 실행
+# Windows: .\.venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
 
 # 패키지 추가
 uv add requests            # pyproject.toml에 자동 반영

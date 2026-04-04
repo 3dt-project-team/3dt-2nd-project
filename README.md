@@ -25,11 +25,13 @@ git clone https://github.com/3dt-project-team/3dt-2nd-project.git
 cd 3dt-2nd-project
 git checkout dev
 
-pip install uv
+# uv 설치 (최초 1회, PowerShell)
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
 uv sync
 
 cp .env.example .env   # KEY_VAULT_URL 입력 후 az login 실행
-python src/utils/vault_manager.py
+uv run python src/utils/vault_manager.py
 
 # pre-commit hook 등록 (최초 1회)
 uv run pre-commit install

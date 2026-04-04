@@ -1,8 +1,9 @@
 import os
-from dotenv import load_dotenv
+
+from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
-from azure.core.exceptions import ResourceNotFoundError, HttpResponseError
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -104,7 +105,9 @@ class KeyVaultManager:
           adls-client-secret : (Databricks 전용) Service Principal 클라이언트 시크릿
           adls-tenant-id     : (Databricks 전용) Azure AD 테넌트 ID
         """
-        acct = account_name or self.get_secret("adls-account-name") or os.getenv("ADLS_ACCOUNT_NAME")
+        acct = (
+            account_name or self.get_secret("adls-account-name") or os.getenv("ADLS_ACCOUNT_NAME")
+        )
         if not acct:
             raise ValueError(
                 "ADLS 계정 이름을 확인할 수 없습니다. "
@@ -128,6 +131,7 @@ class KeyVaultManager:
         """Databricks 환경에서 활성 SparkSession에 Service Principal OAuth 설정을 적용합니다."""
         try:
             from pyspark.sql import SparkSession
+
             spark = SparkSession.getActiveSession()
             if spark is None:
                 raise RuntimeError("활성화된 Spark 세션이 없습니다.")
