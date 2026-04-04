@@ -10,20 +10,21 @@ Azure Data Factory, Databricks, ML Studio를 활용한 데이터 파이프라인
 
 > `gh` CLI로 자동화 가능한 항목들. 아래 순서대로 실행하면 됨.
 
-### 현재 상태 (2026-04-05 기준)
+### 현재 상태 (업데이트됨)
 
 | 항목 | 상태 | 비고 |
 |---|---|---|
 | 기본 브랜치 | ✅ `dev` | 완료 |
-| dev branch protection | ✅ PR 필수, 1명 Approve | 완료 |
-| force push 금지 | ❌ 허용 상태 | 수정 필요 |
-| Squash merge만 허용 | ❌ 3가지 모두 허용 | 수정 필요 |
-| merge 후 브랜치 자동 삭제 | ❌ 꺼져 있음 | 수정 필요 |
-| `feature` 레이블 | ❌ 없음 (enhancement만 있음) | 추가 필요 |
-| Issue 템플릿 (Feature/Bug) | ❌ 없음 | 생성 필요 |
-| PR 템플릿 | ❌ 없음 | 생성 필요 |
-| CODEOWNERS | ❌ 없음 | 생성 필요 |
-| main branch protection | ❌ 없음 | 생성 필요 |
+| dev branch protection | ✅ PR 필수, 1명 Approve, CODEOWNERS, dismiss stale | M0-C 완료 |
+| force push 금지 | ✅ 금지 | M0-C 완료 |
+| conversation 해결 필수 | ✅ 활성 | M0-C 완료 |
+| Squash merge만 허용 | ✅ squash only | M0-B 완료 |
+| merge 후 브랜치 자동 삭제 | ✅ 활성 | M0-B 완료 |
+| `feature`/`refactor`/`chore` 레이블 | ✅ 추가됨 | M0-A 완료 |
+| Issue 템플릿 (Feature/Bug) | ✅ PR #3 pending merge | M0-E — set/github-templates |
+| PR 템플릿 | ✅ PR #3 pending merge | M0-E — set/github-templates |
+| CODEOWNERS | ✅ PR #3 pending merge | M0-E — set/github-templates |
+| main branch protection | ⬜ main 브랜치 없음 | M0-D — 생성 후 적용 필요 |
 
 ### M0-A: 레이블 추가/수정
 
@@ -97,7 +98,7 @@ gh api repos/3dt-project-team/3dt-2nd-project/branches/main/protection \
 └── CODEOWNERS
 ```
 
-> **다음 구현 단계**: Issue 만들고 브랜치 파서 파일 생성 → PR → merge
+> **다음 구현 단계**: PR #3 merge → main 브랜치 생성 후 M0-D 적용
 
 ---
 
