@@ -198,10 +198,14 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 ## 마일스톤
 
 ### M1: 인프라 설정
-- [ ] Azure Key Vault 생성 및 시크릿 등록 (`adls-account-name`, `pg-connection-string` 등)
-- [ ] ADLS Gen2 컨테이너 구성 (`raw` / `curated` / `feature`)
-- [ ] Azure Database for PostgreSQL 스키마 정의
-- [ ] Managed Identity 권한 설정 (ADLS, PostgreSQL, Key Vault)
+- [x] Azure Key Vault 생성 (`kv-3dt-team1`, koreacentral)
+- [x] Key Vault 시크릿 등록 — `adls-account-name` = `3dtteam1adls` ✅
+- [x] ADLS Gen2 생성 (`3dtteam1adls`, koreacentral, HNS 활성화)
+- [x] ADLS Gen2 컨테이너 구성 (`raw` / `curated` / `feature`) ✅
+- [ ] Key Vault 시크릿 등록 — `pg-connection-string` (PostgreSQL 생성 후)
+- [ ] Key Vault 시크릿 등록 — `adls-client-id` / `adls-client-secret` / `adls-tenant-id` (Databricks Service Principal 생성 후)
+- [ ] Azure Database for PostgreSQL 생성 및 스키마 정의
+- [ ] Managed Identity 권한 설정 (ADLS Storage Blob Data Contributor, Key Vault Secrets User)
 
 ### M2: 데이터 수집 (ADF)
 - [ ] Linked Service 연결 구성 (ADLS, PostgreSQL, Key Vault)
