@@ -10,20 +10,21 @@ Azure Data Factory, Databricks, ML Studio를 활용한 데이터 파이프라인
 
 > `gh` CLI로 자동화 가능한 항목들. 아래 순서대로 실행하면 됨.
 
-### 현재 상태 (2026-04-05 기준)
+### 현재 상태 (업데이트됨)
 
 | 항목 | 상태 | 비고 |
 |---|---|---|
 | 기본 브랜치 | ✅ `dev` | 완료 |
-| dev branch protection | ✅ PR 필수, 1명 Approve | 완료 |
-| force push 금지 | ❌ 허용 상태 | 수정 필요 |
-| Squash merge만 허용 | ❌ 3가지 모두 허용 | 수정 필요 |
-| merge 후 브랜치 자동 삭제 | ❌ 꺼져 있음 | 수정 필요 |
-| `feature` 레이블 | ❌ 없음 (enhancement만 있음) | 추가 필요 |
-| Issue 템플릿 (Feature/Bug) | ❌ 없음 | 생성 필요 |
-| PR 템플릿 | ❌ 없음 | 생성 필요 |
-| CODEOWNERS | ❌ 없음 | 생성 필요 |
-| main branch protection | ❌ 없음 | 생성 필요 |
+| dev branch protection | ✅ PR 필수, 1명 Approve, CODEOWNERS, dismiss stale | M0-C 완료 |
+| force push 금지 | ✅ 금지 | M0-C 완료 |
+| conversation 해결 필수 | ✅ 활성 | M0-C 완료 |
+| Squash merge만 허용 | ✅ squash only | M0-B 완료 |
+| merge 후 브랜치 자동 삭제 | ✅ 활성 | M0-B 완료 |
+| `feature`/`refactor`/`chore` 레이블 | ✅ 추가됨 | M0-A 완료 |
+| Issue 템플릿 (Feature/Bug) | ✅ PR #3 pending merge | M0-E — set/github-templates |
+| PR 템플릿 | ✅ PR #3 pending merge | M0-E — set/github-templates |
+| CODEOWNERS | ✅ PR #3 pending merge | M0-E — set/github-templates |
+| main branch protection | N/A | dev가 메인 브랜치 — M0-D 불필요 |
 
 ### M0-A: 레이블 추가/수정
 
@@ -70,19 +71,9 @@ gh api repos/3dt-project-team/3dt-2nd-project/branches/dev/protection \
   --field required_conversation_resolution=true
 ```
 
-### M0-D: main Branch Protection 생성
+### M0-D: main Branch Protection — N/A
 
-```bash
-# main: 더 엄격한 보호 (2명 Approve + CI 필수)
-gh api repos/3dt-project-team/3dt-2nd-project/branches/main/protection \
-  --method PUT \
-  --field required_status_checks=null \
-  --field enforce_admins=false \
-  --field required_pull_request_reviews='{"required_approving_review_count":2,"require_code_owner_reviews":true,"dismiss_stale_reviews":true}' \
-  --field restrictions=null \
-  --field allow_force_pushes=false \
-  --field allow_deletions=false
-```
+> `dev`가 기본(메인) 브랜치이므로 별도 `main` 브랜치 보호 설정 불필요.
 
 ### M0-E: Issue 템플릿 + PR 템플릿 + CODEOWNERS 파일 생성
 
@@ -97,7 +88,110 @@ gh api repos/3dt-project-team/3dt-2nd-project/branches/main/protection \
 └── CODEOWNERS
 ```
 
-> **다음 구현 단계**: Issue 만들고 브랜치 파서 파일 생성 → PR → merge
+> **다음 구현 단계**: PR #3 merge → M0 완료
+
+---
+
+## M0-F: `gh` CLI로 불가능한 항목 — 수동 설정 필요
+
+아래 항목들은 `gh` CLI가 아닌 **UI 또는 다른 CLI**로 설정해야 합니다.
+
+### 1. GitHub Actions 워크플로우 파일 생성
+
+> `gh` CLI는 파일 생성 불가. git으로 직접 추가.
+
+```bash
+# 브랜치 생성 후 워크플로우 파일 작성 → PR
+git checkout -b set/github-actions
+# .github/workflows/ci.yml 작성 (04_cicd_project.md 참고)
+git add .github/workflows/
+git commit -m "set(ci): add CI workflow"
+git push origin set/github-actions
+gh pr create --base dev --title "[Set] GitHub Actions CI 워크플로우 추가"
+```
+
+### 2. GitHub Secrets 등록
+
+> `gh secret set`으로 등록 가능하지만, **Secret 값(Service Principal 등)은 Azure에서 먼저 생성** 필요.
+
+```bash
+# ① Azure Service Principal 생성 (az CLI)
+az ad sp create-for-rbac \
+  --name "github-actions-sp" \
+  --role contributor \
+  --scopes /subscriptions/<subscription-id>/resourceGroups/3dt-2nd-team1 \
+  --sdk-auth
+# 출력된 JSON을 복사
+
+# ② gh CLI로 Secret 등록
+gh secret set AZURE_CREDENTIALS  # 붙여넣기 후 Enter
+gh secret set ACR_LOGIN_SERVER    # 예: yourname.azurecr.io
+gh secret set ACR_USERNAME
+gh secret set ACR_PASSWORD
+gh secret set ACR_NAME
+```
+
+> 참고: `04_cicd_project.md` → GitHub Secrets 설정 표
+
+### 3. commitlint (Node.js 필요)
+
+> `.pre-commit-config.yaml`에 commitlint 추가 시 **Node.js(npm)가 있어야** 동작.
+> 팀 전체 노트북에 Node.js 설치 후 활성화 권장.
+
+```bash
+# Node.js 설치 (PowerShell)
+winget install OpenJS.NodeJS.LTS
+
+# 설치 확인
+node --version    # v20.x.x
+npm --version
+
+# pre-commit 재설치 (Node 훅 등록)
+uv run pre-commit install
+uv run pre-commit install --hook-type commit-msg
+```
+
+> `.pre-commit-config.yaml`의 commitlint 섹션은 현재 주석 처리 상태 — Node 설치 후 활성화
+
+### 4. ADF Studio Git 연동
+
+> ADF Studio UI에서만 설정 가능 (`gh` CLI 해당 없음).
+
+```
+1. ADF Studio (portal.azure.com) → Manage → Git Configuration
+2. Repository type: GitHub
+3. Org: 3dt-project-team / Repo: 3dt-2nd-project
+4. Collaboration branch: dev
+5. Root folder: /adf
+6. Import existing resources: Yes
+```
+
+> 이후 ADF UI에서 저장(Save)하면 자동으로 Git commit. 브랜치 전환도 ADF UI 내에서.
+
+### 5. Databricks Repos 연동
+
+> Databricks Workspace UI에서만 설정 가능.
+
+```
+1. Databricks Workspace → Repos 탭
+2. Add Repo → GitHub URL 입력:
+   https://github.com/3dt-project-team/3dt-2nd-project.git
+3. 브랜치: dev (기본값)
+4. 작업 시작 전 feature 브랜치로 체크아웃
+```
+
+> 클러스터 Init Script도 UI에서: Compute → Edit Cluster → Advanced Options → Init Scripts
+
+### 6. GitHub Projects (칸반 보드)
+
+> `gh project create`로 프로젝트 생성은 가능하지만, **컬럼 자동화(To Do → In Progress 자동 이동 등)는 UI 필요**.
+
+```bash
+# CLI로 프로젝트 생성만 가능
+gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
+```
+
+> 자동화 설정: GitHub → Projects → 해당 프로젝트 → Workflows 탭 → Item added to project 등 활성화
 
 ---
 
