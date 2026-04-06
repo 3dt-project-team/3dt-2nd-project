@@ -208,7 +208,9 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
   - `sense_db` 데이터베이스 생성 ✅
   - `AllowAzureServices` 방화벽 규칙 ✅
 - [x] Databricks SP ADLS 권한 — `sense-databricks-sp` → Storage Blob Data Contributor ✅
-- [ ] ADF / ML Studio Managed Identity → Key Vault Secrets User 권한 (리소스 생성 후)
+- [x] fx-collector (Azure Functions) Managed Identity → Key Vault Secrets User ✅
+- [ ] ADF Managed Identity → Key Vault Secrets User (ADF 생성 후, issue #11)
+- [ ] ML Studio Managed Identity → Key Vault Secrets User (ML Studio 생성 후, issue #11)
 
 ### M2: 데이터 수집 (ADF)
 - [ ] Linked Service 연결 구성 (ADLS, PostgreSQL, Key Vault)
