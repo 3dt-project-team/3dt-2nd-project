@@ -51,8 +51,8 @@ DefaultAzureCredential
        └─ 클라우드  : Managed Identity (비밀번호 코드 노출 없음)
               │
               ▼
-        Azure Key Vault
-         ├─ adls-account-name
+        Azure Key Vault (kv-3dt-team1)
+         ├─ adls-account-name        → 3dtteam1adls ✅ 등록됨
          ├─ adls-client-id / adls-client-secret / adls-tenant-id  (Databricks Spark용)
          └─ pg-connection-string
 ```
