@@ -202,10 +202,13 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] Key Vault 시크릿 등록 — `adls-account-name` = `3dtteam1adls` ✅
 - [x] ADLS Gen2 생성 (`3dtteam1adls`, koreacentral, HNS 활성화)
 - [x] ADLS Gen2 컨테이너 구성 (`raw` / `curated` / `feature`) ✅
-- [ ] Key Vault 시크릿 등록 — `pg-connection-string` (PostgreSQL 생성 후)
-- [ ] Key Vault 시크릿 등록 — `adls-client-id` / `adls-client-secret` / `adls-tenant-id` (Databricks Service Principal 생성 후)
-- [ ] Azure Database for PostgreSQL 생성 및 스키마 정의
-- [ ] Managed Identity 권한 설정 (ADLS Storage Blob Data Contributor, Key Vault Secrets User)
+- [x] Key Vault 시크릿 등록 — `pg-connection-string` (`sense_db` @ `sense-pg-server`) ✅
+- [x] Key Vault 시크릿 등록 — `adls-client-id` / `adls-client-secret` / `adls-tenant-id` (sense-databricks-sp) ✅
+- [x] Azure Database for PostgreSQL 생성 — `sense-pg-server` (PG16, B1ms, koreacentral) ✅
+  - `sense_db` 데이터베이스 생성 ✅
+  - `AllowAzureServices` 방화벽 규칙 ✅
+- [x] Databricks SP ADLS 권한 — `sense-databricks-sp` → Storage Blob Data Contributor ✅
+- [ ] ADF / ML Studio Managed Identity → Key Vault Secrets User 권한 (리소스 생성 후)
 
 ### M2: 데이터 수집 (ADF)
 - [ ] Linked Service 연결 구성 (ADLS, PostgreSQL, Key Vault)

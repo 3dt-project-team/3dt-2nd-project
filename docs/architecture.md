@@ -1,4 +1,6 @@
-# 프로젝트 아키텍처
+# SENSE 프로젝트 아키텍처
+
+> **SENSE** — Semiconductor Economic News & Sentiment Engine
 
 ## 전체 데이터 흐름
 
@@ -37,7 +39,7 @@ Azure Database for PostgreSQL
 | ADLS Gen2 | 데이터 레이크 (raw·curated·feature) | _데이터는 Git에 없음_ |
 | Databricks | 대용량 전처리·피처 엔지니어링 | `src/`, `notebooks/` |
 | ML Studio | 모델 학습·실험 관리 | `src/models/` |
-| Azure Database for PostgreSQL | 결과 데이터 저장·서빙 | _인프라, Git 외부_ |
+| Azure Database for PostgreSQL | 결과 데이터 저장·서빙 (`sense_db`) | _인프라, Git 외부_ |
 | Azure Key Vault | 모든 자격 증명 중앙 관리 | `src/utils/vault_manager.py` |
 
 ## 인증 구조
@@ -52,9 +54,11 @@ DefaultAzureCredential
               │
               ▼
         Azure Key Vault (kv-3dt-team1)
-         ├─ adls-account-name        → 3dtteam1adls ✅ 등록됨
-         ├─ adls-client-id / adls-client-secret / adls-tenant-id  (Databricks Spark용)
-         └─ pg-connection-string
+         ├─ adls-account-name        → 3dtteam1adls ✅
+         ├─ adls-client-id           → sense-databricks-sp clientId ✅
+         ├─ adls-client-secret       → sense-databricks-sp secret ✅
+         ├─ adls-tenant-id           → 5fb256f0-… ✅
+         └─ pg-connection-string     → sense_db @ sense-pg-server ✅
 ```
 
 `src/utils/vault_manager.py` 가 이 인증 흐름을 추상화합니다.
