@@ -7,8 +7,11 @@ name = "3dt-2nd-project"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "azure-core" },
+    { name = "azure-functions" },
     { name = "azure-identity" },
     { name = "azure-keyvault-secrets" },
+    { name = "azure-storage-blob" },
     { name = "azure-storage-file-datalake" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pyarrow" },
@@ -37,8 +40,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "azure-ai-ml", marker = "extra == 'ml'", specifier = ">=1.24.0" },
+    { name = "azure-core", specifier = ">=1.39.0" },
+    { name = "azure-functions", specifier = ">=1.24.0" },
     { name = "azure-identity", specifier = ">=1.19.0" },
     { name = "azure-keyvault-secrets", specifier = ">=4.9.0" },
+    { name = "azure-storage-blob", specifier = ">=12.28.0" },
     { name = "azure-storage-file-datalake", specifier = ">=12.19.0" },
     { name = "databricks-sdk", marker = "extra == 'databricks'", specifier = ">=0.44.0" },
     { name = "mlflow", marker = "extra == 'ml'", specifier = ">=2.20.0" },
@@ -182,6 +188,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5a/7f/5de13a331a5f2919417819cc37dcf7c897018f02f83aa82b733e6629a6a6/azure_core_tracing_opentelemetry-1.0.0b12.tar.gz", hash = "sha256:bb454142440bae11fd9d68c7c1d67ae38a1756ce808c5e4d736730a7b4b04144", size = 26010, upload-time = "2025-03-21T00:18:37.346Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/76/5e/97a471f66935e7f89f521d0e11ae49c7f0871ca38f5c319dccae2155c8d8/azure_core_tracing_opentelemetry-1.0.0b12-py3-none-any.whl", hash = "sha256:38fd42709f1cc4bbc4f2797008b1c30a6a01617e49910c05daa3a0d0c65053ac", size = 11962, upload-time = "2025-03-21T00:18:38.581Z" },
+]
+
+[[package]]
+name = "azure-functions"
+version = "1.24.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "werkzeug" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1d/be/5535830e0658e9668093941b3c33b0ea03eceadbf6bd6b7870aa37ef071a/azure_functions-1.24.0.tar.gz", hash = "sha256:18ea1607c7a7268b7a1e1bd0cc28c5cc57a9db6baaacddb39ba0e9f865728187", size = 134495, upload-time = "2025-10-06T19:08:08.612Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9b/76/e6c5809ee0295e882b6c9ad595896748e33989d353b67316a854f65fb754/azure_functions-1.24.0-py3-none-any.whl", hash = "sha256:32b12c2a219824525849dd92036488edeb70d306d164efd9e941f10f9ac0a91c", size = 108341, upload-time = "2025-10-06T19:08:07.128Z" },
 ]
 
 [[package]]
