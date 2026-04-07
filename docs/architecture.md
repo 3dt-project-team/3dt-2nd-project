@@ -39,7 +39,7 @@ Azure Database for PostgreSQL
 | ADLS Gen2 (`3dtteam1adls`) | 데이터 레이크 (raw·curated·feature) | _데이터는 Git에 없음_ |
 | Databricks (`sense-adb`) | 대용량 전처리·피처 엔지니어링 | `src/`, `notebooks/` |
 | ML Studio (`sense-aml`) | 모델 학습·실험 관리 | `src/models/` |
-| Azure Database for PostgreSQL (`sense-pg-server`) | 결과 데이터 저장·서빙 | _인프라, Git 외부_ |
+| Azure Database for PostgreSQL (`sense-pg-server`) | 결과 데이터 저장·서빙 (`sense_db`) | _인프라, Git 외부_ |
 | Azure Key Vault (`kv-3dt-team1`) | 모든 자격 증명 중앙 관리 | `src/utils/vault_manager.py` |
 
 ## 인증 구조
