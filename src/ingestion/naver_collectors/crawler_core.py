@@ -9,9 +9,6 @@ import re
 from datetime import datetime
 
 import aiohttp
-from azure.identity import ClientSecretCredential, DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
-from azure.storage.filedatalake import DataLakeServiceClient
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
@@ -152,19 +149,13 @@ def parse_body(html_text):
 # Key Vault 시크릿 로드
 # ────────────────────────────────────────
 def load_secrets():
-    vault_url = os.environ["KEY_VAULT_URL"]
-    credential = DefaultAzureCredential()
-    client = SecretClient(vault_url=vault_url, credential=credential)
-
+    """환경변수에서 시크릿 로드"""
     secrets = {
-        "NAVER_CLIENT_ID": client.get_secret("navernews-api").value,
-        "NAVER_CLIENT_SECRET": client.get_secret("navernews-secret").value,
-        "ADLS_ACCOUNT_NAME": client.get_secret("adls-account-name").value,
-        "ADLS_CLIENT_ID": client.get_secret("adls-client-id").value,
-        "ADLS_CLIENT_SECRET": client.get_secret("adls-client-secret").value,
-        "ADLS_TENANT_ID": client.get_secret("adls-tenant-id").value,
+        "NAVER_CLIENT_ID": os.environ["NAVER_CLIENT_ID"],
+        "NAVER_CLIENT_SECRET": os.environ["NAVER_CLIENT_SECRET"],
+        "ADLS_CONNECTION_STRING": os.environ["ADLS_CONNECTION_STRING"],
     }
-    logger.info("✅ Key Vault 시크릿 로드 완료")
+    logger.info("✅ 환경변수 로드 완료")
     return secrets
 
 
@@ -175,14 +166,10 @@ def get_existing_ids(keyword_en, date_str, secrets):
     """ADLS에서 오늘 저장된 newsId 목록 로드"""
     month_str = date_str[:7]
     try:
-        credential = ClientSecretCredential(
-            tenant_id=secrets["ADLS_TENANT_ID"],
-            client_id=secrets["ADLS_CLIENT_ID"],
-            client_secret=secrets["ADLS_CLIENT_SECRET"],
-        )
-        service_client = DataLakeServiceClient(
-            account_url=f"https://{secrets['ADLS_ACCOUNT_NAME']}.dfs.core.windows.net",
-            credential=credential,
+        from azure.storage.filedatalake import DataLakeServiceClient
+
+        service_client = DataLakeServiceClient.from_connection_string(
+            secrets["ADLS_CONNECTION_STRING"]
         )
         fs_client = service_client.get_file_system_client(ADLS_CONTAINER)
         file_path = (
@@ -194,7 +181,7 @@ def get_existing_ids(keyword_en, date_str, secrets):
         records = json.loads(data.decode("utf-8"))
         existing = set(r["newsId"] for r in records)
         logger.info(f"[{keyword_en}] 기존 저장 건수: {len(existing)}건")
-        return existing  # ← ) 삭제하고 return으로
+        return existing
     except Exception:
         logger.info(f"[{keyword_en}] 기존 파일 없음 — 새로 수집 시작")
         return set()
@@ -332,14 +319,10 @@ def save_to_adls(records, keyword_en, date_str, secrets):
     month_str = date_str[:7]
 
     try:
-        credential = ClientSecretCredential(
-            tenant_id=secrets["ADLS_TENANT_ID"],
-            client_id=secrets["ADLS_CLIENT_ID"],
-            client_secret=secrets["ADLS_CLIENT_SECRET"],
-        )
-        service_client = DataLakeServiceClient(
-            account_url=f"https://{secrets['ADLS_ACCOUNT_NAME']}.dfs.core.windows.net",
-            credential=credential,
+        from azure.storage.filedatalake import DataLakeServiceClient
+
+        service_client = DataLakeServiceClient.from_connection_string(
+            secrets["ADLS_CONNECTION_STRING"]
         )
         fs_client = service_client.get_file_system_client(ADLS_CONTAINER)
         file_path = (
@@ -354,9 +337,8 @@ def save_to_adls(records, keyword_en, date_str, secrets):
             data = file_client.download_file().readall()
             existing = json.loads(data.decode("utf-8"))
         except Exception:
-            pass  # 파일 없으면 새로 생성
+            pass
 
-        # 새 기사 추가 후 저장
         existing.extend(records)
         content = json.dumps(existing, ensure_ascii=False, indent=2).encode("utf-8")
         file_client.upload_data(content, overwrite=True)
