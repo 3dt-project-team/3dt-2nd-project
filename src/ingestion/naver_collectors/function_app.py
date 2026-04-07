@@ -12,7 +12,7 @@ app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
 
 # ── 타이머 트리거 1 — 매시간 정각 (KST 01:00 ~ 23:00) ──
-@app.timer_trigger(arg_name="mytimer_hourly", schedule="0 0 16-13 * * *", run_on_startup=False)
+@app.timer_trigger(arg_name="mytimer_hourly", schedule="0 0 16-23,0-13 * * *", run_on_startup=False)
 def daily_crawl_hourly(mytimer_hourly: func.TimerRequest) -> None:  # ← async 제거
     today_kst = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
     logger.info(f"[시간별] 수집 시작: {today_kst}")

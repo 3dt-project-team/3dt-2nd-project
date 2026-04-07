@@ -48,6 +48,14 @@ raw/
 # IDE
 .vscode/
 .idea/
+
+# Azure Functions
+local.settings.json
+
+# Azurite
+AzuriteConfig
+__blobstorage__/
+__queuestorage__/
 *.code-workspace
 
 # OS
@@ -57,3 +65,5 @@ Thumbs.db
 # MLflow
 mlruns/
 mlartifacts/
+
+# azure functions
