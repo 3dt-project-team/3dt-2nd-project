@@ -59,3 +59,5 @@ mlruns/
 mlartifacts/
 
 __blobstorage__/
+__azurite_db_*.json
+__blobstorage__/
