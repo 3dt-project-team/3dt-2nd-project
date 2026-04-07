@@ -11,6 +11,7 @@ dependencies = [
     { name = "azure-keyvault-secrets" },
     { name = "azure-storage-file-datalake" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "pyarrow" },
     { name = "python-dotenv" },
     { name = "sqlalchemy" },
 ]
@@ -42,6 +43,7 @@ requires-dist = [
     { name = "databricks-sdk", marker = "extra == 'databricks'", specifier = ">=0.44.0" },
     { name = "mlflow", marker = "extra == 'ml'", specifier = ">=2.20.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.0" },
+    { name = "pyarrow", specifier = ">=23.0.1" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
 ]
