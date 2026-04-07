@@ -57,3 +57,5 @@ Thumbs.db
 # MLflow
 mlruns/
 mlartifacts/
+
+__blobstorage__/
