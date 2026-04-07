@@ -1,31 +1,31 @@
 """
 yahoo_finance_crawler.py
 ===============
-반도체 종목 주가 데이터 수집 및 CSV 저장 모듈
+반도체 종목 주가 데이터 수집 및 ADLS Gen2 업로드 모듈
 
 설명:
     yfinance를 사용하여 반도체 관련 종목의 1년치 주가 데이터를 수집하고
-    로컬 CSV 파일로 저장합니다.
+    Azure Data Lake Storage Gen2 raw 컨테이너에 직접 업로드합니다.
 
-    저장된 CSV 파일은 Azure Portal에서 ADLS Gen2 컨테이너에 직접 업로드합니다.
-    (GUI 업로드: Azure Portal → 스토리지 계정 → 컨테이너 → 업로드)
-
-저장 경로:
-    C:/Users/EL42/Downloads/yahoo_finance_raw_{YYYYMMDD}.csv
+업로드 경로:
+    raw 컨테이너 / yfinance/year={Y}/month={M}/day={D}/yahoo_finance_raw_{YYYYMMDD}.csv
 
 의존성:
     - yfinance
     - pandas
+    - azure-storage-file-datalake (vault_manager 경유)
 
 Author: 김원비 (1조)
 """
 
+import io
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
+
+from src.utils.vault_manager import vault
 
 # ---------------------------------------------------------------------------
 # 로깅 설정
@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 수집 함수
 # ---------------------------------------------------------------------------
+
 
 def fetch_stock_data(tickers: list[str], period: str = "1y") -> pd.DataFrame:
     """
@@ -64,50 +65,61 @@ def fetch_stock_data(tickers: list[str], period: str = "1y") -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# 저장 함수
+# 업로드 함수
 # ---------------------------------------------------------------------------
 
-def save_to_csv(df: pd.DataFrame, output_path: str) -> None:
-    """
-    데이터프레임을 CSV 파일로 저장합니다.
 
-    저장 후 Azure Portal GUI를 통해 ADLS Gen2 컨테이너에 수동 업로드합니다.
-    업로드 경로: raw/bronze/stock/year={Y}/month={M}/day={D}/
+def upload_to_adls(df: pd.DataFrame, date: datetime) -> None:
+    """
+    데이터프레임을 CSV로 변환하여 ADLS Gen2 raw 컨테이너에 업로드합니다.
+
+    업로드 경로:
+        raw 컨테이너 / yfinance/year={Y}/month={M}/day={D}/yahoo_finance_raw_{YYYYMMDD}.csv
 
     Args:
-        df (pd.DataFrame): 저장할 주가 데이터프레임
-        output_path (str): 저장할 로컬 파일 경로
-                           (예: 'output/stock/yahoo_finance_raw_20260407.csv')
+        df (pd.DataFrame): 업로드할 주가 데이터프레임
+        date (datetime): 업로드 기준 날짜 (UTC)
 
     Raises:
-        RuntimeError: 파일 저장 실패 시
+        RuntimeError: 업로드 실패 시
     """
     try:
-        path = Path(output_path)
-        path.parent.mkdir(parents=True, exist_ok=True)  # 디렉토리 없으면 자동 생성
+        date_str = date.strftime("%Y%m%d")
+        directory = f"yfinance/year={date.year}/month={date.month:02d}/day={date.day:02d}"
+        file_name = f"yahoo_finance_raw_{date_str}.csv"
 
-        df.to_csv(path, encoding="utf-8-sig")  # utf-8-sig: 한글 환경 Excel 호환
+        # DataFrame → CSV 바이트 변환 (메모리 내)
+        buffer = io.BytesIO()
+        df.to_csv(buffer, encoding="utf-8-sig")
+        buffer.seek(0)
 
-        logger.info("CSV 저장 완료: %s (%d rows)", path, len(df))
-        logger.info("다음 단계: Azure Portal에서 해당 파일을 ADLS 컨테이너에 업로드하세요.")
+        # ADLS Gen2 업로드
+        storage_client = vault.get_storage_client()
+        fs_client = storage_client.get_file_system_client("raw")
+        dir_client = fs_client.get_directory_client(directory)
+        file_client = dir_client.get_file_client(file_name)
+        file_client.upload_data(buffer.read(), overwrite=True)
+
+        adls_path = f"raw/{directory}/{file_name}"
+        logger.info("ADLS Gen2 업로드 완료: %s (%d rows)", adls_path, len(df))
 
     except Exception as e:
-        logger.error("CSV 저장 실패: %s", e)
-        raise RuntimeError(f"CSV 저장 중 문제가 발생했습니다: {e}") from e
+        logger.error("ADLS Gen2 업로드 실패: %s", e)
+        raise RuntimeError(f"ADLS Gen2 업로드 중 문제가 발생했습니다: {e}") from e
 
 
 # ---------------------------------------------------------------------------
 # 메인 실행
 # ---------------------------------------------------------------------------
 
+
 def main():
     """
-    반도체 종목 주가 데이터 수집 및 CSV 저장 메인 함수.
+    반도체 종목 주가 데이터 수집 및 ADLS Gen2 업로드 메인 함수.
 
     실행 흐름:
         1. 반도체 관련 종목 1년치 주가 데이터 수집
-        2. 로컬 CSV 파일로 저장
-        3. (수동) Azure Portal에서 ADLS Gen2 컨테이너에 업로드
+        2. ADLS Gen2 raw 컨테이너에 직접 업로드
     """
     semiconductor_tickers = ["NVDA", "TSM", "AMD", "INTC", "ASML"]
 
@@ -115,11 +127,10 @@ def main():
     stock_df = fetch_stock_data(tickers=semiconductor_tickers, period="1y")
 
     # UTC 기준 날짜 사용 — 팀원 간 날짜 기준 통일
-    today_str = datetime.now(tz=timezone.utc).strftime("%Y%m%d")
+    now_utc = datetime.now(tz=timezone.utc)
 
-    # 2. CSV 저장
-    output_path = f"C:/Users/EL42/Downloads/yahoo_finance_raw_{today_str}.csv"
-    save_to_csv(stock_df, output_path)
+    # 2. ADLS Gen2 업로드
+    upload_to_adls(stock_df, now_utc)
 
 
 if __name__ == "__main__":
