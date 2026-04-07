@@ -208,7 +208,10 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
   - `sense_db` 데이터베이스 생성 ✅
   - `AllowAzureServices` 방화벽 규칙 ✅
 - [x] Databricks SP ADLS 권한 — `sense-databricks-sp` → Storage Blob Data Contributor ✅
-- [x] ~~fx-collector (Azure Functions)~~ — East US 2 리소스 삭제됨 (2026-04-07)
+- [x] Azure Databricks Workspace 생성 — `sense-adb` (koreacentral, Standard SKU) ✅
+  - Workspace URL: `adb-7405614225805457.17.azuredatabricks.net`
+  - 인증: `sense-databricks-sp` (SP 기반, workspace 레벨 MI 미지원)
+- [x] fx-collector(Azure Functions)
 - [x] Azure Data Factory 생성 — `sense-adf` (koreacentral, System-Assigned MI) ✅
   - ADF MI → Key Vault Secrets User ✅
 - [x] Azure ML Studio Workspace 생성 — `sense-aml` (koreacentral, System-Assigned MI) ✅
