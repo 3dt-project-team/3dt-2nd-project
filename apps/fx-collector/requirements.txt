@@ -1,4 +1,5 @@
 azure-functions
-azure-storage-blob
-azure-core
+pandas
 pyarrow
+requests
+azure-storage-blob
