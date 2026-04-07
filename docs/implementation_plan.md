@@ -208,9 +208,13 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
   - `sense_db` 데이터베이스 생성 ✅
   - `AllowAzureServices` 방화벽 규칙 ✅
 - [x] Databricks SP ADLS 권한 — `sense-databricks-sp` → Storage Blob Data Contributor ✅
-- [x] fx-collector (Azure Functions) Managed Identity → Key Vault Secrets User ✅
-- [ ] ADF Managed Identity → Key Vault Secrets User (ADF 생성 후, issue #11)
-- [ ] ML Studio Managed Identity → Key Vault Secrets User (ML Studio 생성 후, issue #11)
+- [x] ~~fx-collector (Azure Functions)~~ — East US 2 리소스 삭제됨 (2026-04-07)
+- [x] Azure Data Factory 생성 — `sense-adf` (koreacentral, System-Assigned MI) ✅
+  - ADF MI → Key Vault Secrets User ✅
+- [x] Azure ML Studio Workspace 생성 — `sense-aml` (koreacentral, System-Assigned MI) ✅
+  - ML Studio MI → Key Vault Secrets User ✅
+  - ML Studio MI → ADLS Storage Blob Data Contributor ✅
+  - 부속 리소스: `sense3dtamlstorage` (Storage), `sense-aml-insights` (Application Insights)
 
 ### M2: 데이터 수집 (ADF)
 - [ ] Linked Service 연결 구성 (ADLS, PostgreSQL, Key Vault)

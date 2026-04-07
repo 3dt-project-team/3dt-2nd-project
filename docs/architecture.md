@@ -35,12 +35,12 @@ Azure Database for PostgreSQL
 
 | 서비스 | 역할 | Git 경로 |
 |---|---|---|
-| Azure Data Factory | 데이터 수집·오케스트레이션 | `adf/` |
-| ADLS Gen2 | 데이터 레이크 (raw·curated·feature) | _데이터는 Git에 없음_ |
+| Azure Data Factory (`sense-adf`) | 데이터 수집·오케스트레이션 | `adf/` |
+| ADLS Gen2 (`3dtteam1adls`) | 데이터 레이크 (raw·curated·feature) | _데이터는 Git에 없음_ |
 | Databricks | 대용량 전처리·피처 엔지니어링 | `src/`, `notebooks/` |
-| ML Studio | 모델 학습·실험 관리 | `src/models/` |
-| Azure Database for PostgreSQL | 결과 데이터 저장·서빙 (`sense_db`) | _인프라, Git 외부_ |
-| Azure Key Vault | 모든 자격 증명 중앙 관리 | `src/utils/vault_manager.py` |
+| ML Studio (`sense-aml`) | 모델 학습·실험 관리 | `src/models/` |
+| Azure Database for PostgreSQL (`sense-pg-server`) | 결과 데이터 저장·서빙 | _인프라, Git 외부_ |
+| Azure Key Vault (`kv-3dt-team1`) | 모든 자격 증명 중앙 관리 | `src/utils/vault_manager.py` |
 
 ## 인증 구조
 
@@ -69,9 +69,9 @@ DefaultAzureCredential
 
 | 서비스 | ADLS Gen2 | PostgreSQL | Key Vault |
 |---|---|---|---|
-| Databricks | Spark conf OAuth (Service Principal) | psycopg / JDBC | vault_manager 또는 dbutils.secrets |
-| Data Factory | Linked Service (Managed Identity) | Linked Service (KV 비밀 참조) | UI에서 Key Vault 직접 연결 |
-| ML Studio | vault_manager + DataLakeServiceClient | vault_manager + psycopg/SQLAlchemy | DefaultAzureCredential (Managed Identity) |
+| Databricks | Spark conf OAuth (Service Principal `sense-databricks-sp`) | psycopg / JDBC | vault_manager 또는 dbutils.secrets |
+| Data Factory (`sense-adf` MI) | Linked Service (Managed Identity) | Linked Service (KV 비밀 참조) | UI에서 Key Vault 직접 연결 |
+| ML Studio (`sense-aml` MI) | Storage Blob Data Contributor | vault_manager + psycopg/SQLAlchemy | Key Vault Secrets User (Managed Identity) |
 
 ## 로컬 개발 환경 설정
 
