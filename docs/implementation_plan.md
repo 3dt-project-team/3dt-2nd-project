@@ -238,6 +238,7 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 ### M3: 전처리 (Databricks)
 - [ ] 클러스터 Init Script 등록 (`notebooks/init_script_install_uv.sh`)
 - [ ] vault_manager 연동 및 ADLS Spark conf 설정
+- [ ] Databricks Auto Loader (`cloudFiles`) 증분 수집 설정 — raw → curated 자동 파이프라인 (MS [Ingest ETL Stream](https://learn.microsoft.com/en-us/azure/architecture/solution-ideas/articles/ingest-etl-stream-with-adb) 참조)
 - [ ] 시계열 결측치 Forward Fill 보간 (국가별 휴장일 통일)
 - [ ] FRED 금리 결측값(`"."`) NULL 변환 + Forward Fill → `curated/fred/` 적재
 - [ ] Spark TF-IDF 기반 동적 키워드 모멘텀
@@ -252,6 +253,8 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [ ] XGBoost/LightGBM 하방 리스크 예측 모델 학습
 - [ ] 학습 잡 제출 (`src/models/aml_train_example.py` 참고)
 - [ ] MLflow 실험 트래킹 + Git commit hash 태깅
+- [ ] Many Models 패턴 적용 — 삼성전자/SK하이닉스/NVDA/MU 종목별 개별 모델 병렬 학습 (AML `parallel` component, MS [Many Models](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/many-models-machine-learning-azure-machine-learning) 참조)
+- [ ] AML Batch Endpoint 등록 및 ADF 연동 (MS [Orchestrate ML](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/orchestrate-machine-learning-azure-databricks) 참조)
 
 ### M5: 서빙
 - [ ] 예측 결과 Azure Database for PostgreSQL 적재
@@ -278,3 +281,5 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - 아키텍처 개요: [architecture.md](architecture.md)
 - uv 통합 가이드: [uv_integration_guide.md](uv_integration_guide.md)
 - 협업 규칙: [../docs/git_guide/](git_guide/)
+- MS 아키텍처 베스트 프랙티스: [architecture.md #MS 아키텍처 베스트 프랙티스 참조](architecture.md#ms-아키텍처-베스트-프랙티스-참조)
+- 실행 아이디어 상세 가이드: `ref/실행 아이디어.md`

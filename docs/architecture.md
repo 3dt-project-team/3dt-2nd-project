@@ -87,6 +87,59 @@ DefaultAzureCredential
 | ACI (Google News) | vault_manager + DataLakeServiceClient | — | System-Assigned MI → Key Vault Secrets User |
 | Azure Functions | vault_manager / Binding | — | Managed Identity → Key Vault Secrets User |
 
+## MS 아키텍처 베스트 프랙티스 참조
+
+SENSE 프로젝트는 Microsoft가 공식 권장하는 엔터프라이즈 클라우드 아키텍처 패턴을 기반으로 설계되었습니다.
+
+| 참조 아키텍처 | 적용 영역 | 핵심 개념 |
+|---|---|---|
+| [Modern Analytics Architecture (Azure Databricks)](https://learn.microsoft.com/en-us/azure/architecture/solution-ideas/articles/azure-databricks-modern-analytics-architecture) | 전체 데이터 흐름 | Medallion(Bronze/Silver/Gold), ADF + Databricks + ADLS |
+| [Ingest, ETL & Stream with ADB](https://learn.microsoft.com/en-us/azure/architecture/solution-ideas/articles/ingest-etl-stream-with-adb) | M3 전처리 | Auto Loader(`cloudFiles`) 증분 수집, Delta Lake MERGE INTO |
+| [Next Order Forecasting](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/next-order-forecasting) | M4 모델링 | ADF → ML parallel jobs → Batch Scoring |
+| [Orchestrate ML with Databricks](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/orchestrate-machine-learning-azure-databricks) | M4 MLOps | MLflow 실험 트래킹, Dev → Staging → Prod 워크플로우 |
+| [Many Models (Azure ML)](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/many-models-machine-learning-azure-machine-learning) | M4 모델 확장 | 종목별 개별 모델 병렬 학습 (`parallel` component) |
+| [ADF CI/CD Manual Promotion](https://learn.microsoft.com/en-us/azure/data-factory/continuous-integration-delivery-manual-promotion) | 협업·배포 | ADF Git 연동, ARM 템플릿 기반 환경 프로모션 |
+
+> 상세 실행 가이드: `ref/실행 아이디어.md`
+
+### Auto Loader 증분 수집
+
+Databricks `cloudFiles` Auto Loader를 활용하여 ADLS Gen2 raw 레이어에 신규 적재된 파일만 자동 감지하고 Silver 레이어로 증분 처리합니다.
+
+```python
+# Auto Loader 증분 수집 예시
+spark.readStream.format("cloudFiles") \
+    .option("cloudFiles.format", "parquet") \
+    .option("cloudFiles.schemaLocation", "/checkpoints/schema/") \
+    .load("abfss://raw@3dtteam1adls.dfs.core.windows.net/news/google/") \
+    .writeStream.format("delta") \
+    .option("checkpointLocation", "/checkpoints/news_google/") \
+    .trigger(availableNow=True) \
+    .toTable("silver.news_google")
+```
+
+### MLOps 배치 추론 파이프라인 (ADF 오케스트레이션)
+
+```
+ADF Timer Trigger (매일 장 마감 후)
+    │
+    ├─ Step 1: Copy Data Activity — 매크로/뉴스/FRED 금리 수집
+    ├─ Step 2: Databricks Notebook Activity — 피처 엔지니어링 (TF-IDF, ABSA)
+    ├─ Step 3: AML Batch Endpoint 호출 — 리스크 스코어 추론
+    └─ Step 4: Copy Data Activity — 결과 + 원문 → PostgreSQL 적재
+```
+
+### Many Models 패턴
+
+종목별 개별 모델을 병렬 학습하여 단일 모델의 한계를 극복합니다.
+
+| 모델 | 역할 | 타겟 변수 |
+|---|---|---|
+| 삼성전자 (`005930.KS`) | 하방 리스크 예측 | 주가 변동률 |
+| SK하이닉스 (`000660.KS`) | 하방 리스크 예측 | 주가 변동률 |
+| NVDA | 글로벌 피어 리스크 모니터링 | 주가 변동률 (선행 Proxy) |
+| MU | 메모리 수급 선행 지표 | 주가 변동률 (선행 Proxy) |
+
 ## 로컬 개발 환경 설정
 
 ```bash
