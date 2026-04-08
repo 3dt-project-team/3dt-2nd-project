@@ -1,0 +1,25 @@
+name: CD - Deploy to Container Apps
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [dev]
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Container Apps
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          acrName: ${{ secrets.ACR_NAME }}
+          containerAppName: 3dt-app
+          resourceGroup: 3dt-2nd-team1
+          imageToDeploy: ${{ secrets.ACR_LOGIN_SERVER }}/app:${{ github.sha }}

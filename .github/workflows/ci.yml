@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint
+        run: uv run ruff check src/
+
+      - name: Format check
+        run: uv run black --check src/
+
+      - name: Type check
+        run: uv run ty check src/
+        continue-on-error: true  # ty는 아직 alpha
+
+      - name: Test
+        run: uv run pytest tests/ -v
+
+  docker-build:
+    needs: lint-and-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to ACR
+        uses: azure/docker-login@v2
+        with:
+          login-server: ${{ secrets.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push
+        run: |
+          cd adf/custom_activity
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/adf-custom:${{ github.sha }} .
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/adf-custom:${{ github.sha }}
