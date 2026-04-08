@@ -4,7 +4,7 @@
 # 빌드 (리포지토리 루트에서 실행):
 #   az acr build --registry sense3dtacr \
 #     --image google-news-crawler:latest \
-#     --file apps/google-news-crawler/Dockerfile .
+#     --file src/ingestion/google_news_crawler/Dockerfile .
 #
 # ACI one-shot 실행 예시:
 #   az container create \
@@ -37,7 +37,7 @@ FROM mcr.microsoft.com/playwright/python:v1.49.1-jammy
 WORKDIR /app
 
 # requirements 먼저 복사 → 코드 변경 시 레이어 캐시 재사용
-COPY apps/google-news-crawler/requirements.txt /app/requirements.txt
+COPY src/ingestion/google_news_crawler/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 크롤러 소스 복사 (google_news_crawler/ 내 모든 파일)
