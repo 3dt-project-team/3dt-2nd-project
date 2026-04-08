@@ -209,29 +209,66 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
   - `AllowAzureServices` 방화벽 규칙 ✅
 - [x] Databricks SP ADLS 권한 — `sense-databricks-sp` → Storage Blob Data Contributor ✅
 - [x] fx-collector (Azure Functions) Managed Identity → Key Vault Secrets User ✅
+- [x] Azure Databricks workspace 생성 — `sense-adb` (koreacentral, Standard SKU) ✅
+- [x] Azure Container Registry 생성 — `sense3dtacr` (koreacentral, Standard, admin 활성화) ✅
+- [x] Google News 크롤러 ACI 컨테이너 이미지 빌드 & 푸시 — `sense3dtacr.azurecr.io/google-news-crawler:latest` ✅
 - [ ] ADF Managed Identity → Key Vault Secrets User (ADF 생성 후, issue #11)
 - [ ] ML Studio Managed Identity → Key Vault Secrets User (ML Studio 생성 후, issue #11)
 
-### M2: 데이터 수집 (ADF)
-- [ ] Linked Service 연결 구성 (ADLS, PostgreSQL, Key Vault)
-- [ ] 원본 데이터 수집 파이프라인 구현 → `adf/` 폴더에 JSON 저장
-- [ ] 트리거 설정 (스케줄 또는 이벤트 기반)
+### M2: 데이터 수집
+
+> ADF = 오케스트레이션 레이어 (타이머 트리거). 수집 실행은 ACI / Azure Functions / Python 스크립트.
+
+#### ✅ 완료
+- [x] Google News 크롤러 (ACI) — RSS + Playwright 2단계 크롤링, ADLS `raw/news/google/` 적재
+- [x] 네이버 뉴스 크롤러 (Azure Functions) — 검색 API + Playwright 본문 크롤링
+- [x] Yahoo Finance 매크로·주가 수집 스크립트 — `src/ingestion/yahoo_finance_crawler.py`
+- [x] 환율(FX) 수집 (Azure Functions) — `apps/fx-collector/`, 한국수출입은행 API
+- [x] 관세청 수출입 통계 수집 — `src/utils/kr_public_data_customs.py`, HS Code 8542 기반
+
+#### ❌ 미완료
+- [ ] ADF Linked Service 연결 구성 (ADLS, PostgreSQL, Key Vault)
+- [ ] ADF 수집 파이프라인 — ACI Activity (Google News), Functions Activity (Naver/FX), Custom Activity (Yahoo/관세청)
+- [ ] ADF 타이머 트리거 설정 (일 1회 또는 장 마감 후)
+- [ ] 수집 파이프라인 JSON 저장 → `adf/` 폴더
 
 ### M3: 전처리 (Databricks)
 - [ ] 클러스터 Init Script 등록 (`notebooks/init_script_install_uv.sh`)
 - [ ] vault_manager 연동 및 ADLS Spark conf 설정
+- [ ] 시계열 결측치 Forward Fill 보간 (국가별 휴장일 통일)
+- [ ] Spark TF-IDF 기반 동적 키워드 모멘텀
+- [ ] Azure OpenAI 연동 (뉴스 요약, ABSA 감성 분석)
+- [ ] Summary-based Indexing 벡터 임베딩
 - [ ] 데이터 클렌징·변환 → `curated/` 저장
 - [ ] 피처 엔지니어링 → `feature/` 저장
 
 ### M4: 모델링 (ML Studio)
 - [ ] 컴퓨팅 클러스터 구성
 - [ ] Feature 데이터 Datastore 등록
+- [ ] XGBoost/LightGBM 하방 리스크 예측 모델 학습
 - [ ] 학습 잡 제출 (`src/models/aml_train_example.py` 참고)
 - [ ] MLflow 실험 트래킹 + Git commit hash 태깅
 
 ### M5: 서빙
 - [ ] 예측 결과 Azure Database for PostgreSQL 적재
+- [ ] PostgreSQL `pgvector` 확장 + 하이브리드 검색 구현
+- [ ] Power BI 시각화 대시보드 (XAI 피처 중요도 포함)
+- [ ] Web App + AI Agent RAG 서빙
 - [ ] 최종 파이프라인 End-to-End 검증
+
+---
+
+## 일정 (9 영업일 — 4/3 ~ 4/15)
+
+| Day | 날짜 | 마일스톤 | 상태 |
+|-----|------|---------|------|
+| 1–2 | 4/3–4/4 | M0 GitHub 세팅 + M1 인프라 프로비저닝 | ✅ 완료 |
+| 3–4 | 4/7–4/8 | M1 추가 인프라 (ACR, Databricks) + M2 수집기 구현 | ✅ 완료 |
+| 5 | 4/9 | M2 ADF 오케스트레이션 파이프라인 구성 | 🔜 |
+| 6 | 4/10 | M3 Databricks 전처리 (Bronze → Silver → Gold) | 🔜 |
+| 7 | 4/11 | M3 LLM 연동 + 피처 엔지니어링 | 🔜 |
+| 8 | 4/14 | M4 ML 학습 + M5 PostgreSQL 적재 | 🔜 |
+| 9 | 4/15 | M5 서빙 (Power BI + Web App + AI Agent) | 🔜 |
 
 ## 관련 문서
 - 아키텍처 개요: [architecture.md](architecture.md)
