@@ -70,7 +70,7 @@ def collect_customs_data():
 
     # 환경 변수 로드
     # Azure Portal의 '환경 변수' 설정에 저장된 값을 자동으로 가져옵니다.
-    API_KEY = os.getenv("CUSTOMS_API_KEY")
+    API_KEY = os.getenv("PUBLIC_DATA_API_KEY")
     ADLS_CONN_STR = os.getenv("ADLS_CONNECTION_STRING")
 
     if not API_KEY or not ADLS_CONN_STR:
