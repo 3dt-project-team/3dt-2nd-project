@@ -223,8 +223,11 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] Google News 크롤러 (ACI) — RSS + Playwright 2단계 크롤링, ADLS `raw/news/google/` 적재
 - [x] 네이버 뉴스 크롤러 (Azure Functions) — 검색 API + Playwright 본문 크롤링
 - [x] Yahoo Finance 매크로·주가 수집 스크립트 — `src/ingestion/yahoo_finance_crawler.py`
-- [x] 환율(FX) 수집 (Azure Functions) — `apps/fx-collector/`, 한국수출입은행 API
+- [x] 환율(FX) 수집 (Azure Functions) — `apps/fx-collector/`, Open Exchange Rates API
 - [x] 관세청 수출입 통계 수집 — `src/utils/kr_public_data_customs.py`, HS Code 8542 기반
+
+#### 🚧 진행 중
+- [ ] FRED 금리 6종 수집 스크립트 — `src/ingestion/` 하위, FRED API (`DGS10`, `DGS2`, `T10Y2Y`, `BAMLH0A0HYM2`, `DFF`, `DFII10`)
 
 #### ❌ 미완료
 - [ ] ADF Linked Service 연결 구성 (ADLS, PostgreSQL, Key Vault)
@@ -236,6 +239,7 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [ ] 클러스터 Init Script 등록 (`notebooks/init_script_install_uv.sh`)
 - [ ] vault_manager 연동 및 ADLS Spark conf 설정
 - [ ] 시계열 결측치 Forward Fill 보간 (국가별 휴장일 통일)
+- [ ] FRED 금리 결측값(`"."`) NULL 변환 + Forward Fill → `curated/fred/` 적재
 - [ ] Spark TF-IDF 기반 동적 키워드 모멘텀
 - [ ] Azure OpenAI 연동 (뉴스 요약, ABSA 감성 분석)
 - [ ] Summary-based Indexing 벡터 임베딩

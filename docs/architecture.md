@@ -11,7 +11,7 @@
 Azure Data Factory (ADF) ── 타이머 트리거 기반 오케스트레이션
  ├─ ACI Activity        → Google News 크롤러 (Playwright one-shot)
  ├─ Functions Activity  → 네이버 뉴스, 환율(FX) 수집
- ├─ Custom Activity     → Yahoo Finance 매크로·퀀트, 관세청 수출통계
+ ├─ Custom Activity     → Yahoo Finance 매크로·퀀트, 관세청 수출통계, FRED 금리 6종
  └─ 파이프라인 JSON, parquet     → adf/ 폴더
 
        │  수집 결과
@@ -47,6 +47,7 @@ Power BI / Web App / AI Agent
 | Azure Container Registry (`sense3dtacr`) | 컨테이너 이미지 저장소 (ACR Build) | _인프라, Git 외부_ |
 | Azure Container Instances | One-shot 크롤링 실행 (Google News) | `src/ingestion/google_news_crawler/Dockerfile` |
 | Azure Functions | 이벤트/배치 수집 (네이버 뉴스, 환율 FX) | `src/ingestion/naver_collectors/`, `apps/fx-collector/` |
+| Custom Activity (ADF) | FRED 금리 6종 일별 수집 (DGS10, DGS2, T10Y2Y, BAMLH0A0HYM2, DFF, DFII10) | `src/ingestion/` (구현 예정) |
 | ADLS Gen2 (`3dtteam1adls`) | 데이터 레이크 (raw·curated·feature) | _데이터는 Git에 없음_ |
 | Databricks (`sense-adb`) | 대용량 전처리·피처 엔지니어링 | `src/`, `notebooks/` |
 | ML Studio | 모델 학습·실험 관리 | `src/models/` |
