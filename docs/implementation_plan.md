@@ -247,7 +247,18 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [ ] 데이터 클렌징·변환 → `curated/` 저장
 - [ ] 피처 엔지니어링 → `feature/` 저장
 
-### M4: 모델링 (ML Studio)
+### M4: 모델링 (ML Studio + TimesFM)
+
+#### TimesFM 2.5 시계열 예측 (Databricks)
+- [ ] TimesFM 2.5 환경 구성 — `pip install timesfm[torch,xreg]`, GPU 클러스터 설정
+- [ ] Step 1: Zero-shot Baseline 추론 — 삼성전자/SK하이닉스 종가 시계열 → 20일 예측 + Quantile PI
+- [ ] Step 2: XReg 공변량 추론 — 매크로/퀀트/감성 지표를 외부 회귀 변수로 입력
+- [ ] 교차 검증 파생 변수 생성 — `macro_sentiment_divergence`, `sox_news_confirm`, `rate_memory_cross` 등
+- [ ] 시나리오 분석 (What-If) — 금리 인하/인상/달러 급등 등 5개 시나리오별 예측 산출
+- [ ] Rolling Window Backtest — MAE, 80% PI Coverage, Directional Accuracy 평가
+- [ ] XReg Attribution (공변량 기여도 분석) — Leave-One-Out 방식으로 변수별 영향력 정량화
+
+#### XGBoost/LightGBM 분류 (ML Studio)
 - [ ] 컴퓨팅 클러스터 구성
 - [ ] Feature 데이터 Datastore 등록
 - [ ] XGBoost/LightGBM 하방 리스크 예측 모델 학습
@@ -255,6 +266,10 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [ ] MLflow 실험 트래킹 + Git commit hash 태깅
 - [ ] Many Models 패턴 적용 — 삼성전자/SK하이닉스/NVDA/MU 종목별 개별 모델 병렬 학습 (AML `parallel` component, MS [Many Models](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/many-models-machine-learning-azure-machine-learning) 참조)
 - [ ] AML Batch Endpoint 등록 및 ADF 연동 (MS [Orchestrate ML](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/orchestrate-machine-learning-azure-databricks) 참조)
+
+#### 앙상블 합의 판정
+- [ ] TimesFM 방향성 + XGBoost 확률 + 매크로 충격 3축 Consensus 로직 구현
+- [ ] RAG 연동 — XReg Attribution 기반 예측 근거 자동 생성
 
 ### M5: 서빙
 - [ ] 예측 결과 Azure Database for PostgreSQL 적재
@@ -282,4 +297,3 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - uv 통합 가이드: [uv_integration_guide.md](uv_integration_guide.md)
 - 협업 규칙: [../docs/git_guide/](git_guide/)
 - MS 아키텍처 베스트 프랙티스: [architecture.md #MS 아키텍처 베스트 프랙티스 참조](architecture.md#ms-아키텍처-베스트-프랙티스-참조)
-- 실행 아이디어 상세 가이드: `ref/실행 아이디어.md`
