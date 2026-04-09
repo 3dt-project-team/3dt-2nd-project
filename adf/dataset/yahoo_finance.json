@@ -1,5 +1,5 @@
 {
-	"name": "yfinance",
+	"name": "yahoo_finance",
 	"properties": {
 		"linkedServiceName": {
 			"referenceName": "3dtteam1adls",

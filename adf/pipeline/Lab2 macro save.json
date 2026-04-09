@@ -1,5 +1,5 @@
 {
-	"name": "pipeline2",
+	"name": "Lab2 macro save",
 	"properties": {
 		"activities": [
 			{
@@ -16,7 +16,7 @@
 				"userProperties": [],
 				"typeProperties": {
 					"dataflow": {
-						"referenceName": "macro preprocessing",
+						"referenceName": "Flow2 macro save",
 						"type": "DataFlowReference"
 					},
 					"compute": {

@@ -1,5 +1,5 @@
 {
-	"name": "pipeline1",
+	"name": "Lab1 macro join",
 	"properties": {
 		"description": "조인까지",
 		"activities": [
@@ -17,7 +17,7 @@
 				"userProperties": [],
 				"typeProperties": {
 					"dataflow": {
-						"referenceName": "macro join",
+						"referenceName": "Flow1 macro join",
 						"type": "DataFlowReference"
 					},
 					"compute": {

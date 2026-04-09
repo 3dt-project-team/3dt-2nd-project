@@ -1,29 +1,29 @@
 {
-	"name": "macro join",
+	"name": "Flow1 macro join",
 	"properties": {
 		"type": "MappingDataFlow",
 		"typeProperties": {
 			"sources": [
 				{
 					"dataset": {
-						"referenceName": "yfinance",
+						"referenceName": "yahoo_finance",
 						"type": "DatasetReference"
 					},
-					"name": "source1"
+					"name": "yfinance"
 				},
 				{
 					"dataset": {
-						"referenceName": "fx",
+						"referenceName": "foreign_exchange",
 						"type": "DatasetReference"
 					},
-					"name": "source2"
+					"name": "fx"
 				},
 				{
 					"dataset": {
 						"referenceName": "fred",
 						"type": "DatasetReference"
 					},
-					"name": "source3"
+					"name": "fred"
 				}
 			],
 			"sinks": [
@@ -77,7 +77,7 @@
 				"     ),",
 				"     allowSchemaDrift: true,",
 				"     validateSchema: false,",
-				"     ignoreNoFilesFound: false) ~> source1",
+				"     ignoreNoFilesFound: false) ~> yfinance",
 				"source(output(",
 				"          date as string,",
 				"          base as string,",
@@ -86,7 +86,7 @@
 				"     ),",
 				"     allowSchemaDrift: true,",
 				"     validateSchema: false,",
-				"     ignoreNoFilesFound: false) ~> source2",
+				"     ignoreNoFilesFound: false) ~> fx",
 				"source(output(",
 				"          {관측일자} as string,",
 				"          {지표코드} as string,",
@@ -95,8 +95,8 @@
 				"     ),",
 				"     allowSchemaDrift: true,",
 				"     validateSchema: false,",
-				"     ignoreNoFilesFound: false) ~> source3",
-				"source1 derive(date = toDate(Date),",
+				"     ignoreNoFilesFound: false) ~> fred",
+				"yfinance derive(date = toDate(Date),",
 				"          close_float = toFloat(Close),",
 				"          yfinance_collected_at_utc = currentUTC(),",
 				"          mapped_ticker = case(\r",
@@ -112,11 +112,11 @@
 				"    Ticker == '000660.KS', 'skhynix',\r",
 				"    lower(replace(Ticker, '.KS', ''))\r",
 				")) ~> derivedColumn1",
-				"source2 derive(date = toDate(date) ,",
+				"fx derive(date = toDate(date) ,",
 				"          usd_krw_rate = toFloat(rate),",
 				"          fx_collected_at_utc = currentUTC(),",
 				"          provider = 'Frankfurter') ~> derivedColumn2",
-				"source3 derive(date = toDate({관측일자}) ,",
+				"fred derive(date = toDate({관측일자}) ,",
 				"          rate_float = toFloat({금리값}),",
 				"          fred_collected_at_utc = toTimestamp({수집일시},'yyyy-MM-dd HH:mm:ss') - toLong(32400000),",
 				"          indicator_lower = lower({지표코드}),",
