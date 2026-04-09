@@ -1,56 +1,46 @@
 """
-yahoo_finance_crawler.py -v3
-===============
-반도체 종목 주가 데이터 수집 및 ADLS Gen2 업로드 Azure Function 앱
+yahoo_finance_crawler.py
+========================
+반도체 종목 주가 데이터 수집 및 ADLS Gen2 업로드 비즈니스 로직 (증분수집)
 
-설명:
-    HTTP 트리거 기반 Azure Function으로, 호출 시 반도체 관련 종목의
-    1년치 주가 데이터를 수집하고 ADLS Gen2 raw 컨테이너에 업로드합니다.
+수집 종목:
+    - 미국 증시: NVDA, TSM, AMD, INTC, ASML, MU, WDC, ^SOX (반도체 지수)
+    - 한국 증시: 005930.KS (삼성전자), 000660.KS (SK하이닉스)
 
-    수집 종목:
-        - 미국 증시: NVDA, TSM, AMD, INTC, ASML, ^SOX (반도체 지수)
-        - 한국 증시: 005930.KS (삼성전자), 000660.KS (SK하이닉스)
-
-    데이터 형태:
-        멀티인덱스(Wide) → Long 형태로 변환하여 저장합니다.
-        각 행이 (날짜 + 종목) 단위로 구성됩니다.
+데이터 형태:
+    멀티인덱스(Wide) → Long 형태로 변환하여 저장합니다.
+    각 행이 (날짜 + 종목) 단위로 구성됩니다.
 
 업로드 경로:
     raw 컨테이너 / yfinance/year={Y}/month={M}/day={D}/yahoo_finance_raw_{YYYYMMDD}.csv
 
-HTTP 트리거 호출 예시:
-    POST https://<function-app>.azurewebsites.net/api/yahoo_finance_crawler
-    Body (선택): { "period": "1y" }   ← 생략 시 기본값 "1y" 사용
+Watermark 경로:
+    raw 컨테이너 / yfinance/watermark.json
 
-    GET  https://<function-app>.azurewebsites.net/api/yahoo_finance_crawler?period=6mo
-
-의존성:
-    - azure-functions
-    - yfinance
-    - pandas
-    - azure-storage-file-datalake (vault_manager 경유)
+Author: 김원비 (1조)
 """
 
 import io
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-import azure.functions as func
 import pandas as pd
 import yfinance as yf
 
-from src.utils.vault_manager import vault
+from vault_manager import vault
 
 # ---------------------------------------------------------------------------
 # 로깅 설정
 # ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# 상수 정의
+# ---------------------------------------------------------------------------
+RAW_CONTAINER    = "raw"
+WATERMARK_PATH   = "yfinance/watermark.json"
+FULL_LOAD_PERIOD = "1y"  # 최초 실행 시 수집 기간
 
 
 # ---------------------------------------------------------------------------
@@ -74,128 +64,176 @@ SEMICONDUCTOR_TICKERS = {
 
 
 # ---------------------------------------------------------------------------
-# Azure Function 앱 초기화 (function_app.py 기본 구조 유지)
+# Watermark 함수
 # ---------------------------------------------------------------------------
 
-app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
-
-
-# ---------------------------------------------------------------------------
-# HTTP 트리거 진입점
-# ---------------------------------------------------------------------------
-
-@app.route(route="yahoo_finance_crawler")
-def yahoo_finance_crawler(req: func.HttpRequest) -> func.HttpResponse:
+def read_watermark() -> str | None:
     """
-    HTTP 트리거 진입점.
-
-    요청 파라미터 (선택):
-        period (str): 수집 기간 (기본값: "1y")
-                      Body JSON 또는 Query String으로 전달 가능
-                      예: POST Body → { "period": "6mo" }
-                          GET  URL  → ?period=6mo
+    ADLS Gen2 에서 watermark.json 을 읽어 마지막 수집일을 반환합니다.
 
     Returns:
-        200: 수집 및 업로드 성공 메시지 (JSON)
-        500: 수집 또는 업로드 실패 메시지 (JSON)
+        str | None: 마지막 수집일 (예: "2026-04-09") 또는 None (최초 실행)
     """
-    logger.info("yahoo_finance_crawler HTTP 트리거 호출됨")
-
-    # -----------------------------------------------------------------------
-    # 요청에서 period 파라미터 추출
-    # 우선순위: Body JSON > Query String > 기본값 "1y"
-    # -----------------------------------------------------------------------
-    period = "1y"
-
-    # Query String 확인
-    qs_period = req.params.get("period")
-    if qs_period:
-        period = qs_period
-
-    # Body JSON 확인 (Query String보다 우선)
     try:
-        body = req.get_json()
-        if body.get("period"):
-            period = body["period"]
-    except ValueError:
-        pass  # Body가 없거나 JSON이 아닌 경우 무시
+        storage_client = vault.get_storage_client()
+        fs_client      = storage_client.get_file_system_client(RAW_CONTAINER)
+        file_client    = fs_client.get_file_client(WATERMARK_PATH)
 
-    logger.info("수집 기간: %s", period)
+        download = file_client.download_file()
+        content  = json.loads(download.readall().decode("utf-8"))
+        last_date = content.get("last_collected_date")
+        logger.info("Watermark 읽기 완료: last_collected_date=%s", last_date)
+        return last_date
 
-    # -----------------------------------------------------------------------
-    # 데이터 수집 및 업로드
-    # -----------------------------------------------------------------------
+    except Exception:
+        logger.info("Watermark 없음 → 최초 실행으로 판단, 전체 수집 진행")
+        return None
+
+
+def write_watermark(date: datetime) -> None:
+    """
+    ADLS Gen2 에 watermark.json 을 저장합니다.
+
+    Args:
+        date (datetime): 저장할 수집 기준일 (UTC)
+    """
     try:
-        # 1. 데이터 수집 및 Long 변환
-        stock_df = fetch_stock_data(tickers=SEMICONDUCTOR_TICKERS, period=period)
-
-        # UTC 기준 날짜 사용 — 팀원 간 날짜 기준 통일
-        now_utc = datetime.now(tz=timezone.utc)
-
-        # 2. ADLS Gen2 업로드
-        adls_path = upload_to_adls(stock_df, now_utc)
-
-        # 성공 응답
-        result = {
-            "status":     "success",
-            "period":     period,
-            "rows":       len(stock_df),
-            "tickers":    int(stock_df["Ticker"].nunique()),
-            "date_range": {
-                "start": str(stock_df.index.min()),
-                "end":   str(stock_df.index.max()),
-            },
-            "adls_path":  adls_path,
+        content = {
+            "last_collected_date": date.strftime("%Y-%m-%d"),
+            "last_run_utc":        date.strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
-        logger.info("전체 완료: %s", result)
-        return func.HttpResponse(
-            body=json.dumps(result, ensure_ascii=False),
-            status_code=200,
-            mimetype="application/json",
-        )
+        buffer = io.BytesIO(json.dumps(content, ensure_ascii=False).encode("utf-8"))
+
+        storage_client = vault.get_storage_client()
+        fs_client      = storage_client.get_file_system_client(RAW_CONTAINER)
+        file_client    = fs_client.get_file_client(WATERMARK_PATH)
+        file_client.upload_data(buffer.getvalue(), overwrite=True)
+
+        logger.info("Watermark 저장 완료: %s", content)
 
     except Exception as e:
-        logger.error("처리 중 오류 발생: %s", e)
-        return func.HttpResponse(
-            body=json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False),
-            status_code=500,
-            mimetype="application/json",
-        )
+        logger.error("Watermark 저장 실패: %s", e)
+        raise RuntimeError(f"Watermark 저장 중 문제가 발생했습니다: {e}") from e
 
 
 # ---------------------------------------------------------------------------
-# 수집 함수 (기존 yahoo_finance_crawler.py 로직 그대로 유지)
+# 증분수집 진입 함수
 # ---------------------------------------------------------------------------
 
-def fetch_stock_data(tickers: dict[str, str], period: str = "1y") -> pd.DataFrame:
+def run_incremental() -> dict:
+    """
+    Watermark 기반 증분수집 실행 함수.
+
+    실행 흐름:
+        1. Watermark 읽기
+        2. 수집 범위 결정 (최초 or 증분)
+        3. 데이터 수집
+        4. ADLS 업로드
+        5. Watermark 업데이트
+
+    Returns:
+        dict: 수집 결과 요약
+    """
+    now_utc   = datetime.now(tz=timezone.utc)
+    today_str = now_utc.strftime("%Y-%m-%d")
+
+    # 1. Watermark 읽기
+    last_collected_date = read_watermark()
+
+    # 2. 이미 오늘 수집한 경우 → 스킵
+    if last_collected_date == today_str:
+        logger.info("이미 오늘 날짜까지 수집 완료. 스킵합니다.")
+        return {
+            "status":              "skipped",
+            "message":             "이미 오늘 날짜까지 수집 완료",
+            "last_collected_date": last_collected_date,
+        }
+
+    # 3. 수집 범위 결정
+    if last_collected_date is None:
+        # 최초 실행 → 1년치 전체 수집
+        mode       = "full"
+        start_date = None
+        end_date   = None
+        logger.info("최초 실행 → 전체 수집 (period=%s)", FULL_LOAD_PERIOD)
+    else:
+        # 증분 수집 → 마지막 수집일 다음날부터 오늘까지
+        mode       = "incremental"
+        start_date = (
+            datetime.strptime(last_collected_date, "%Y-%m-%d") + timedelta(days=1)
+        ).strftime("%Y-%m-%d")
+        end_date   = today_str
+        logger.info("증분 수집 → %s ~ %s", start_date, end_date)
+
+    # 4. 데이터 수집
+    stock_df = fetch_stock_data(
+        tickers    = SEMICONDUCTOR_TICKERS,
+        start_date = start_date,
+        end_date   = end_date,
+        period     = FULL_LOAD_PERIOD if mode == "full" else None,
+    )
+
+    if stock_df.empty:
+        logger.info("신규 데이터 없음. 스킵합니다.")
+        return {
+            "status":  "skipped",
+            "message": "수집할 신규 데이터 없음",
+            "mode":    mode,
+        }
+
+    # 5. ADLS 업로드
+    adls_path = upload_to_adls(stock_df, now_utc)
+
+    # 6. Watermark 업데이트
+    write_watermark(now_utc)
+
+    return {
+        "status":         "success",
+        "mode":           mode,
+        "collected_from": start_date or stock_df.index.min().strftime("%Y-%m-%d"),
+        "collected_to":   today_str,
+        "rows":           len(stock_df),
+        "tickers":        int(stock_df["Ticker"].nunique()),
+        "adls_path":      adls_path,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 수집 함수
+# ---------------------------------------------------------------------------
+
+def fetch_stock_data(
+    tickers:    dict[str, str],
+    start_date: str | None = None,
+    end_date:   str | None = None,
+    period:     str | None = None,
+) -> pd.DataFrame:
     """
     yfinance를 사용하여 주가 데이터를 다운로드하고 Long 형태로 변환합니다.
 
-    [Wide 형태 - 변환 전]
-               NVDA              TSM
-               Open  Close  ...  Open  Close  ...
-    Date
-    2025-01-02  ...   ...        ...   ...
-
-    [Long 형태 - 변환 후]
-    Date        Ticker  Open    High    Low     Close   Volume
-    2025-01-02  NVDA    138.5   140.2   137.1   139.8   123456789
-    2025-01-02  TSM     180.3   182.1   179.5   181.2   45678900
-
     Args:
         tickers (dict[str, str]): {종목명: 티커코드} 딕셔너리
-        period (str): 수집 기간 (기본값: '1y')
+        start_date (str | None): 수집 시작일 (예: "2026-04-01") - 증분수집 시 사용
+        end_date   (str | None): 수집 종료일 (예: "2026-04-09") - 증분수집 시 사용
+        period     (str | None): 수집 기간 (예: "1y") - 최초 전체 수집 시 사용
 
     Returns:
         pd.DataFrame: Long 형태로 변환된 OHLCV 데이터프레임
-
-    Raises:
-        RuntimeError: 수집된 데이터가 없을 시
     """
     ticker_codes = list(tickers.values())
-    logger.info("데이터 다운로드 시작: %s (기간: %s)", ticker_codes, period)
 
-    raw_df = yf.download(ticker_codes, period=period, group_by="ticker")
+    if period:
+        logger.info("전체 수집 시작 (period=%s)", period)
+        raw_df = yf.download(ticker_codes, period=period, group_by="ticker")
+    else:
+        logger.info("증분 수집 시작 (%s ~ %s)", start_date, end_date)
+        raw_df = yf.download(
+            ticker_codes,
+            start=start_date,
+            end=end_date,
+            group_by="ticker",
+        )
+
     logger.info("데이터 다운로드 완료. shape=%s", raw_df.shape)
 
     long_records = []
@@ -204,7 +242,7 @@ def fetch_stock_data(tickers: dict[str, str], period: str = "1y") -> pd.DataFram
     for ticker_code in ticker_codes:
         try:
             ticker_df = raw_df[ticker_code].copy()
-            cols = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in ticker_df.columns]
+            cols      = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in ticker_df.columns]
             ticker_df = ticker_df[cols]
             ticker_df = ticker_df.dropna(how="all")
             ticker_df["Ticker"] = ticker_code
@@ -217,15 +255,15 @@ def fetch_stock_data(tickers: dict[str, str], period: str = "1y") -> pd.DataFram
             continue
 
     if not long_records:
-        raise RuntimeError("수집된 데이터가 없습니다. 티커 코드 및 네트워크 상태를 확인하세요.")
+        return pd.DataFrame()  # 빈 DataFrame 반환 (수집할 데이터 없음)
 
     final_df = pd.concat(long_records)
     final_df.index = final_df.index.tz_localize(None)
 
     col_order = ["Ticker", "Name", "Open", "High", "Low", "Close", "Volume"]
     col_order = [c for c in col_order if c in final_df.columns]
-    final_df = final_df[col_order]
-    final_df = final_df.sort_index()
+    final_df  = final_df[col_order]
+    final_df  = final_df.sort_index()
 
     logger.info("Long 변환 완료. 최종 shape=%s", final_df.shape)
     logger.info("수집 기간: %s ~ %s", final_df.index.min(), final_df.index.max())
@@ -235,7 +273,7 @@ def fetch_stock_data(tickers: dict[str, str], period: str = "1y") -> pd.DataFram
 
 
 # ---------------------------------------------------------------------------
-# 업로드 함수 (기존 yahoo_finance_crawler.py 로직 그대로 유지)
+# 업로드 함수
 # ---------------------------------------------------------------------------
 
 def upload_to_adls(df: pd.DataFrame, date: datetime) -> str:
@@ -265,12 +303,12 @@ def upload_to_adls(df: pd.DataFrame, date: datetime) -> str:
         buffer.seek(0)
 
         storage_client = vault.get_storage_client()
-        fs_client   = storage_client.get_file_system_client("raw")
-        dir_client  = fs_client.get_directory_client(directory)
-        file_client = dir_client.get_file_client(file_name)
+        fs_client      = storage_client.get_file_system_client(RAW_CONTAINER)
+        dir_client     = fs_client.get_directory_client(directory)
+        file_client    = dir_client.get_file_client(file_name)
         file_client.upload_data(buffer.read(), overwrite=True)
 
-        adls_path = f"raw/{directory}/{file_name}"
+        adls_path = f"{RAW_CONTAINER}/{directory}/{file_name}"
         logger.info("ADLS Gen2 업로드 완료: %s (%d rows)", adls_path, len(df))
         return adls_path
 
