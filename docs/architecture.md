@@ -21,10 +21,11 @@ ADLS Gen2 (Azure Data Lake Storage Gen2) — 3dtteam1adls
  ├─ curated/   전처리 완료 데이터 (Databricks가 생성)
  └─ feature/   ML용 피처 데이터 (Databricks가 생성)
 
-Azure Databricks (sense-adb)
+Azure Databricks (sense-databricks, Premium)
  ├─ raw → curated : 데이터 클렌징·변환 (시계열 보간, TF-IDF)
  ├─ curated → feature : 피처 엔지니어링 (ABSA, 벡터 임베딩)
- └─ 공통 모듈 사용 : src/utils/vault_manager.py
+ ├─ 공통 모듈 사용 : src/utils/vault_manager.py
+ └─ Key Vault-backed Secret Scope (sense-kv-scope) 로 비밀 관리
 
 Azure ML Studio
  ├─ feature → 모델 학습 (CommandJob, XGBoost/LightGBM)
@@ -49,7 +50,7 @@ Power BI / Web App / AI Agent
 | Azure Functions | 이벤트/배치 수집 (네이버 뉴스, 환율 FX) | `src/ingestion/naver_collectors/`, `apps/fx-collector/` |
 | Custom Activity (ADF) | FRED 금리 6종 일별 수집 (DGS10, DGS2, T10Y2Y, BAMLH0A0HYM2, DFF, DFII10) | `src/ingestion/` (구현 예정) |
 | ADLS Gen2 (`3dtteam1adls`) | 데이터 레이크 (raw·curated·feature) | _데이터는 Git에 없음_ |
-| Databricks (`sense-adb`) | 대용량 전처리·피처 엔지니어링 | `src/`, `notebooks/` |
+| Databricks (`sense-databricks`, Premium) | 대용량 전처리·피처 엔지니어링, Key Vault Secret Scope | `src/`, `notebooks/` |
 | ML Studio | 모델 학습·실험 관리 | `src/models/` |
 | Azure Database for PostgreSQL | 결과 데이터 저장·서빙 (`sense_db`, `pgvector`) | _인프라, Git 외부_ |
 | Azure Key Vault (`kv-3dt-team1`) | 모든 자격 증명 중앙 관리 | `src/utils/vault_manager.py` |
@@ -77,11 +78,33 @@ DefaultAzureCredential
 - `vault.get_storage_client()` → ADLS Gen2 DataLakeServiceClient (또는 Databricks Spark conf 설정)
 - `vault.get_pg_connection()` → psycopg.Connection 또는 SQLAlchemy Engine
 
+### Databricks Key Vault Secret Scope 설정 (완료)
+
+`sense-databricks` (Premium)에서 Key Vault-backed Secret Scope를 사용합니다.
+
+**구성 완료 내역 (2026-01-09)**
+- `AzureDatabricks` 앱(`2ff814a6-3304-4ab8-85cb-cd0e6f879c1d`)에 **Key Vault Secrets User** RBAC 역할 부여
+- Scope: `/subscriptions/.../resourceGroups/3dt-2nd-team1/providers/Microsoft.KeyVault/vaults/kv-3dt-team1`
+
+**Secret Scope 등록 (Databricks에서 1회 수동 실행)**
+```
+https://<sense-databricks-url>#secrets/createScope
+
+- Scope Name : sense-kv-scope
+- DNS Name   : https://kv-3dt-team1.vault.azure.net/
+- Resource ID: /subscriptions/27db5ec6-d206-4028-b5e1-6004dca5eeef/resourceGroups/3dt-2nd-team1/providers/Microsoft.KeyVault/vaults/kv-3dt-team1
+```
+
+**노트북에서 사용**
+```python
+adls_secret = dbutils.secrets.get(scope="sense-kv-scope", key="adls-client-secret")
+```
+
 ## 서비스별 연동 방식 요약
 
 | 서비스 | ADLS Gen2 | PostgreSQL | Key Vault |
 |---|---|---|---|
-| Databricks | Spark conf OAuth (Service Principal) | psycopg / JDBC | vault_manager 또는 dbutils.secrets |
+| Databricks | Spark conf OAuth (Service Principal) | psycopg / JDBC | Key Vault-backed Secret Scope (dbutils.secrets) |
 | Data Factory | Linked Service (Managed Identity) | Linked Service (KV 비밀 참조) | UI에서 Key Vault 직접 연결 |
 | ML Studio | vault_manager + DataLakeServiceClient | vault_manager + psycopg/SQLAlchemy | DefaultAzureCredential (Managed Identity) |
 | ACI (Google News) | vault_manager + DataLakeServiceClient | — | System-Assigned MI → Key Vault Secrets User |
