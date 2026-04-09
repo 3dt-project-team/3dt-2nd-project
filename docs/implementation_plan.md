@@ -223,8 +223,11 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] Google News 크롤러 (ACI) — RSS + Playwright 2단계 크롤링, ADLS `raw/news/google/` 적재
 - [x] 네이버 뉴스 크롤러 (Azure Functions) — 검색 API + Playwright 본문 크롤링
 - [x] Yahoo Finance 매크로·주가 수집 스크립트 — `src/ingestion/yahoo_finance_crawler.py`
-- [x] 환율(FX) 수집 (Azure Functions) — `apps/fx-collector/`, 한국수출입은행 API
+- [x] 환율(FX) 수집 (Azure Functions) — `apps/fx-collector/`, Open Exchange Rates API
 - [x] 관세청 수출입 통계 수집 — `src/utils/kr_public_data_customs.py`, HS Code 8542 기반
+
+#### 🚧 진행 중
+- [ ] FRED 금리 6종 수집 스크립트 — `src/ingestion/` 하위, FRED API (`DGS10`, `DGS2`, `T10Y2Y`, `BAMLH0A0HYM2`, `DFF`, `DFII10`)
 
 #### ❌ 미완료
 - [ ] ADF Linked Service 연결 구성 (ADLS, PostgreSQL, Key Vault)
@@ -235,19 +238,38 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 ### M3: 전처리 (Databricks)
 - [ ] 클러스터 Init Script 등록 (`notebooks/init_script_install_uv.sh`)
 - [ ] vault_manager 연동 및 ADLS Spark conf 설정
+- [ ] Databricks Auto Loader (`cloudFiles`) 증분 수집 설정 — raw → curated 자동 파이프라인 (MS [Ingest ETL Stream](https://learn.microsoft.com/en-us/azure/architecture/solution-ideas/articles/ingest-etl-stream-with-adb) 참조)
 - [ ] 시계열 결측치 Forward Fill 보간 (국가별 휴장일 통일)
+- [ ] FRED 금리 결측값(`"."`) NULL 변환 + Forward Fill → `curated/fred/` 적재
 - [ ] Spark TF-IDF 기반 동적 키워드 모멘텀
 - [ ] Azure OpenAI 연동 (뉴스 요약, ABSA 감성 분석)
 - [ ] Summary-based Indexing 벡터 임베딩
 - [ ] 데이터 클렌징·변환 → `curated/` 저장
 - [ ] 피처 엔지니어링 → `feature/` 저장
 
-### M4: 모델링 (ML Studio)
+### M4: 모델링 (ML Studio + TimesFM)
+
+#### TimesFM 2.5 시계열 예측 (Databricks)
+- [ ] TimesFM 2.5 환경 구성 — `pip install timesfm[torch,xreg]`, GPU 클러스터 설정
+- [ ] Step 1: Zero-shot Baseline 추론 — 삼성전자/SK하이닉스 종가 시계열 → 20일 예측 + Quantile PI
+- [ ] Step 2: XReg 공변량 추론 — 매크로/퀀트/감성 지표를 외부 회귀 변수로 입력
+- [ ] 교차 검증 파생 변수 생성 — `macro_sentiment_divergence`, `sox_news_confirm`, `rate_memory_cross` 등
+- [ ] 시나리오 분석 (What-If) — 금리 인하/인상/달러 급등 등 5개 시나리오별 예측 산출
+- [ ] Rolling Window Backtest — MAE, 80% PI Coverage, Directional Accuracy 평가
+- [ ] XReg Attribution (공변량 기여도 분석) — Leave-One-Out 방식으로 변수별 영향력 정량화
+
+#### XGBoost/LightGBM 분류 (ML Studio)
 - [ ] 컴퓨팅 클러스터 구성
 - [ ] Feature 데이터 Datastore 등록
 - [ ] XGBoost/LightGBM 하방 리스크 예측 모델 학습
 - [ ] 학습 잡 제출 (`src/models/aml_train_example.py` 참고)
 - [ ] MLflow 실험 트래킹 + Git commit hash 태깅
+- [ ] Many Models 패턴 적용 — 삼성전자/SK하이닉스/NVDA/MU 종목별 개별 모델 병렬 학습 (AML `parallel` component, MS [Many Models](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/many-models-machine-learning-azure-machine-learning) 참조)
+- [ ] AML Batch Endpoint 등록 및 ADF 연동 (MS [Orchestrate ML](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/orchestrate-machine-learning-azure-databricks) 참조)
+
+#### 앙상블 합의 판정
+- [ ] TimesFM 방향성 + XGBoost 확률 + 매크로 충격 3축 Consensus 로직 구현
+- [ ] RAG 연동 — XReg Attribution 기반 예측 근거 자동 생성
 
 ### M5: 서빙
 - [ ] 예측 결과 Azure Database for PostgreSQL 적재
@@ -274,3 +296,4 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - 아키텍처 개요: [architecture.md](architecture.md)
 - uv 통합 가이드: [uv_integration_guide.md](uv_integration_guide.md)
 - 협업 규칙: [../docs/git_guide/](git_guide/)
+- MS 아키텍처 베스트 프랙티스: [architecture.md #MS 아키텍처 베스트 프랙티스 참조](architecture.md#ms-아키텍처-베스트-프랙티스-참조)

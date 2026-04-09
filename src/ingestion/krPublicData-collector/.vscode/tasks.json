@@ -8,10 +8,6 @@
 			"problemMatcher": "$func-python-watch",
 			"isBackground": true,
 			"dependsOn": "pip install (functions)"
-			"dependsOn": "pip install (functions)",
-			"options": {
-				"cwd": "${workspaceFolder}/src\\ingestion\\krPublicData-collector"
-			}
 		},
 		{
 			"label": "pip install (functions)",
@@ -26,10 +22,6 @@
 				"command": "${config:azureFunctions.pythonVenv}/bin/python -m pip install -r requirements.txt"
 			},
 			"problemMatcher": []
-			"problemMatcher": [],
-			"options": {
-				"cwd": "${workspaceFolder}/src\\ingestion\\krPublicData-collector"
-			}
 		}
 	]
 }
