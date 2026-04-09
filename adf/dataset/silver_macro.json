@@ -1,0 +1,108 @@
+{
+	"name": "silver_macro",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "3dtteam1adls",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileSystem": "curated"
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": [
+			{
+				"name": "date",
+				"type": "DATE"
+			},
+			{
+				"name": "usd_krw_rate",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fx_collected_at_utc",
+				"type": "INT96"
+			},
+			{
+				"name": "yfinance_collected_at_utc",
+				"type": "INT96"
+			},
+			{
+				"name": "yfinance_amd_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_asml_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_intc_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_mu_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_nvda_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_samsung_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_skhynix_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_sox_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_tsm_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_wdc_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fred_collected_at_utc",
+				"type": "INT96"
+			},
+			{
+				"name": "fred_bamlh0a0hym2",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fred_dff",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fred_dfii10",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fred_dgs10",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fred_dgs2",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fred_t10y2y",
+				"type": "FLOAT"
+			},
+			{
+				"name": "final_date",
+				"type": "DATE"
+			}
+		]
+	}
+}
