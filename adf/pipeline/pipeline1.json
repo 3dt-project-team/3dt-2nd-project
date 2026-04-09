@@ -17,7 +17,7 @@
 				"userProperties": [],
 				"typeProperties": {
 					"dataflow": {
-						"referenceName": "macro preprocessing",
+						"referenceName": "macro join",
 						"type": "DataFlowReference"
 					},
 					"compute": {
