@@ -1,0 +1,19 @@
+{
+	"name": "silver_join",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "3dtteam1adls",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileSystem": "curated"
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": []
+	}
+}

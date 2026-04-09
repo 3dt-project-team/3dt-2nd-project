@@ -26,7 +26,15 @@
 					"name": "source3"
 				}
 			],
-			"sinks": [],
+			"sinks": [
+				{
+					"dataset": {
+						"referenceName": "silver_join",
+						"type": "DatasetReference"
+					},
+					"name": "sink1"
+				}
+			],
 			"transformations": [
 				{
 					"name": "derivedColumn1"
@@ -51,6 +59,9 @@
 				},
 				{
 					"name": "join2"
+				},
+				{
+					"name": "derivedColumn4"
 				}
 			],
 			"scriptLines": [
@@ -138,7 +149,16 @@
 				"     joinType:'outer',",
 				"     matchType:'exact',",
 				"     ignoreSpaces: false,",
-				"     broadcast: 'auto')~> join2"
+				"     broadcast: 'auto')~> join2",
+				"join2 derive(final_date = coalesce(select1@date, pivot1@date, pivot2@date)) ~> derivedColumn4",
+				"derivedColumn4 sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'parquet',",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     partitionBy('hash', 1)) ~> sink1"
 			]
 		}
 	}
