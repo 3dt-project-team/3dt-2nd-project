@@ -23,12 +23,13 @@ Author: 김원비 (1조)
 import io
 import json
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import yfinance as yf
-
-from vault_manager import vault
+from azure.identity import DefaultAzureCredential
+from azure.storage.filedatalake import DataLakeServiceClient
 
 # ---------------------------------------------------------------------------
 # 로깅 설정
@@ -38,9 +39,18 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 상수 정의
 # ---------------------------------------------------------------------------
-RAW_CONTAINER    = "raw"
+RAW_CONTAINER    = os.getenv("RAW_CONTAINER", "raw")
+ADLS_ACCOUNT     = os.environ["ADLS_ACCOUNT_NAME"]
 WATERMARK_PATH   = "yfinance/watermark.json"
 FULL_LOAD_PERIOD = "1y"  # 최초 실행 시 수집 기간
+
+
+def _get_adls_client() -> DataLakeServiceClient:
+    """DefaultAzureCredential로 ADLS Gen2 클라이언트를 반환합니다."""
+    return DataLakeServiceClient(
+        account_url=f"https://{ADLS_ACCOUNT}.dfs.core.windows.net",
+        credential=DefaultAzureCredential(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +85,7 @@ def read_watermark() -> str | None:
         str | None: 마지막 수집일 (예: "2026-04-09") 또는 None (최초 실행)
     """
     try:
-        storage_client = vault.get_storage_client()
+        storage_client = _get_adls_client()
         fs_client      = storage_client.get_file_system_client(RAW_CONTAINER)
         file_client    = fs_client.get_file_client(WATERMARK_PATH)
 
@@ -104,7 +114,7 @@ def write_watermark(date: datetime) -> None:
         }
         buffer = io.BytesIO(json.dumps(content, ensure_ascii=False).encode("utf-8"))
 
-        storage_client = vault.get_storage_client()
+        storage_client = _get_adls_client()
         fs_client      = storage_client.get_file_system_client(RAW_CONTAINER)
         file_client    = fs_client.get_file_client(WATERMARK_PATH)
         file_client.upload_data(buffer.getvalue(), overwrite=True)
@@ -302,7 +312,7 @@ def upload_to_adls(df: pd.DataFrame, date: datetime) -> str:
         df.to_csv(buffer, encoding="utf-8-sig")
         buffer.seek(0)
 
-        storage_client = vault.get_storage_client()
+        storage_client = _get_adls_client()
         fs_client      = storage_client.get_file_system_client(RAW_CONTAINER)
         dir_client     = fs_client.get_directory_client(directory)
         file_client    = dir_client.get_file_client(file_name)

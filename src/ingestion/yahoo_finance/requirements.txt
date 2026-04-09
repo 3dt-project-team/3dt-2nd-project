@@ -1,7 +1,5 @@
 azure-functions
+azure-identity
+azure-storage-file-datalake
 yfinance
 pandas
-azure-storage-file-datalake
-azure-identity
-azure-keyvault-secrets
-python-dotenv
