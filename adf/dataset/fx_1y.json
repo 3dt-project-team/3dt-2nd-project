@@ -1,0 +1,43 @@
+{
+	"name": "fx_1y",
+	"properties": {
+		"description": "USD-KRW 환율 정보, 최근 1년",
+		"linkedServiceName": {
+			"referenceName": "3dtteam1adls",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "DelimitedText",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": "usd_krw_250406-260406.csv",
+				"folderPath": "fx/usd_krw",
+				"fileSystem": "raw"
+			},
+			"columnDelimiter": ",",
+			"escapeChar": "\\",
+			"firstRowAsHeader": true,
+			"quoteChar": "\""
+		},
+		"schema": [
+			{
+				"name": "date",
+				"type": "String"
+			},
+			{
+				"name": "base",
+				"type": "String"
+			},
+			{
+				"name": "quote",
+				"type": "String"
+			},
+			{
+				"name": "rate",
+				"type": "String"
+			}
+		]
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}

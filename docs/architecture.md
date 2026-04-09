@@ -8,39 +8,51 @@
 외부 데이터 소스
        │
        ▼
-Azure Data Factory (ADF)
- ├─ 원시 데이터 수집 → ADLS Gen2 (Raw Layer)
- └─ 파이프라인 JSON 코드 관리 → adf/ 폴더
+Azure Data Factory (ADF) ── 타이머 트리거 기반 오케스트레이션
+ ├─ ACI Activity        → Google News 크롤러 (Playwright one-shot)
+ ├─ Functions Activity  → 네이버 뉴스, 환율(FX) 수집
+ ├─ Custom Activity     → Yahoo Finance 매크로·퀀트, 관세청 수출통계, FRED 금리 6종
+ └─ 파이프라인 JSON, parquet     → adf/ 폴더
 
-ADLS Gen2 (Azure Data Lake Storage Gen2)
- ├─ raw/       원본 데이터 (ADF가 적재)
+       │  수집 결과
+       ▼
+ADLS Gen2 (Azure Data Lake Storage Gen2) — 3dtteam1adls
+ ├─ raw/       원본 데이터 (수집기가 적재)
  ├─ curated/   전처리 완료 데이터 (Databricks가 생성)
  └─ feature/   ML용 피처 데이터 (Databricks가 생성)
 
-Azure Databricks
- ├─ raw → curated : 데이터 클렌징·변환
- ├─ curated → feature : 피처 엔지니어링
+Azure Databricks (sense-adb)
+ ├─ raw → curated : 데이터 클렌징·변환 (시계열 보간, TF-IDF)
+ ├─ curated → feature : 피처 엔지니어링 (ABSA, 벡터 임베딩)
  └─ 공통 모듈 사용 : src/utils/vault_manager.py
 
 Azure ML Studio
- ├─ feature → 모델 학습 (CommandJob)
+ ├─ feature → 모델 학습 (CommandJob, XGBoost/LightGBM)
  ├─ MLflow 실험 트래킹 (Git commit hash 태깅)
- └─ 결과 저장 → Azure SQL Database
+ └─ 결과 저장 → PostgreSQL
 
 Azure Database for PostgreSQL
- └─ 최종 예측·분석 결과 서빙
+ ├─ 최종 예측·분석 결과 서빙
+ └─ pgvector 확장 → RAG 하이브리드 검색
+
+Power BI / Web App / AI Agent
+ └─ PostgreSQL ↔ 대시보드·리포트·RAG 서빙
 ```
 
 ## 서비스별 역할
 
 | 서비스 | 역할 | Git 경로 |
 |---|---|---|
-| Azure Data Factory | 데이터 수집·오케스트레이션 | `adf/` |
-| ADLS Gen2 | 데이터 레이크 (raw·curated·feature) | _데이터는 Git에 없음_ |
-| Databricks | 대용량 전처리·피처 엔지니어링 | `src/`, `notebooks/` |
+| Azure Data Factory | **파이프라인 오케스트레이션** (타이머 트리거, Activity 호출) | `adf/` |
+| Azure Container Registry (`sense3dtacr`) | 컨테이너 이미지 저장소 (ACR Build) | _인프라, Git 외부_ |
+| Azure Container Instances | One-shot 크롤링 실행 (Google News) | `src/ingestion/google_news_crawler/Dockerfile` |
+| Azure Functions | 이벤트/배치 수집 (네이버 뉴스, 환율 FX) | `src/ingestion/naver_collectors/`, `apps/fx-collector/` |
+| Custom Activity (ADF) | FRED 금리 6종 일별 수집 (DGS10, DGS2, T10Y2Y, BAMLH0A0HYM2, DFF, DFII10) | `src/ingestion/` (구현 예정) |
+| ADLS Gen2 (`3dtteam1adls`) | 데이터 레이크 (raw·curated·feature) | _데이터는 Git에 없음_ |
+| Databricks (`sense-adb`) | 대용량 전처리·피처 엔지니어링 | `src/`, `notebooks/` |
 | ML Studio | 모델 학습·실험 관리 | `src/models/` |
-| Azure Database for PostgreSQL | 결과 데이터 저장·서빙 (`sense_db`) | _인프라, Git 외부_ |
-| Azure Key Vault | 모든 자격 증명 중앙 관리 | `src/utils/vault_manager.py` |
+| Azure Database for PostgreSQL | 결과 데이터 저장·서빙 (`sense_db`, `pgvector`) | _인프라, Git 외부_ |
+| Azure Key Vault (`kv-3dt-team1`) | 모든 자격 증명 중앙 관리 | `src/utils/vault_manager.py` |
 
 ## 인증 구조
 
@@ -72,6 +84,61 @@ DefaultAzureCredential
 | Databricks | Spark conf OAuth (Service Principal) | psycopg / JDBC | vault_manager 또는 dbutils.secrets |
 | Data Factory | Linked Service (Managed Identity) | Linked Service (KV 비밀 참조) | UI에서 Key Vault 직접 연결 |
 | ML Studio | vault_manager + DataLakeServiceClient | vault_manager + psycopg/SQLAlchemy | DefaultAzureCredential (Managed Identity) |
+| ACI (Google News) | vault_manager + DataLakeServiceClient | — | System-Assigned MI → Key Vault Secrets User |
+| Azure Functions | vault_manager / Binding | — | Managed Identity → Key Vault Secrets User |
+
+## MS 아키텍처 베스트 프랙티스 참조
+
+SENSE 프로젝트는 Microsoft가 공식 권장하는 엔터프라이즈 클라우드 아키텍처 패턴을 기반으로 설계되었습니다.
+
+| 참조 아키텍처 | 적용 영역 | 핵심 개념 |
+|---|---|---|
+| [Modern Analytics Architecture (Azure Databricks)](https://learn.microsoft.com/en-us/azure/architecture/solution-ideas/articles/azure-databricks-modern-analytics-architecture) | 전체 데이터 흐름 | Medallion(Bronze/Silver/Gold), ADF + Databricks + ADLS |
+| [Ingest, ETL & Stream with ADB](https://learn.microsoft.com/en-us/azure/architecture/solution-ideas/articles/ingest-etl-stream-with-adb) | M3 전처리 | Auto Loader(`cloudFiles`) 증분 수집, Delta Lake MERGE INTO |
+| [Next Order Forecasting](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/next-order-forecasting) | M4 모델링 | ADF → ML parallel jobs → Batch Scoring |
+| [Orchestrate ML with Databricks](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/orchestrate-machine-learning-azure-databricks) | M4 MLOps | MLflow 실험 트래킹, Dev → Staging → Prod 워크플로우 |
+| [Many Models (Azure ML)](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/many-models-machine-learning-azure-machine-learning) | M4 모델 확장 | 종목별 개별 모델 병렬 학습 (`parallel` component) |
+| [ADF CI/CD Manual Promotion](https://learn.microsoft.com/en-us/azure/data-factory/continuous-integration-delivery-manual-promotion) | 협업·배포 | ADF Git 연동, ARM 템플릿 기반 환경 프로모션 |
+
+> 상세 실행 가이드: `ref/실행 아이디어.md`
+
+### Auto Loader 증분 수집
+
+Databricks `cloudFiles` Auto Loader를 활용하여 ADLS Gen2 raw 레이어에 신규 적재된 파일만 자동 감지하고 Silver 레이어로 증분 처리합니다.
+
+```python
+# Auto Loader 증분 수집 예시
+spark.readStream.format("cloudFiles") \
+    .option("cloudFiles.format", "parquet") \
+    .option("cloudFiles.schemaLocation", "/checkpoints/schema/") \
+    .load("abfss://raw@3dtteam1adls.dfs.core.windows.net/news/google/") \
+    .writeStream.format("delta") \
+    .option("checkpointLocation", "/checkpoints/news_google/") \
+    .trigger(availableNow=True) \
+    .toTable("silver.news_google")
+```
+
+### MLOps 배치 추론 파이프라인 (ADF 오케스트레이션)
+
+```
+ADF Timer Trigger (매일 장 마감 후)
+    │
+    ├─ Step 1: Copy Data Activity — 매크로/뉴스/FRED 금리 수집
+    ├─ Step 2: Databricks Notebook Activity — 피처 엔지니어링 (TF-IDF, ABSA)
+    ├─ Step 3: AML Batch Endpoint 호출 — 리스크 스코어 추론
+    └─ Step 4: Copy Data Activity — 결과 + 원문 → PostgreSQL 적재
+```
+
+### Many Models 패턴
+
+종목별 개별 모델을 병렬 학습하여 단일 모델의 한계를 극복합니다.
+
+| 모델 | 역할 | 타겟 변수 |
+|---|---|---|
+| 삼성전자 (`005930.KS`) | 하방 리스크 예측 | 주가 변동률 |
+| SK하이닉스 (`000660.KS`) | 하방 리스크 예측 | 주가 변동률 |
+| NVDA | 글로벌 피어 리스크 모니터링 | 주가 변동률 (선행 Proxy) |
+| MU | 메모리 수급 선행 지표 | 주가 변동률 (선행 Proxy) |
 
 ## 로컬 개발 환경 설정
 
