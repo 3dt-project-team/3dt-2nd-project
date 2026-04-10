@@ -1,0 +1,35 @@
+{
+	"name": "Flow3 macro plus",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"dataset": {
+						"referenceName": "semiconductor_trade",
+						"type": "DatasetReference"
+					},
+					"name": "semiconductor"
+				}
+			],
+			"sinks": [],
+			"transformations": [],
+			"scriptLines": [
+				"source(output(",
+				"          balPayments as long,",
+				"          expDlr as long,",
+				"          expWgt as long,",
+				"          hsCode as long,",
+				"          impDlr as long,",
+				"          impWgt as long,",
+				"          statKor as string,",
+				"          year as double",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'parquet') ~> semiconductor"
+			]
+		}
+	}
+}
