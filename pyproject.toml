@@ -58,7 +58,6 @@ select = ["E", "F", "I"]
 
 [tool.ruff]
 line-length = 100
-extend-exclude = ["*.ipynb"]
 
 # ── black 포매터 설정 ───────────────────────────────────────────────────────────
 [tool.black]
