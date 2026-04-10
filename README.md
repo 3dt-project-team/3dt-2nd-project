@@ -1,17 +1,30 @@
-# 3DT 2nd Project — Azure 데이터 플랫폼
+# SENSE — Semiconductor Economic News & Sentiment Engine
 
-6인 팀 Azure 데이터 파이프라인 프로젝트 (ADF → Databricks → ML Studio).
+반도체 경제 뉴스 및 감성 분석 엔진 · 6인 팀 Azure 데이터 파이프라인 (ADF → Databricks → ML Studio).
 
 ## 폴더 구조
 
 ```
 ├── adf/
+│   ├── pipeline/           # ADF 파이프라인 JSON
+│   ├── dataset/            # 데이터셋 정의
+│   ├── linkedService/      # Linked Service 정의
+│   ├── trigger/            # 트리거 정의
 │   └── custom_activity/    # ADF Custom Activity Docker 컨테이너
 ├── src/
 │   ├── utils/
 │   │   └── vault_manager.py  # Key Vault / ADLS Gen2 / PostgreSQL 인증 모듈
-│   └── models/             # ML 모델링 스크립트
-├── notebooks/              # Databricks 노트북 및 Init Script
+│   └── models/
+│       ├── train.py          # SENSE 감성 분석 모델 학습 스크립트
+│       └── aml_train_example.py  # ML Studio CommandJob 제출 예시
+├── notebooks/
+│   ├── 01_raw_to_curated.py      # Databricks: 뉴스 원문 클렌징
+│   ├── 02_curated_to_feature.py  # Databricks: 피처 엔지니어링
+│   ├── databricks_uv_example.py  # uv + vault_manager 연동 예시
+│   └── init_script_install_uv.sh # 클러스터 Init Script
+├── tests/
+│   ├── conftest.py         # pytest 픽스처
+│   └── test_vault_manager.py
 ├── docs/                   # 아키텍처, 가이드 문서
 │   └── git_guide/          # Git 가이드 (general + workflow)
 ├── pyproject.toml          # 패키지 의존성 (uv 관리)
