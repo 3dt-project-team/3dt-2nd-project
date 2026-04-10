@@ -23,7 +23,7 @@
 				}
 			},
 			{
-				"name": "Web1",
+				"name": "act_crawl_naver_news",
 				"type": "WebActivity",
 				"dependsOn": [],
 				"policy": {
@@ -33,7 +33,13 @@
 					"secureOutput": false,
 					"secureInput": false
 				},
-				"userProperties": []
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					}
+				}
 			}
 		],
 		"annotations": []
