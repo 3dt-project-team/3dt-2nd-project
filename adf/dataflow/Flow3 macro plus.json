@@ -10,10 +10,35 @@
 						"type": "DatasetReference"
 					},
 					"name": "semiconductor"
+				},
+				{
+					"dataset": {
+						"referenceName": "Parquet2",
+						"type": "DatasetReference"
+					},
+					"name": "gfinance"
 				}
 			],
-			"sinks": [],
-			"transformations": [],
+			"sinks": [
+				{
+					"dataset": {
+						"referenceName": "silver_semiconductor",
+						"type": "DatasetReference"
+					},
+					"name": "sink1"
+				}
+			],
+			"transformations": [
+				{
+					"name": "derivedColumn1"
+				},
+				{
+					"name": "select1"
+				},
+				{
+					"name": "derivedColumn2"
+				}
+			],
 			"scriptLines": [
 				"source(output(",
 				"          balPayments as long,",
@@ -23,12 +48,62 @@
 				"          impDlr as long,",
 				"          impWgt as long,",
 				"          statKor as string,",
-				"          year as double",
+				"          year as string",
 				"     ),",
 				"     allowSchemaDrift: true,",
 				"     validateSchema: false,",
 				"     ignoreNoFilesFound: false,",
-				"     format: 'parquet') ~> semiconductor"
+				"     format: 'parquet') ~> semiconductor",
+				"source(output(",
+				"          basDt as string,",
+				"          prdCtg as string,",
+				"          srtnCd as string,",
+				"          isinCd as string,",
+				"          itmsNm as string,",
+				"          clpr as string,",
+				"          vs as string,",
+				"          mkp as string,",
+				"          hipr as string,",
+				"          lopr as string,",
+				"          nxtDdBsPrc as string,",
+				"          iptVlty as string,",
+				"          trqu as string,",
+				"          trPrc as string,",
+				"          opnint as string,",
+				"          year_month as string",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'parquet') ~> gfinance",
+				"semiconductor derive(date = toDate(toString(year) + '.01', 'yyyy.MM.dd')) ~> derivedColumn1",
+				"derivedColumn1 select(mapColumn(",
+				"          date,",
+				"          hsCode,",
+				"          statKor,",
+				"          expDlr,",
+				"          impDlr",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> select1",
+				"gfinance derive() ~> derivedColumn2",
+				"select1 sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          {기준일자} as date,",
+				"          {요일} as integer,",
+				"          {주말여부} as boolean,",
+				"          {한국_휴장일_여부} as boolean,",
+				"          {미국_휴장일_여부} as boolean",
+				"     ),",
+				"     format: 'parquet',",
+				"     partitionFileNames:['silver_semiconductor.parquet'],",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     partitionBy('hash', 1)) ~> sink1"
 			]
 		}
 	}
