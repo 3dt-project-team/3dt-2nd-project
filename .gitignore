@@ -53,9 +53,13 @@ raw/
 local.settings.json
 
 # Azurite
+.azurite/
 AzuriteConfig
 __blobstorage__/
 __queuestorage__/
+__azurite_db_*
+debug.log.azurite
+*.log
 *.code-workspace
 
 # OS
@@ -68,8 +72,13 @@ mlartifacts/
 
 # azure functions
 __blobstorage__/
-__azurite_db_*.json
-__blobstorage__/
+
+# 프로젝트 관리 파일 (반드시 추적)
+!uv.lock
+!.secrets.baseline
+!.pre-commit-config.yaml
+!pyproject.toml
+
 # coding agent
 CLAUDE.md
 
