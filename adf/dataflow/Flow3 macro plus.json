@@ -100,7 +100,7 @@
 				"     skipDuplicateMapOutputs: true) ~> select1",
 				"gfinance derive(date = toDate(basDt,'yyyyMMdd'),",
 				"          kfinance_collected_at_utc = currentUTC(),",
-				"          ticker = 'gfinance_' + srtnCd) ~> derivedColumn2",
+				"          ticker = 'kfinance_' + srtnCd) ~> derivedColumn2",
 				"derivedColumn2 select(mapColumn(",
 				"          date,",
 				"          ticker,",
