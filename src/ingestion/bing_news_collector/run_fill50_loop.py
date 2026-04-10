@@ -7,7 +7,7 @@ import types
 
 from azure.storage.blob import BlobServiceClient
 
-import function_app
+import ingestion.bing_news_collector.function_app as function_app
 
 STORAGE_CONNECTION_STRING = os.environ.get("STORAGE_CONNECTION_STRING", "").strip()
 CONTAINER = os.environ.get("RAW_CONTAINER", "raw").strip() or "raw"
