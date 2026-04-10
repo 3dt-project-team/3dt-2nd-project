@@ -250,13 +250,20 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 ### M4: 모델링 (ML Studio + TimesFM)
 
 #### TimesFM 2.5 시계열 예측 (Databricks)
-- [ ] TimesFM 2.5 환경 구성 — `pip install timesfm[torch,xreg]`, GPU 클러스터 설정
-- [ ] Step 1: Zero-shot Baseline 추론 — 삼성전자/SK하이닉스 종가 시계열 → 20일 예측 + Quantile PI
-- [ ] Step 2: XReg 공변량 추론 — 매크로/퀀트/감성 지표를 외부 회귀 변수로 입력
-- [ ] 교차 검증 파생 변수 생성 — `macro_sentiment_divergence`, `sox_news_confirm`, `rate_memory_cross` 등
-- [ ] 시나리오 분석 (What-If) — 금리 인하/인상/달러 급등 등 5개 시나리오별 예측 산출
-- [ ] Rolling Window Backtest — MAE, 80% PI Coverage, Directional Accuracy 평가
-- [ ] XReg Attribution (공변량 기여도 분석) — Leave-One-Out 방식으로 변수별 영향력 정량화
+- [x] TimesFM 2.5 환경 구성 — `pip install timesfm[torch,xreg]`, GPU 클러스터 설정
+- [x] Step 1: Zero-shot Baseline 추론 — 삼성전자/SK하이닉스 종가 시계열 → 20일 예측 + Quantile PI
+- [x] Step 2: XReg 공변량 추론 — 매크로/퀀트/감성 지표를 외부 회귀 변수로 입력
+- [x] 교차 검증 파생 변수 생성 — 47개 피처 (return, MA, vol, cross-signal 포함)
+- [x] 시나리오 분석 (What-If) — 5개 그룹, 12개 시나리오 + 일관성 검증 (v0411)
+- [x] Rolling Window Backtest — 멀티호라이즌(5d/10d/20d), Conformal PI 보정 (v0411)
+- [x] XReg Attribution (공변량 기여도) — 종목별 Leave-One-Out + 시각화 (v0411)
+- [x] 피처 상관관계 분석 — Pearson/Spearman 이중 히트맵 (v0411)
+- [x] VaR/CVaR 리스크 지표 — Quantile 기반 T+5/10/20 VaR 산출 (v0411)
+
+#### 전통 모델 비교 파이프라인 (Databricks)
+- [x] correlation_analysis.py — VAR + Ridge 기반 동일 프레임워크 분석
+- [x] Granger Causality 검정 — 주요 피처→close 인과 관계 검증
+- [ ] TimesFM vs 전통 모델 교차 비교 리포트 — 두 파이프라인 결과 대조 분석
 
 #### XGBoost/LightGBM 분류 (ML Studio)
 - [ ] 컴퓨팅 클러스터 구성
@@ -288,8 +295,8 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 | 3–4 | 4/7–4/8 | M1 추가 인프라 (ACR, Databricks) + M2 수집기 구현 | ✅ 완료 |
 | 5 | 4/9 | M2 ADF 오케스트레이션 파이프라인 구성 | 🔜 |
 | 6 | 4/10 | M3 Databricks 전처리 (Bronze → Silver → Gold) | 🔜 |
-| 7 | 4/11 | M3 LLM 연동 + 피처 엔지니어링 | 🔜 |
-| 8 | 4/14 | M4 ML 학습 + M5 PostgreSQL 적재 | 🔜 |
+| 7 | 4/11 | M4 TimesFM v0411 + 전통 모델 비교 파이프라인 | ✅ 완료 |
+| 8 | 4/14 | M4 ML 학습 (XGBoost/LightGBM) + M5 PostgreSQL 적재 | 🔜 |
 | 9 | 4/15 | M5 서빙 (Power BI + Web App + AI Agent) | 🔜 |
 
 ## 관련 문서
