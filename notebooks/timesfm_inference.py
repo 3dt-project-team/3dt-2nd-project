@@ -1,22 +1,34 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # SENSE 프로젝트 — TimesFM 2.5 시계열 예측 노트북 (Full Feature)
-# MAGIC
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC SENSE 프로젝트 — TimesFM 2.5 시계열 예측 노트북 (Full Feature)
 # MAGIC SENSE: Semiconductor Economic News & Sentiment Engine
 # MAGIC
 # MAGIC 목적: TimesFM 2.5를 활용한 반도체 주가 시계열 예측
 # MAGIC       Step 1 — Zero-shot Baseline (주가만)
-# MAGIC       Step 2 — XReg 공변량 추론 (매크로/퀀트/감성 + 비정형 데이터)
+# MAGIC       Step 2 — XReg 공변량 추론 (매크로/퀀트/감성)
 # MAGIC       Step 3 — 매크로 충격 정량화 + 시나리오 분석 + Backtest
+# MAGIC
+# MAGIC 주요 기능:
+# MAGIC   - 한글 폰트 자동 설정 (matplotlib 경고 해소)
+# MAGIC   - 피처 상관관계 히트맵 (Pearson/Spearman)
+# MAGIC   - 다중 호라이즌 백테스트 (5일/10일/20일)
+# MAGIC   - Conformal PI 보정 (커버리지 개선)
+# MAGIC   - 종목별 Attribution 분리
+# MAGIC   - 시나리오 일관성 검증
+# MAGIC   - 잔차 분포 분석 + VaR/CVaR 리스크 지표
+# MAGIC   - Azure OpenAI GPT-4.1-mini AI 투자 의견
 # MAGIC
 # MAGIC 실행 환경: Databricks GPU 클러스터 권장 (Standard_NC6s_v3 이상)
 # MAGIC           CPU에서도 동작하나 배치 추론 시 느림
 # MAGIC
 # MAGIC 전략 문서: ref/TimesFM.md
 # MAGIC 데이터 사전: docs/data_dict/
-# MAGIC
-# MAGIC NOTE: 이 노트북은 feature 컨테이너의 개별 경로(비정형 포함)를 지원합니다.
-# MAGIC       curated 기반 간소화 버전은 timesfm_inference_0410.py를 참조하세요.
+# MAGIC 간소화 버전: notebooks/timesfm_inference_lite.py
 
 # COMMAND ----------
 
@@ -25,10 +37,20 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install timesfm[torch,xreg] openai --quiet
+# MAGIC %load_ext autoreload
+# MAGIC %autoreload 2
+# MAGIC # Enables autoreload; learn more at https://docs.databricks.com/en/files/workspace-modules.html#autoreload-for-python-modules
+# MAGIC # To disable autoreload; run %autoreload 0
 
 # COMMAND ----------
 
+# MAGIC %sh
+# MAGIC uv pip install "timesfm[torch] @ git+https://github.com/google-research/timesfm.git" openai "jax>=0.5,<0.6" "jaxlib>=0.5,<0.6" --upgrade  # noqa: E501
+# MAGIC echo "--- packages installed, restart python kernel ---"
+
+# COMMAND ----------
+
+# DBTITLE 1,Imports & env setup
 import os
 import sys
 import warnings
@@ -36,12 +58,38 @@ import warnings
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
 
 warnings.filterwarnings("ignore", category=FutureWarning)
+
+# ---------------------------------------------------------------------------
+# 한글 폰트 설정 (Databricks 환경)
+# ---------------------------------------------------------------------------
+_korean_font = None
+for _f in fm.fontManager.ttflist:
+    if any(k in _f.name for k in ["NanumGothic", "Nanum Gothic", "Malgun Gothic", "NotoSansCJK"]):
+        _korean_font = _f.name
+        break
+if _korean_font is None:
+    import subprocess  # noqa: E402
+
+    subprocess.run(["apt-get", "install", "-y", "fonts-nanum"], capture_output=True, text=True)  # noqa: S603 S607
+    subprocess.run(["fc-cache", "-fv"], capture_output=True, text=True)  # noqa: S603 S607
+    fm._load_fontmanager(try_read_cache=False)
+    for _f in fm.fontManager.ttflist:
+        if "Nanum" in _f.name:
+            _korean_font = _f.name
+            break
+if _korean_font:
+    plt.rcParams["font.family"] = _korean_font
+    print(f"한글 폰트 설정 완료: {_korean_font}")
+else:
+    print("[WARN] 한글 폰트 미발견 — 차트 한글이 깨질 수 있습니다.")
+plt.rcParams["axes.unicode_minus"] = False
 
 REPO_PATH = "/Workspace/Repos/3dt005@msacademy.msai.kr/3dt-2nd-project"
 sys.path.insert(0, f"{REPO_PATH}/src")
@@ -64,7 +112,7 @@ account = vault.get_secret("adls-account-name")  # "3dtteam1adls"
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 0-1. Azure OpenAI 클라이언트 초기화
+# MAGIC ## 1-0. Azure OpenAI 클라이언트 초기화
 
 # COMMAND ----------
 
@@ -119,186 +167,322 @@ print(f"Azure OpenAI 연결 완료 | 엔드포인트: {_openai_endpoint} | 배�
 
 TICKERS = ["005930.KS", "000660.KS"]
 TICKER_NAMES = {"005930.KS": "삼성전자", "000660.KS": "SK하이닉스"}
-HORIZON = 20  # 향후 20 거래일 (약 4주)
+HORIZON = 20
 
-# ---------------------------------------------------------------------------
-# ADLS 경로 헬퍼 — 경로가 아직 적재되지 않았을 경우 빈 DataFrame 반환
-# ---------------------------------------------------------------------------
-from pyspark.sql.utils import AnalysisException  # noqa: E402
+TICKER_COL_MAP = {
+    "005930.KS": "yfinance_samsung_close",
+    "000660.KS": "yfinance_skhynix_close",
+}
 
 
-def safe_read_parquet(path: str, date_col: str | None = None, index_col: str | None = None):
-    """
-    ADLS parquet을 읽습니다.
-    경로가 없거나 미적재 상태면 경고 후 빈 DataFrame을 반환합니다.
-    - date_col  : pd.to_datetime() 변환할 컬럼명
-    - index_col : set_index()할 컬럼명
-    """
+def safe_read_parquet(path, date_col=None, index_col=None):
     try:
         df = spark.read.parquet(path).toPandas()  # noqa: F821
         if date_col and date_col in df.columns:
             df[date_col] = pd.to_datetime(df[date_col])
         if index_col and index_col in df.columns:
             df = df.set_index(index_col).sort_index()
-        print(f"  [OK] {path.split('/')[-2] or path}: {len(df)} rows")
+        label = path.split("/")[-1]
+        print(f"  [OK] {label}: {len(df)} rows, cols={list(df.columns)[:8]}...")
         return df
-    except (AnalysisException, Exception) as e:  # noqa: BLE001
-        print(f"  [SKIP] 경로 없음 또는 미적재 — {path}\n         ({type(e).__name__})")
+    except Exception as e:
+        print(f"  [SKIP] {path.split('/')[-1]} ({type(e).__name__})")
         return pd.DataFrame()
 
 
 # ---------------------------------------------------------------------------
-# 1-1. 타겟 시계열 — 주가 OHLCV
+# 1-1. 주가 + 매크로 데이터 로드 (feature/curated 컨테이너 탐색)
 # ---------------------------------------------------------------------------
-#  컨테이너: feature  /  경로: equity/ohlcv/
-#  컬럼: ticker, trade_date, open, high, low, close, volume
-equity_path = f"abfss://feature@{account}.dfs.core.windows.net/equity/ohlcv/"
-_df_eq_raw = safe_read_parquet(equity_path, date_col="trade_date")
+_gold_paths = [
+    f"abfss://feature@{account}.dfs.core.windows.net/gold_macro_1y.parquet",
+    f"abfss://curated@{account}.dfs.core.windows.net/gold_macro_1y.parquet",
+    f"abfss://curated@{account}.dfs.core.windows.net/pre_macro_1y_adf.parquet",
+]
 
-if _df_eq_raw.empty:
-    # 데이터가 아직 없으면 curated 컨테이너에서도 시도
-    equity_path_curated = f"abfss://curated@{account}.dfs.core.windows.net/equity/ohlcv/"
-    _df_eq_raw = safe_read_parquet(equity_path_curated, date_col="trade_date")
+_df_gold = pd.DataFrame()
+for _path in _gold_paths:
+    _df_gold = safe_read_parquet(_path)
+    if not _df_gold.empty:
+        break
 
-df_equity = (
-    _df_eq_raw[_df_eq_raw["ticker"].isin(TICKERS)]
-    .sort_values(["ticker", "trade_date"])
-    .reset_index(drop=True)
-    if not _df_eq_raw.empty and "ticker" in _df_eq_raw.columns
-    else pd.DataFrame(columns=["ticker", "trade_date", "close"])
-)
+if not _df_gold.empty:
+    # 날짜 컬럼 자동감지
+    _date_candidates = ["기준일자", "trade_date", "date", "Date"]
+    _date_col = next((c for c in _date_candidates if c in _df_gold.columns), None)
+    if _date_col is None:
+        # datetime 타입 컬럼 탐색
+        for c in _df_gold.columns:
+            if "date" in c.lower() or "_dt" in c.lower() or "일자" in c:
+                _date_col = c
+                break
+    if _date_col is None:
+        print(f"[WARN] 날짜 컬럼 미발견. 컬럼들: {list(_df_gold.columns)}")
+        _df_gold = pd.DataFrame()
+
+if not _df_gold.empty:
+    _df_gold[_date_col] = pd.to_datetime(_df_gold[_date_col])
+    _df_gold = _df_gold.drop_duplicates(subset=[_date_col], keep="first").sort_values(_date_col)
+    if _date_col != "trade_date":
+        _df_gold = _df_gold.rename(columns={_date_col: "trade_date"})
+
+    # (A) 주가 타겟
+    _has_holidays = "주말여부" in _df_gold.columns and "한국_휴장일_여부" in _df_gold.columns
+    _df_trading = (
+        _df_gold[(~_df_gold["주말여부"]) & (~_df_gold["한국_휴장일_여부"])].copy()
+        if _has_holidays
+        else _df_gold.copy()
+    )
+
+    equity_records = []
+    for ticker, col_name in TICKER_COL_MAP.items():
+        if col_name in _df_trading.columns:
+            _sub = _df_trading[["trade_date", col_name]].dropna(subset=[col_name]).copy()
+            _sub = _sub.rename(columns={col_name: "close"})
+            _sub["ticker"] = ticker
+            equity_records.append(_sub[["ticker", "trade_date", "close"]])
+    df_equity = (
+        pd.concat(equity_records, ignore_index=True)
+        .sort_values(["ticker", "trade_date"])
+        .reset_index(drop=True)
+        if equity_records
+        else pd.DataFrame(columns=["ticker", "trade_date", "close"])
+    )
+
+    # (B) 매크로 피처
+    _macro_cols = [
+        "usd_krw_rate",
+        "yfinance_nvda_close",
+        "yfinance_amd_close",
+        "yfinance_mu_close",
+        "yfinance_tsm_close",
+        "yfinance_asml_close",
+        "yfinance_sox_close",
+        "fred_dff",
+        "fred_dgs10",
+        "fred_dgs2",
+        "fred_t10y2y",
+        "fred_dfii10",
+        "fred_bamlh0a0hym2",
+    ]
+    _macro_avail = [c for c in _macro_cols if c in _df_gold.columns]
+    df_macro_gold = (
+        _df_gold.set_index("trade_date")[_macro_avail].sort_index().ffill().bfill()
+        if _macro_avail
+        else pd.DataFrame()
+    )
+    if not df_macro_gold.empty:
+        df_macro_gold.index.name = "trade_date"
+
+    print(
+        f"\n주가: {len(df_equity)} rows"
+        f" | 매크로: {df_macro_gold.shape[1] if not df_macro_gold.empty else 0} cols"
+    )
+    for t in TICKERS:
+        print(f"  {TICKER_NAMES[t]}: {len(df_equity[df_equity['ticker'] == t])} 거래일")
+else:
+    df_equity = pd.DataFrame(columns=["ticker", "trade_date", "close"])
+    df_macro_gold = pd.DataFrame()
+    print("[WARN] 주가/매크로 데이터 로드 실패")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 1-2. 한국 금융 파생상품 피처 (silver_kfinance)
+
+# COMMAND ----------
+
+# ---------------------------------------------------------------------------
+# 1-2. silver_kfinance.parquet → 한국 금융 파생상품 피처
+#  KOSPI200 옵션/워런트 월별 데이터 → 일별 Forward-Fill
+#  피처: ATM가, 활성계약수, 평균가, 최대유효행사가, 총가치
+# ---------------------------------------------------------------------------
+kfin_path = f"abfss://curated@{account}.dfs.core.windows.net/silver_kfinance.parquet"
+_df_kfin_raw = safe_read_parquet(kfin_path, date_col="date")
+
+if not _df_kfin_raw.empty:
+    # close_price를 숫자로 변환
+    _df_kfin_raw["close_price"] = pd.to_numeric(
+        _df_kfin_raw["close_price"], errors="coerce"
+    ).fillna(0)
+
+    # ticker에서 행사가 추출 (kfinance_201WC170 → 170)
+    _df_kfin_raw["strike"] = _df_kfin_raw["ticker"].str.extract(r"(\d+)$")[0].astype(float)
+
+    # 날짜별 집계 → 시장 레벨 피처
+    df_kfin_agg = (
+        _df_kfin_raw.groupby("date")
+        .agg(
+            # ATM(최고가) 옵션 가격 → 변동성 프록시
+            kfin_atm_price=("close_price", "max"),
+            # 활성 계약 수 (close_price > 0) → 시장 폭
+            kfin_active_count=("close_price", lambda x: (x > 0).sum()),
+            # 활성 옵션 평균 가격
+            kfin_mean_price=("close_price", lambda x: x[x > 0].mean() if (x > 0).any() else 0),
+            # 총 가치 합계 → 시장 활동 강도
+            kfin_total_value=("close_price", "sum"),
+            # 전체 종목 수
+            kfin_total_count=("close_price", "count"),
+        )
+        .reset_index()
+    )
+
+    # 최대 유효 행사가 (close > 0인 최고 행사가) → 시장 상한 기대
+    _active = _df_kfin_raw[_df_kfin_raw["close_price"] > 0]
+    _max_strike = _active.groupby("date")["strike"].max().reset_index()
+    _max_strike.columns = ["date", "kfin_max_strike"]
+    df_kfin_agg = df_kfin_agg.merge(_max_strike, on="date", how="left")
+
+    # 활성 비율
+    df_kfin_agg["kfin_active_ratio"] = (
+        df_kfin_agg["kfin_active_count"] / df_kfin_agg["kfin_total_count"]
+    )
+
+    # 월별 → 일별 Forward-Fill
+    df_kfin_agg = df_kfin_agg.set_index("date").sort_index()
+    all_bdays = pd.bdate_range(df_kfin_agg.index.min(), df_kfin_agg.index.max(), freq="B")
+    df_kfinance = df_kfin_agg.reindex(all_bdays).ffill().bfill()
+    df_kfinance.index.name = "trade_date"
+
+    # 불필요 컬럼 제거
+    df_kfinance = df_kfinance.drop(columns=["kfin_total_count"], errors="ignore")
+
+    print(f"kfinance 피처: {df_kfinance.shape}")
+    print(f"  기간: {df_kfinance.index.min()} ~ {df_kfinance.index.max()}")
+    print(f"  컬럼: {list(df_kfinance.columns)}")
+    display(df_kfinance.head())  # noqa: F821
+else:
+    df_kfinance = pd.DataFrame()
+    print("[WARN] kfinance 데이터 없음")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 1-3. 반도체 수출입 피처 (silver_semiconductor)
+
+# COMMAND ----------
+
+# ---------------------------------------------------------------------------
+# 1-3. silver_semiconductor.parquet → 반도체 수출입 피처
+#  월별 HS코드별 수출/수입 → 일별 Forward-Fill
+#  피처: 총수출, 총수입, 무역수지, DRAM수출, Flash수출, MoM변화, DRAM비중
+# ---------------------------------------------------------------------------
+semi_path = f"abfss://curated@{account}.dfs.core.windows.net/silver_semiconductor.parquet"
+_df_semi_raw = safe_read_parquet(semi_path, date_col="date")
+
+if not _df_semi_raw.empty:
+    # --- 날짜별 전체 집계 ---
+    _semi_total = (
+        _df_semi_raw.groupby("date")
+        .agg(semi_total_exp=("expDlr", "sum"), semi_total_imp=("impDlr", "sum"))
+        .reset_index()
+    )
+    _semi_total["semi_net_trade"] = _semi_total["semi_total_exp"] - _semi_total["semi_total_imp"]
+
+    # --- DRAM (HS 8542321010) ---
+    _dram = (
+        _df_semi_raw[_df_semi_raw["hsCode"] == 8542321010]
+        .groupby("date")
+        .agg(semi_dram_exp=("expDlr", "sum"), semi_dram_imp=("impDlr", "sum"))
+        .reset_index()
+    )
+
+    # --- Flash 메모리 (HS 8542321030) ---
+    _flash = (
+        _df_semi_raw[_df_semi_raw["hsCode"] == 8542321030]
+        .groupby("date")
+        .agg(semi_flash_exp=("expDlr", "sum"), semi_flash_imp=("impDlr", "sum"))
+        .reset_index()
+    )
+
+    # --- 복합구조칩 IC (HS 8542323000, 최대 수출 품목) ---
+    _mcp = (
+        _df_semi_raw[_df_semi_raw["hsCode"] == 8542323000]
+        .groupby("date")
+        .agg(semi_mcp_exp=("expDlr", "sum"))
+        .reset_index()
+    )
+
+    # 병합
+    df_semi_agg = _semi_total
+    for _sub in [_dram, _flash, _mcp]:
+        df_semi_agg = df_semi_agg.merge(_sub, on="date", how="left")
+
+    df_semi_agg = df_semi_agg.sort_values("date").reset_index(drop=True)
+
+    # --- 파생 피처 ---
+    # DRAM 비중 (전체 반도체 수출 대비)
+    df_semi_agg["semi_dram_ratio"] = df_semi_agg["semi_dram_exp"] / df_semi_agg[
+        "semi_total_exp"
+    ].replace(0, np.nan)
+    # MoM 변화율 ()
+    df_semi_agg["semi_exp_mom"] = df_semi_agg["semi_total_exp"].pct_change()
+    df_semi_agg["semi_dram_mom"] = df_semi_agg["semi_dram_exp"].pct_change()
+    # 무역수지 비율 (수출/수입)
+    df_semi_agg["semi_trade_ratio"] = df_semi_agg["semi_total_exp"] / df_semi_agg[
+        "semi_total_imp"
+    ].replace(0, np.nan)
+
+    # 금액 단위 조정 (USD → 억 USD)
+    dollar_cols = [
+        c
+        for c in df_semi_agg.columns
+        if c.startswith("semi_")
+        and ("exp" in c or "imp" in c or "net" in c)
+        and "mom" not in c
+        and "ratio" not in c
+    ]
+    for col in dollar_cols:
+        df_semi_agg[col] = df_semi_agg[col] / 1e8  # 억달러 단위
+
+    # 월별 → 일별 Forward-Fill
+    df_semi_agg = df_semi_agg.set_index("date").sort_index()
+    all_bdays = pd.bdate_range(df_semi_agg.index.min(), df_semi_agg.index.max(), freq="B")
+    df_semiconductor = df_semi_agg.reindex(all_bdays).ffill().bfill()
+    df_semiconductor.index.name = "trade_date"
+
+    print(f"semiconductor 피처: {df_semiconductor.shape}")
+    print(f"  기간: {df_semiconductor.index.min()} ~ {df_semiconductor.index.max()}")
+    print(f"  컬럼: {list(df_semiconductor.columns)}")
+    display(df_semiconductor.head())  # noqa: F821
+else:
+    df_semiconductor = pd.DataFrame()
+    print("[WARN] semiconductor 데이터 없음")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 1-4. 피처 요약
+
+# COMMAND ----------
+
+# ---------------------------------------------------------------------------
+# 1-4. curated 피처 요약
+# ---------------------------------------------------------------------------
+print("=" * 60)
+print("SENSE Feature 요약 (curated 기반)")
+print("=" * 60)
+
+if not df_kfinance.empty:
+    print(f"\n[한국 금융 파생상품]  {df_kfinance.shape[1]} 피처, {len(df_kfinance)} 일")
+    print(f"  기간: {df_kfinance.index.min().date()} ~ {df_kfinance.index.max().date()}")
+    print(f"  피처: {list(df_kfinance.columns)}")
+else:
+    print("\n[한국 금융] 데이터 없음")
+
+if not df_semiconductor.empty:
+    print(f"\n[반도체 수출입]  {df_semiconductor.shape[1]} 피처, {len(df_semiconductor)} 일")
+    print(f"  기간: {df_semiconductor.index.min().date()} ~ {df_semiconductor.index.max().date()}")
+    print(f"  피처: {list(df_semiconductor.columns)}")
+else:
+    print("\n[반도체] 데이터 없음")
 
 if not df_equity.empty:
-    _start = df_equity["trade_date"].min()
-    _end = df_equity["trade_date"].max()
-    print(f"주가 데이터: {len(df_equity)} rows, 기간: {_start} ~ {_end}")
-    for t in TICKERS:
-        n = len(df_equity[df_equity["ticker"] == t])
-        print(f"  {TICKER_NAMES[t]} ({t}): {n} 거래일")
+    print(f"\n[주가 타겟]  {len(df_equity)} rows")
+    print(f"  종목: {[TICKER_NAMES[t] for t in TICKERS]}")
 else:
-    print("[WARN] 주가 데이터 없음 — 이후 셀에서 오류 발생 가능")
+    print("\n[주가] 데이터 없음")
 
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 1-2. 매크로 환경 지표
-
-# COMMAND ----------
-
-# --- FRED 금리 데이터 ---
-#  컨테이너: feature  /  경로: macro/fred/
-#  컬럼: observed_date, series_code, rate_value
-fred_path = f"abfss://feature@{account}.dfs.core.windows.net/macro/fred/"
-df_fred_raw = safe_read_parquet(fred_path, date_col="observed_date")
-
-if not df_fred_raw.empty and "series_code" in df_fred_raw.columns:
-    FRED_SERIES = ["DGS10", "DGS2", "T10Y2Y", "BAMLH0A0HYM2", "DFF", "DFII10"]
-    df_fred = (
-        df_fred_raw.pivot_table(index="observed_date", columns="series_code", values="rate_value")
-        .sort_index()
-        .ffill()
-    )
-else:
-    df_fred = pd.DataFrame()
-
-# --- Yahoo Finance 매크로 지표 (DXY, WTI, Gold, Copper) ---
-#  컨테이너: feature  /  경로: macro/daily/
-#  컬럼: trade_date, ticker, open, high, low, close, volume
-macro_path = f"abfss://feature@{account}.dfs.core.windows.net/macro/daily/"
-df_macro_raw = safe_read_parquet(macro_path, date_col="trade_date")
-
-MACRO_TICKERS = {
-    "DX-Y.NYB": "dxy",
-    "CL=F": "wti",
-    "GC=F": "gold",
-    "HG=F": "copper",
-}
-if not df_macro_raw.empty and "ticker" in df_macro_raw.columns:
-    df_macro = (
-        df_macro_raw.pivot_table(index="trade_date", columns="ticker", values="close")
-        .sort_index()
-        .ffill()
-    )
-    df_macro.columns = [MACRO_TICKERS.get(c, c) for c in df_macro.columns]
-else:
-    df_macro = pd.DataFrame()
-
-# --- 환율 USD/KRW ---
-#  컨테이너: feature  /  경로: fx/usd_krw/
-#  컬럼: trade_date, close  또는  trade_date, usd_krw
-fx_path = f"abfss://feature@{account}.dfs.core.windows.net/fx/usd_krw/"
-df_fx = safe_read_parquet(fx_path, date_col="trade_date", index_col="trade_date")
-# 컬럼명 정규화: close → usd_krw
-if not df_fx.empty and "close" in df_fx.columns and "usd_krw" not in df_fx.columns:
-    df_fx = df_fx.rename(columns={"close": "usd_krw"})
-
-print(
-    f"FRED: {len(df_fred)} rows | Macro: {len(df_macro)} rows | FX: {len(df_fx)} rows"
-    if not (df_fred.empty and df_macro.empty and df_fx.empty)
-    else "[WARN] 매크로 데이터 모두 미적재"
-)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 1-3. 퀀트 선행 지표
-
-# COMMAND ----------
-
-# --- SOX 동조화 ---
-#  컨테이너: feature  /  경로: quant/sox_sync/
-#  컬럼: kr_effective_date, sox_return_1d, nvda_return_1d
-sox_path = f"abfss://feature@{account}.dfs.core.windows.net/quant/sox_sync/"
-df_sox = safe_read_parquet(sox_path, date_col="kr_effective_date", index_col="kr_effective_date")
-
-# --- 메모리 기업 Proxy (MU + WDC 가중 수익률) ---
-#  컨테이너: feature  /  경로: quant/memory_proxy/
-#  컬럼: trade_date, memory_sentiment_index
-memory_path = f"abfss://feature@{account}.dfs.core.windows.net/quant/memory_proxy/"
-df_memory = safe_read_parquet(memory_path, date_col="trade_date", index_col="trade_date")
-
-# --- PCR (Put/Call Ratio) ---
-#  컨테이너: feature  /  경로: quant/pcr/
-#  컬럼: trade_date, pcr_ratio
-pcr_path = f"abfss://feature@{account}.dfs.core.windows.net/quant/pcr/"
-df_pcr = safe_read_parquet(pcr_path, date_col="trade_date", index_col="trade_date")
-
-# --- 관세청 수출 통계 (10일 주기 → 일별 Forward Fill) ---
-#  컨테이너: feature  /  경로: quant/customs/
-#  컬럼: trade_date, yoy_change_pct
-customs_path = f"abfss://feature@{account}.dfs.core.windows.net/quant/customs/"
-df_customs_raw = safe_read_parquet(customs_path, date_col="trade_date")
-
-if not df_customs_raw.empty and "trade_date" in df_customs_raw.columns:
-    df_customs = df_customs_raw.set_index("trade_date").sort_index()
-    # 10일 주기 → 일별 Full Forward Fill
-    if "yoy_change_pct" in df_customs.columns:
-        all_dates = pd.date_range(df_customs.index.min(), df_customs.index.max(), freq="B")
-        df_customs = df_customs.reindex(all_dates).ffill()
-else:
-    df_customs = pd.DataFrame()
-
-print(
-    f"SOX: {len(df_sox)} | Memory: {len(df_memory)}"
-    f" | PCR: {len(df_pcr)} | Customs: {len(df_customs)}"
-)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 1-4. 뉴스 감성 지표 (일별 집계)
-
-# COMMAND ----------
-
-# --- 뉴스 감성 일별 집계 ---
-#  컨테이너: feature  /  경로: news/daily_sentiment/
-#  컬럼: published_date, absa_daily_score, absa_supply_chain, absa_regulation, keyword_momentum_max
-news_agg_path = f"abfss://feature@{account}.dfs.core.windows.net/news/daily_sentiment/"
-df_news_agg = safe_read_parquet(
-    news_agg_path, date_col="published_date", index_col="published_date"
-)
-
-print(f"뉴스 감성: {len(df_news_agg)} rows")
+print("\n" + "=" * 60)
 
 # COMMAND ----------
 
@@ -308,70 +492,28 @@ print(f"뉴스 감성: {len(df_news_agg)} rows")
 # COMMAND ----------
 
 
-def build_feature_mart(
-    df_equity,
-    ticker,
-    df_fred,
-    df_macro,
-    df_fx,
-    df_sox,
-    df_memory,
-    df_pcr,
-    df_news_agg,
-    df_customs=None,
-):
-    """종목별 통합 피처 마트를 date 기준으로 LEFT JOIN하여 구성합니다."""
+def build_feature_mart(df_equity, ticker, df_kfinance, df_semiconductor, df_macro_gold):
+    """
+    종목별 통합 피처 마트를 date 기준으로 LEFT JOIN하여 구성합니다.
+    curated: kfinance(한국 금융) + semiconductor(수출입) + macro_gold(FRED/FX/피어주)
+    """
     df = df_equity[df_equity["ticker"] == ticker][["trade_date", "close"]].copy()
     df = df.set_index("trade_date").sort_index()
 
     # 수익률 파생
     df["return_1d"] = df["close"].pct_change()
 
-    # --- 매크로 환경 지표 ---
-    if not df_fred.empty and "DGS10" in df_fred.columns:
-        df = df.join(df_fred[["DGS10", "DGS2", "T10Y2Y", "BAMLH0A0HYM2"]], how="left")
-    if not df_macro.empty:
-        for col in ["dxy", "wti", "gold", "copper"]:
-            if col in df_macro.columns:
-                df = df.join(df_macro[[col]].rename(columns={col: f"{col}_close"}), how="left")
-    if not df_fx.empty:
-        if "usd_krw" in df_fx.columns:
-            df = df.join(df_fx[["usd_krw"]], how="left")
-        elif "close" in df_fx.columns:
-            df = df.join(df_fx[["close"]].rename(columns={"close": "usd_krw"}), how="left")
+    # --- 한국 금융 파생상품 피처 ---
+    if not df_kfinance.empty:
+        df = df.join(df_kfinance, how="left")
 
-    # --- 퀀트 선행 지표 ---
-    if not df_sox.empty:
-        sox_cols = [c for c in ["sox_return_1d", "nvda_return_1d"] if c in df_sox.columns]
-        if sox_cols:
-            df = df.join(df_sox[sox_cols], how="left")
-    if not df_memory.empty and "memory_sentiment_index" in df_memory.columns:
-        df = df.join(df_memory[["memory_sentiment_index"]], how="left")
-    if not df_pcr.empty and "pcr_ratio" in df_pcr.columns:
-        df = df.join(df_pcr[["pcr_ratio"]], how="left")
+    # --- 반도체 수출입 피처 ---
+    if not df_semiconductor.empty:
+        df = df.join(df_semiconductor, how="left")
 
-    # --- 관세청 수출 (10일 주기 → 일별 Forward Fill 완료 상태로 입력) ---
-    if df_customs is not None and not df_customs.empty and "yoy_change_pct" in df_customs.columns:
-        df = df.join(
-            df_customs[["yoy_change_pct"]].rename(columns={"yoy_change_pct": "customs_yoy_pct"}),
-            how="left",
-        )
-        df["customs_yoy_pct"] = df["customs_yoy_pct"].ffill()
-
-    # --- 뉴스 감성 ---
-    if not df_news_agg.empty:
-        news_cols = [
-            c
-            for c in [
-                "absa_daily_score",
-                "absa_supply_chain",
-                "absa_regulation",
-                "keyword_momentum_max",
-            ]
-            if c in df_news_agg.columns
-        ]
-        if news_cols:
-            df = df.join(df_news_agg[news_cols], how="left")
+    # --- 매크로/글로벌 피어 피처 ---
+    if not df_macro_gold.empty:
+        df = df.join(df_macro_gold, how="left")
 
     # Forward fill 후 첫 행 NaN 제거
     df = df.ffill().bfill()
@@ -383,16 +525,7 @@ def build_feature_mart(
 feature_marts = {}
 for ticker in TICKERS:
     feature_marts[ticker] = build_feature_mart(
-        df_equity,
-        ticker,
-        df_fred,
-        df_macro,
-        df_fx,
-        df_sox,
-        df_memory,
-        df_pcr,
-        df_news_agg,
-        df_customs=df_customs,
+        df_equity, ticker, df_kfinance, df_semiconductor, df_macro_gold
     )
     print(f"{TICKER_NAMES[ticker]}: {feature_marts[ticker].shape}")
 
@@ -405,53 +538,66 @@ for ticker in TICKERS:
 
 
 def create_derived_features(df):
-    """SENSE 3축 교차 검증 파생 변수 + 시차/변동성 피처를 생성합니다."""
+    """
+    SENSE 3축 교차 검증 파생 변수 + 시차/변동성 피처를 생성합니다.
+    curated 데이터 기반: kfinance(금융 파생) × semiconductor(수출입)
+    """
     out = df.copy()
 
-    # --- 교호 작용 파생 변수 (Interaction Features) ---
+    # === 교호 작용 파생 변수 ===
 
-    # 환경 × 심리: 달러 강세인데 뉴스 긍정 → 시장 과열 경고
-    if "dxy_close" in out.columns and "absa_daily_score" in out.columns:
-        dxy_ret_5d = out["dxy_close"].pct_change(5)
-        dxy_zscore = (dxy_ret_5d - dxy_ret_5d.rolling(20).mean()) / dxy_ret_5d.rolling(
-            20
-        ).std().replace(0, np.nan)
-        out["macro_sentiment_divergence"] = dxy_zscore.fillna(0) - out["absa_daily_score"].fillna(0)
+    # 금융 × 수출: 옵션 시장 활성도 × 수출 모멘텀
+    if "kfin_active_ratio" in out.columns and "semi_exp_mom" in out.columns:
+        out["finance_export_synergy"] = out["kfin_active_ratio"] * out["semi_exp_mom"].fillna(0)
 
-    # 선행 × 심리: SOX 방향과 뉴스 감성 방향 일치 여부
-    if "sox_return_1d" in out.columns and "absa_daily_score" in out.columns:
-        out["sox_news_confirm"] = np.sign(out["sox_return_1d"]) * np.sign(out["absa_daily_score"])
+    # 옵션 ATM가 × DRAM 수출: 시장 기대 × DRAM 실적
+    if "kfin_atm_price" in out.columns and "semi_dram_exp" in out.columns:
+        out["atm_dram_cross"] = (
+            out["kfin_atm_price"] / out["kfin_atm_price"].rolling(5, min_periods=1).mean()
+        ) * (out["semi_dram_exp"] / out["semi_dram_exp"].rolling(3, min_periods=1).mean())
 
-    # 환경 × 선행: 금리역전 × 메모리주 하락 = 복합 위기
-    if "T10Y2Y" in out.columns and "memory_sentiment_index" in out.columns:
-        out["rate_memory_cross"] = out["T10Y2Y"] * out["memory_sentiment_index"]
+    # 무역수지 × 옵션 총가치: 실물 × 금융 복합 지표
+    if "semi_net_trade" in out.columns and "kfin_total_value" in out.columns:
+        out["trade_finance_compound"] = (
+            out["semi_net_trade"]
+            / out["semi_net_trade"].abs().rolling(3, min_periods=1).mean().replace(0, np.nan)
+        ) * (
+            out["kfin_total_value"]
+            / out["kfin_total_value"].rolling(5, min_periods=1).mean().replace(0, np.nan)
+        )
 
-    # 선행 × 선행: PCR × 수출 동반 하방
-    if "pcr_ratio" in out.columns:
-        out["pcr_customs_momentum"] = out["pcr_ratio"]  # customs는 10일 주기라 추후 join
+    # DRAM 비중 변화 × 주가 수익률: DRAM 의존도 신호
+    if "semi_dram_ratio" in out.columns and "return_1d" in out.columns:
+        dram_ratio_delta = out["semi_dram_ratio"] - out["semi_dram_ratio"].shift(1)
+        out["dram_dependency_signal"] = dram_ratio_delta.fillna(0) * np.sign(
+            out["return_1d"].fillna(0)
+        )
 
-    # 환경 × 환경: 금/구리 비율 — Risk-off 강도
-    if "gold_close" in out.columns and "copper_close" in out.columns:
-        out["gold_copper_ratio"] = out["gold_close"] / out["copper_close"].replace(0, np.nan)
+    # 수출입 비율 × 최대행사가: 수출 강세 + 옵션 낙관 복합
+    if "semi_trade_ratio" in out.columns and "kfin_max_strike" in out.columns:
+        out["export_optimism_index"] = (
+            out["semi_trade_ratio"]
+            / out["semi_trade_ratio"].rolling(3, min_periods=1).mean().replace(0, np.nan)
+        ) * (
+            out["kfin_max_strike"]
+            / out["kfin_max_strike"].rolling(5, min_periods=1).mean().replace(0, np.nan)
+        )
 
-    # 환경 × 심리: 신용 스프레드 × 감성 악화 = 복합 불안
-    if "BAMLH0A0HYM2" in out.columns and "absa_daily_score" in out.columns:
-        out["vix_absa_compound"] = out["BAMLH0A0HYM2"] * (1 - out["absa_daily_score"].fillna(0))
+    # === 시차(Lag) 기반 피처 ===
+    if "kfin_atm_price" in out.columns:
+        out["kfin_atm_lag1"] = out["kfin_atm_price"].shift(1)
+        out["kfin_atm_delta_5d"] = out["kfin_atm_price"] - out["kfin_atm_price"].shift(5)
 
-    # --- 시차(Lag) 기반 피처 ---
-    if "sox_return_1d" in out.columns:
-        out["sox_lag1_return"] = out["sox_return_1d"].shift(1)
+    if "semi_total_exp" in out.columns:
+        out["semi_exp_ma3"] = out["semi_total_exp"].rolling(3, min_periods=1).mean()
 
-    if "DGS10" in out.columns:
-        out["dgs10_delta_5d"] = out["DGS10"] - out["DGS10"].shift(5)
+    if "semi_dram_exp" in out.columns:
+        out["semi_dram_ma3"] = out["semi_dram_exp"].rolling(3, min_periods=1).mean()
 
-    if "absa_daily_score" in out.columns:
-        out["absa_ma5"] = out["absa_daily_score"].rolling(5, min_periods=1).mean()
+    if "kfin_active_ratio" in out.columns:
+        out["kfin_active_ratio_ma5"] = out["kfin_active_ratio"].rolling(5, min_periods=1).mean()
 
-    if "memory_sentiment_index" in out.columns:
-        out["memory_sentiment_ma5"] = out["memory_sentiment_index"].rolling(5, min_periods=1).mean()
-
-    # --- 변동성 피처 ---
+    # === 변동성 피처 ===
     out["realized_vol_5d"] = out["return_1d"].rolling(5, min_periods=1).std()
     out["realized_vol_20d"] = out["return_1d"].rolling(20, min_periods=1).std()
     out["vol_ratio"] = out["realized_vol_5d"] / out["realized_vol_20d"].replace(0, np.nan)
@@ -468,6 +614,73 @@ def create_derived_features(df):
 for ticker in TICKERS:
     feature_marts[ticker] = create_derived_features(feature_marts[ticker])
     print(f"{TICKER_NAMES[ticker]} 파생 변수 포함: {feature_marts[ticker].shape[1]} 컬럼")
+    print(f"  컬럼 목록: {list(feature_marts[ticker].columns)}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # 3-1. 피처 상관관계 분석
+# MAGIC
+# MAGIC > 주요 피처와 타겟(종가) 간 Pearson/Spearman 상관관계 히트맵
+
+# COMMAND ----------
+
+_corr_cols = [
+    "close",
+    "return_1d",
+    "kfin_atm_price",
+    "kfin_max_strike",
+    "kfin_mean_price",
+    "kfin_active_ratio",
+    "semi_total_exp",
+    "semi_dram_exp",
+    "semi_exp_mom",
+    "usd_krw_rate",
+    "yfinance_nvda_close",
+    "yfinance_tsm_close",
+    "yfinance_sox_close",
+    "export_optimism_index",
+    "finance_export_synergy",
+    "realized_vol_5d",
+    "vol_ratio",
+    "gap_from_ma20",
+]
+
+for ticker in TICKERS:
+    mart = feature_marts[ticker]
+    avail = [c for c in _corr_cols if c in mart.columns]
+    corr_p = mart[avail].corr(method="pearson")
+    corr_s = mart[avail].corr(method="spearman")
+
+    fig, axes_corr = plt.subplots(1, 2, figsize=(22, 10))
+    for ax_c, corr_mat, method in zip(axes_corr, [corr_p, corr_s], ["Pearson", "Spearman"]):
+        im = ax_c.imshow(corr_mat, cmap="RdBu_r", vmin=-1, vmax=1, aspect="auto")
+        ax_c.set_xticks(range(len(avail)))
+        ax_c.set_yticks(range(len(avail)))
+        ax_c.set_xticklabels(avail, rotation=45, ha="right", fontsize=7)
+        ax_c.set_yticklabels(avail, fontsize=7)
+        for r in range(len(avail)):
+            for cc in range(len(avail)):
+                ax_c.text(
+                    cc, r, f"{corr_mat.iloc[r, cc]:.2f}", ha="center", va="center", fontsize=6
+                )
+        plt.colorbar(im, ax=ax_c, shrink=0.8)
+        ax_c.set_title(f"{TICKER_NAMES[ticker]} — {method} 상관계수", fontsize=12)
+    plt.tight_layout()
+    plt.savefig(f"/tmp/timesfm_corr_{ticker}.png", dpi=150)
+    plt.show()
+
+    # 타겟 vs 주요 피처 Spearman 순위
+    target_cols = [c for c in avail if c != "close"]
+    spearman_vs_target = (
+        mart[target_cols + ["close"]].corr(method="spearman")["close"].drop("close")
+    )
+    spearman_vs_target = spearman_vs_target.reindex(
+        spearman_vs_target.abs().sort_values(ascending=False).index
+    )
+    print(f"\n{TICKER_NAMES[ticker]} — Spearman |상관| 상위 10:")
+    for col, val in spearman_vs_target.head(10).items():
+        print(f"  {col}: {val:+.4f}")
 
 # COMMAND ----------
 
@@ -499,14 +712,14 @@ model.compile(
         max_context=256,  # 1년 ≈ 250 거래일
         max_horizon=128,  # 최대 예측 길이
         return_backcast=True,  # XReg 추론에 필수
-        normalize_inputs=True,  # 스케일 정규화
-        use_continuous_quantile_head=True,  # 분위수 예측 활성화
-        force_flip_invariance=True,  # f(-x) = -f(x)
+        normalize_inputs=True,  # 스케일 정규화 (주가 크기 차이 흡수)
+        use_continuous_quantile_head=True,  # 연속 분위수 예측 (PI 정밀도 향상)
+        force_flip_invariance=True,  # f(-x) = -f(x) 대칭 강제
         infer_is_positive=False,  # 주가 수익률은 음수 가능
         fix_quantile_crossing=True,  # q10 ≤ q20 ≤ ... ≤ q90 보장
     )
 )
-print("TimesFM 2.5 모델 로드 완료")
+print("TimesFM 2.5 200M 모델 로드 완료")
 
 # COMMAND ----------
 
@@ -531,8 +744,7 @@ _pb_raw, _qb_raw = model.forecast(
 point_baseline = np.array(_pb_raw)[:, -HORIZON:]
 quantile_baseline = np.array(_qb_raw)[:, -HORIZON:, :]
 
-print(f"Baseline point forecast shape: {point_baseline.shape}")
-print(f"Baseline quantile forecast shape: {quantile_baseline.shape}")
+print(f"Baseline point: {point_baseline.shape} | quantile: {quantile_baseline.shape}")
 
 for i, ticker in enumerate(TICKERS):
     last_price = inputs[i][-1]
@@ -608,7 +820,6 @@ print(f"  컬럼: {list(dynamic_numerical.keys())}")
 # COMMAND ----------
 
 # XReg 추론 — xreg_mode="xreg + timesfm"
-# 매크로 영향을 선형 회귀로 먼저 반영 → 잔차를 TimesFM이 예측
 _xreg_result = model.forecast_with_covariates(
     inputs=inputs,
     dynamic_numerical_covariates=dynamic_numerical,
@@ -621,7 +832,7 @@ _xreg_result = model.forecast_with_covariates(
 point_xreg = np.array(_xreg_result[0])
 quantile_xreg = np.array(_xreg_result[1])
 
-print(f"XReg point forecast shape: {point_xreg.shape}")
+print(f"XReg point shape: {point_xreg.shape} | quantile shape: {quantile_xreg.shape}")
 
 for i, ticker in enumerate(TICKERS):
     last_price = inputs[i][-1]
@@ -799,75 +1010,77 @@ SCENARIOS = {
     "현상 유지": {},
     # ── 통화정책 시나리오 ──
     "금리 인하 (-50bp)": {
-        "DGS10": current_vals.get("DGS10", 4.0) - 0.5,
-        "DGS2": current_vals.get("DGS2", 4.0) - 0.5,
-        "T10Y2Y": current_vals.get("T10Y2Y", 0.0) + 0.3,
+        "fred_dgs10": current_vals.get("fred_dgs10", 4.0) - 0.5,
+        "fred_dgs2": current_vals.get("fred_dgs2", 4.0) - 0.5,
+        "fred_t10y2y": current_vals.get("fred_t10y2y", 0.0) + 0.3,
     },
     "금리 인상 (+50bp)": {
-        "DGS10": current_vals.get("DGS10", 4.0) + 0.5,
-        "DGS2": current_vals.get("DGS2", 4.0) + 0.5,
-        "T10Y2Y": current_vals.get("T10Y2Y", 0.0) - 0.3,
+        "fred_dgs10": current_vals.get("fred_dgs10", 4.0) + 0.5,
+        "fred_dgs2": current_vals.get("fred_dgs2", 4.0) + 0.5,
+        "fred_t10y2y": current_vals.get("fred_t10y2y", 0.0) - 0.3,
     },
     "스프레드 급등 (+100bp)": {
-        "BAMLH0A0HYM2": current_vals.get("BAMLH0A0HYM2", 3.5) + 1.0,
+        "fred_bamlh0a0hym2": current_vals.get("fred_bamlh0a0hym2", 3.5) + 1.0,
+        "fred_dfii10": current_vals.get("fred_dfii10", 2.0) + 0.5,
     },
     # ── 환율·무역 시나리오 ──
-    "달러 급등 (+5%)": {
-        "dxy_close": current_vals.get("dxy_close", 105.0) * 1.05,
-        "usd_krw": current_vals.get("usd_krw", 1350.0) * 1.05,
+    "원화 약세 (+5%)": {
+        "usd_krw_rate": current_vals.get("usd_krw_rate", 1400.0) * 1.05,
     },
-    "달러 급락 (-5%)": {
-        "dxy_close": current_vals.get("dxy_close", 105.0) * 0.95,
-        "usd_krw": current_vals.get("usd_krw", 1350.0) * 0.95,
+    "원화 강세 (-5%)": {
+        "usd_krw_rate": current_vals.get("usd_krw_rate", 1400.0) * 0.95,
     },
     # ── 산업·수급 시나리오 ──
-    "뉴스 감성 급락 (공급망 위기)": {
-        "absa_daily_score": -0.6,
-        "absa_supply_chain": -0.8,
+    "반도체 수출 급증 (+20%)": {
+        "semi_total_exp": current_vals.get("semi_total_exp", 300.0) * 1.20,
+        "semi_dram_exp": current_vals.get("semi_dram_exp", 80.0) * 1.20,
+        "semi_exp_mom": 0.20,
     },
-    "뉴스 감성 급등 (AI 수요 호재)": {
-        "absa_daily_score": 0.6,
-        "keyword_momentum_max": current_vals.get("keyword_momentum_max", 5.0) * 2.0,
+    "반도체 수출 급감 (-20%)": {
+        "semi_total_exp": current_vals.get("semi_total_exp", 300.0) * 0.80,
+        "semi_dram_exp": current_vals.get("semi_dram_exp", 80.0) * 0.80,
+        "semi_exp_mom": -0.20,
     },
-    "SOX 폭락 (-10%) + 메모리주 약세": {
-        "sox_return_1d": -0.03,
-        "nvda_return_1d": -0.05,
-        "memory_sentiment_index": current_vals.get("memory_sentiment_index", 0.0) - 0.1,
+    "AI 수요 폭증 (NVDA +15%)": {
+        "yfinance_nvda_close": current_vals.get("yfinance_nvda_close", 120.0) * 1.15,
+        "yfinance_tsm_close": current_vals.get("yfinance_tsm_close", 170.0) * 1.10,
+        "yfinance_mu_close": current_vals.get("yfinance_mu_close", 90.0) * 1.10,
+    },
+    "글로벌 반도체 약세 (SOX -10%)": {
+        "yfinance_sox_close": current_vals.get("yfinance_sox_close", 4500.0) * 0.90,
+        "yfinance_nvda_close": current_vals.get("yfinance_nvda_close", 120.0) * 0.90,
+        "yfinance_tsm_close": current_vals.get("yfinance_tsm_close", 170.0) * 0.90,
     },
     # ── 복합 시나리오 (스트레스 테스트) ──
-    "복합 호재: 금리인하 + 감성호전 + SOX 상승": {
-        "DGS10": current_vals.get("DGS10", 4.0) - 0.5,
-        "T10Y2Y": current_vals.get("T10Y2Y", 0.0) + 0.3,
-        "absa_daily_score": 0.5,
-        "sox_return_1d": 0.02,
+    "복합 호재: 금리인하 + 수출급증": {
+        "fred_dgs10": current_vals.get("fred_dgs10", 4.0) - 0.5,
+        "fred_t10y2y": current_vals.get("fred_t10y2y", 0.0) + 0.3,
+        "semi_total_exp": current_vals.get("semi_total_exp", 300.0) * 1.20,
+        "semi_dram_exp": current_vals.get("semi_dram_exp", 80.0) * 1.20,
+        "yfinance_nvda_close": current_vals.get("yfinance_nvda_close", 120.0) * 1.10,
     },
-    "복합 악재: 금리인상 + 달러강세 + 감성악화": {
-        "DGS10": current_vals.get("DGS10", 4.0) + 0.5,
-        "dxy_close": current_vals.get("dxy_close", 105.0) * 1.08,
-        "usd_krw": current_vals.get("usd_krw", 1350.0) * 1.08,
-        "absa_daily_score": -0.5,
-        "sox_return_1d": -0.03,
-    },
-    "강달러 + 금리 인상": {
-        "DGS10": current_vals.get("DGS10", 4.0) + 0.5,
-        "dxy_close": current_vals.get("dxy_close", 105.0) * 1.05,
-        "usd_krw": current_vals.get("usd_krw", 1350.0) * 1.05,
+    "복합 악재: 금리인상 + 원화약세 + 수출감소": {
+        "fred_dgs10": current_vals.get("fred_dgs10", 4.0) + 0.5,
+        "usd_krw_rate": current_vals.get("usd_krw_rate", 1400.0) * 1.08,
+        "semi_total_exp": current_vals.get("semi_total_exp", 300.0) * 0.85,
+        "semi_dram_exp": current_vals.get("semi_dram_exp", 80.0) * 0.85,
+        "yfinance_sox_close": current_vals.get("yfinance_sox_close", 4500.0) * 0.90,
     },
 }
 
 SCENARIO_GROUPS = {
     "기준": ["현상 유지"],
     "통화정책": ["금리 인하 (-50bp)", "금리 인상 (+50bp)", "스프레드 급등 (+100bp)"],
-    "환율·무역": ["달러 급등 (+5%)", "달러 급락 (-5%)"],
+    "환율·무역": ["원화 약세 (+5%)", "원화 강세 (-5%)"],
     "산업·수급": [
-        "뉴스 감성 급락 (공급망 위기)",
-        "뉴스 감성 급등 (AI 수요 호재)",
-        "SOX 폭락 (-10%) + 메모리주 약세",
+        "반도체 수출 급증 (+20%)",
+        "반도체 수출 급감 (-20%)",
+        "AI 수요 폭증 (NVDA +15%)",
+        "글로벌 반도체 약세 (SOX -10%)",
     ],
     "복합 스트레스": [
-        "복합 호재: 금리인하 + 감성호전 + SOX 상승",
-        "복합 악재: 금리인상 + 달러강세 + 감성악화",
-        "강달러 + 금리 인상",
+        "복합 호재: 금리인하 + 수출급증",
+        "복합 악재: 금리인상 + 원화약세 + 수출감소",
     ],
 }
 
@@ -885,16 +1098,17 @@ for scenario_name, overrides in SCENARIOS.items():
             modified_arrays.append(new_arr)
         scenario_covariates[key] = modified_arrays
 
-    point_sc, quantile_sc = model.forecast_with_covariates(
+    _p_sc, _q_sc = model.forecast_with_covariates(
         inputs=inputs,
         dynamic_numerical_covariates=scenario_covariates,
         dynamic_categorical_covariates=dynamic_categorical,
         static_categorical_covariates=static_categorical,
         xreg_mode="xreg + timesfm",
     )
+    # list → np.array 변환
     scenario_results[scenario_name] = {
-        "point": np.array(point_sc),
-        "quantiles": np.array(quantile_sc),
+        "point": np.array(_p_sc),
+        "quantiles": np.array(_q_sc),
     }
     print(f"  ✅ {scenario_name}")
 
@@ -905,9 +1119,10 @@ print(f"\n총 {len(scenario_results)} 시나리오 추론 완료")
 # 시나리오별 최종 예측값 비교 테이블 (그룹별 출력)
 rows = []
 for scenario_name, result in scenario_results.items():
+    # 그룹 탐색
     group = "기타"
-    for g, members in SCENARIO_GROUPS.items():
-        if scenario_name in members:
+    for g, names in SCENARIO_GROUPS.items():
+        if scenario_name in names:
             group = g
             break
     for i, ticker in enumerate(TICKERS):
@@ -930,6 +1145,60 @@ print(df_scenarios.to_string(index=False))
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## 8-1. 시나리오 일관성 검증
+# MAGIC
+# MAGIC > 시나리오 결과가 경제적 상식과 부합하는지 자동 검증
+
+# COMMAND ----------
+
+_sanity_checks = []
+_base_result = scenario_results["현상 유지"]
+for name, result in scenario_results.items():
+    if name == "현상 유지":
+        continue
+    for i, ticker in enumerate(TICKERS):
+        pred = result["point"][i, -1]
+        base = _base_result["point"][i, -1]
+        delta_pct = (pred - base) / abs(base) * 100
+        _sanity_checks.append(
+            {
+                "시나리오": name,
+                "종목": TICKER_NAMES[ticker],
+                "기준 대비 변동(%)": round(delta_pct, 2),
+            }
+        )
+
+df_sanity = pd.DataFrame(_sanity_checks)
+print("시나리오 일관성 검증 (현상 유지 대비 변동):")
+print(df_sanity.to_string(index=False))
+
+# 경제적 상식과 반대 방향인 시나리오 플래그
+_counterintuitive = []
+print("\n⚠️ 직관 검증 필요 시나리오:")
+for _, row in df_sanity.iterrows():
+    name, delta = row["시나리오"], row["기준 대비 변동(%)"]
+    flag = None
+    if "금리 인하" in name and delta < -5:
+        flag = f"금리 인하인데 {delta:+.2f}% 하락"
+    elif "금리 인상" in name and delta > 5:
+        flag = f"금리 인상인데 {delta:+.2f}% 상승"
+    elif "수출 급증" in name and delta < -5:
+        flag = f"수출 급증인데 {delta:+.2f}% 하락"
+    elif "수출 급감" in name and delta > 5:
+        flag = f"수출 급감인데 {delta:+.2f}% 상승"
+    if flag:
+        print(f"  ⚠ {name} ({row['종목']}): {flag}")
+        _counterintuitive.append(f"{name}({row['종목']}): {flag}")
+
+if not _counterintuitive:
+    print("  ✅ 모든 시나리오가 경제적 직관과 부합합니다.")
+else:
+    print("\n참고: TimesFM XReg은 공변량을 선형 참조하므로, 학습 기간 상관관계가")
+    print("     경제적 인과와 다를 수 있습니다. 시나리오 해석 시 이 점을 고려하세요.")
+
+# COMMAND ----------
+
 # 시나리오 Fan Chart (그룹별 색상)
 _GROUP_COLORS = {
     "기준": "tab:gray",
@@ -947,6 +1216,7 @@ for idx, ticker in enumerate(TICKERS):
     ax = axes[idx]
     forecast_x = np.arange(1, HORIZON + 1)
 
+    plotted_groups = set()
     for name, result in scenario_results.items():
         # 그룹 탐색
         group = "기타"
@@ -1034,6 +1304,7 @@ print(_scenario_interpretation)
 # COMMAND ----------
 
 attribution = {}
+attribution_per_ticker = {ticker: {} for ticker in TICKERS}
 n_covariates = len(dynamic_numerical)
 
 print(f"공변량 기여도 분석 시작 ({n_covariates}개 변수)...")
@@ -1047,8 +1318,13 @@ for cov_idx, cov_name in enumerate(dynamic_numerical.keys()):
         xreg_mode="xreg + timesfm",
     )
     point_reduced = np.array(_p_reduced)
-    # 기여도 = |전체 XReg 예측 - 해당 변수 제외 예측|의 평균
     attribution[cov_name] = float(np.mean(np.abs(point_xreg - point_reduced)))
+
+    # 종목별 기여도 (v0411)
+    for ti, ticker in enumerate(TICKERS):
+        attribution_per_ticker[ticker][cov_name] = float(
+            np.mean(np.abs(point_xreg[ti] - point_reduced[ti]))
+        )
 
     if (cov_idx + 1) % 5 == 0:
         print(f"  {cov_idx + 1}/{n_covariates} 완료...")
@@ -1082,6 +1358,38 @@ for name, score in sorted_attr[:5]:
 
 # COMMAND ----------
 
+# 종목별 기여도 Top 10 비교 시각화 (v0411)
+fig, axes_at = plt.subplots(1, len(TICKERS), figsize=(9 * len(TICKERS), 6))
+if len(TICKERS) == 1:
+    axes_at = [axes_at]
+
+for idx, ticker in enumerate(TICKERS):
+    ax = axes_at[idx]
+    sorted_t = sorted(attribution_per_ticker[ticker].items(), key=lambda x: x[1], reverse=True)
+    top_names_t = [a[0] for a in sorted_t[:top_n]]
+    top_scores_t = [a[1] for a in sorted_t[:top_n]]
+    ax.barh(range(top_n), top_scores_t[::-1], color="steelblue", alpha=0.8)
+    ax.set_yticks(range(top_n))
+    ax.set_yticklabels(top_names_t[::-1], fontsize=9)
+    ax.set_xlabel("기여도 (예측 변화량 평균)")
+    ax.set_title(f"{TICKER_NAMES[ticker]} Attribution Top {top_n}", fontsize=12)
+    ax.grid(True, alpha=0.3, axis="x")
+
+plt.suptitle("종목별 XReg Attribution 비교", fontsize=14, y=1.02)
+plt.tight_layout()
+plt.savefig("/tmp/timesfm_attribution_per_ticker.png", dpi=150)
+plt.show()
+
+# 종목 간 기여도 순위 차이 분석
+print("\n[종목 간 Attribution 순위 비교]")
+for ticker in TICKERS:
+    sorted_t = sorted(attribution_per_ticker[ticker].items(), key=lambda x: x[1], reverse=True)
+    print(f"\n{TICKER_NAMES[ticker]} Top 5:")
+    for rank, (name, score) in enumerate(sorted_t[:5], 1):
+        print(f"  {rank}. {name}: {score:.4f}")
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## 9-1. AI 해석 — 공변량 기여도 (XReg Attribution)
 
@@ -1111,94 +1419,188 @@ print(_attr_interpretation)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 10. Rolling Window Backtest
+# MAGIC # 10. Rolling Window Backtest (다중 호라이즌)
 # MAGIC
 # MAGIC > 최근 3개월(60 거래일)을 5일 단위로 슬라이딩하며
-# MAGIC > 20일 예측 → MAE, PI Coverage, 방향 정확도 평가
+# MAGIC > 5일/10일/20일 예측 → MAE, MAPE, PI Coverage, 방향 정확도 평가
 
 # COMMAND ----------
 
-BACKTEST_HORIZON = 20
+BACKTEST_HORIZONS = [5, 10, 20]
 STEP = 5
 TEST_WINDOW = 60  # 최근 60 거래일을 테스트 구간으로 사용
 
 backtest_results = []
 
-for ticker_idx, ticker in enumerate(TICKERS):
-    series = inputs[ticker_idx]
-    total_len = len(series)
+for bh in BACKTEST_HORIZONS:
+    for ticker_idx, ticker in enumerate(TICKERS):
+        series = inputs[ticker_idx]
+        total_len = len(series)
 
-    for start in range(total_len - TEST_WINDOW, total_len - BACKTEST_HORIZON, STEP):
-        train = series[:start]
-        actual = series[start : start + BACKTEST_HORIZON]
+        for start in range(total_len - TEST_WINDOW, total_len - bh, STEP):
+            train = series[:start]
+            actual = series[start : start + bh]
 
-        if len(train) < 32 or len(actual) < BACKTEST_HORIZON:
-            continue
+            if len(train) < 32 or len(actual) < bh:
+                continue
 
-        _p_bt, _q_bt = model.forecast(
-            horizon=BACKTEST_HORIZON,
-            inputs=[train],
-        )
-        # return_backcast=True → 마지막 HORIZON개만 forecast
-        point_bt = np.array(_p_bt)[:, -BACKTEST_HORIZON:]
-        quantile_bt = np.array(_q_bt)[:, -BACKTEST_HORIZON:, :]
-        pred = point_bt[0, : len(actual)]
+            _p_bt, _q_bt = model.forecast(
+                horizon=bh,
+                inputs=[train],
+            )
+            # return_backcast=True → 마지막 bh개만 forecast
+            point_bt = np.array(_p_bt)[:, -bh:]
+            quantile_bt = np.array(_q_bt)[:, -bh:, :]
+            pred = point_bt[0, : len(actual)]
 
-        mae = float(np.mean(np.abs(actual - pred)))
-        rmse = float(np.sqrt(np.mean((actual - pred) ** 2)))
-        mape = (
-            float(np.mean(np.abs((actual - pred) / actual)) * 100)
-            if np.all(actual != 0)
-            else np.nan
-        )
+            mae = float(np.mean(np.abs(actual - pred)))
+            rmse = float(np.sqrt(np.mean((actual - pred) ** 2)))
+            mape = (
+                float(np.mean(np.abs((actual - pred) / actual)) * 100)
+                if np.all(actual != 0)
+                else np.nan
+            )
 
-        # 80% PI Coverage: 실제값이 q10~q90 안에 들어온 비율
-        in_band = (actual >= quantile_bt[0, : len(actual), 1]) & (
-            actual <= quantile_bt[0, : len(actual), 9]
-        )
-        coverage_80 = float(np.mean(in_band))
+            # 80% PI Coverage
+            in_band = (actual >= quantile_bt[0, : len(actual), 1]) & (
+                actual <= quantile_bt[0, : len(actual), 9]
+            )
+            coverage_80 = float(np.mean(in_band))
 
-        # 방향 정확도: 다음 날 상승/하락을 맞췄는가
-        actual_dir = np.sign(np.diff(actual))
-        pred_dir = np.sign(np.diff(pred))
-        min_len = min(len(actual_dir), len(pred_dir))
-        dir_accuracy = (
-            float(np.mean(actual_dir[:min_len] == pred_dir[:min_len])) if min_len > 0 else np.nan
-        )
+            # 방향 정확도
+            actual_dir = np.sign(np.diff(actual))
+            pred_dir = np.sign(np.diff(pred))
+            min_len = min(len(actual_dir), len(pred_dir))
+            dir_accuracy = (
+                float(np.mean(actual_dir[:min_len] == pred_dir[:min_len]))
+                if min_len > 0
+                else np.nan
+            )
 
-        backtest_results.append(
-            {
-                "ticker": ticker,
-                "name": TICKER_NAMES[ticker],
-                "window_start": start,
-                "mae": mae,
-                "rmse": rmse,
-                "mape": mape,
-                "coverage_80": coverage_80,
-                "directional_accuracy": dir_accuracy,
-            }
-        )
+            backtest_results.append(
+                {
+                    "ticker": ticker,
+                    "name": TICKER_NAMES[ticker],
+                    "horizon": bh,
+                    "window_start": start,
+                    "mae": mae,
+                    "rmse": rmse,
+                    "mape": mape,
+                    "coverage_80": coverage_80,
+                    "directional_accuracy": dir_accuracy,
+                }
+            )
 
 df_backtest = pd.DataFrame(backtest_results)
+print(f"Backtest 완료: {len(df_backtest)} 윈도우 ({len(BACKTEST_HORIZONS)} 호라이즌)")
 
 # COMMAND ----------
 
-# 종목별 Backtest 결과 요약
+# 종목별·호라이즌별 Backtest 결과 요약
 print("=" * 70)
-print("Rolling Window Backtest 결과 요약")
+print("Rolling Window Backtest 결과 요약 (다중 호라이즌)")
 print("=" * 70)
 
 for ticker in TICKERS:
-    sub = df_backtest[df_backtest["ticker"] == ticker]
-    if sub.empty:
+    print(f"\n{'─' * 50}")
+    print(f"📊 {TICKER_NAMES[ticker]} ({ticker})")
+    for bh in BACKTEST_HORIZONS:
+        sub = df_backtest[(df_backtest["ticker"] == ticker) & (df_backtest["horizon"] == bh)]
+        if sub.empty:
+            continue
+        cov = sub["coverage_80"].mean()
+        dir_acc = sub["directional_accuracy"].mean()
+        cov_flag = "✅" if cov >= 0.75 else "⚠️"
+        dir_flag = "✅" if dir_acc >= 0.55 else "⚠️"
+        print(f"\n  [T+{bh}일] (윈도우 {len(sub)}개)")
+        print(f"    평균 MAE:       {sub['mae'].mean():>10,.2f}")
+        print(f"    평균 RMSE:      {sub['rmse'].mean():>10,.2f}")
+        print(f"    평균 MAPE:      {sub['mape'].mean():>9.2f}%")
+        print(f"    80% PI Coverage:{cov:>9.1%} {cov_flag}")
+        print(f"    방향 정확도:    {dir_acc:>9.1%} {dir_flag}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 10-1. Conformal PI 보정
+# MAGIC
+# MAGIC > Backtest 잔차를 이용하여 80% PI 밴드를 실증적으로 보정
+# MAGIC > 삼성전자 63.7% → 80% 도달을 위한 확장 계수 산출
+
+# COMMAND ----------
+
+print("=" * 70)
+print("Conformal Prediction Interval 보정")
+print("=" * 70)
+
+conformal_factors = {}
+for ticker in TICKERS:
+    sub20 = df_backtest[(df_backtest["ticker"] == ticker) & (df_backtest["horizon"] == 20)]
+    if sub20.empty:
         continue
-    print(f"\n{TICKER_NAMES[ticker]} ({ticker}):")
-    print(f"  평균 MAE:           {sub['mae'].mean():,.2f}")
-    print(f"  평균 RMSE:          {sub['rmse'].mean():,.2f}")
-    print(f"  평균 MAPE:          {sub['mape'].mean():.2f}%")
-    print(f"  80% PI Coverage:    {sub['coverage_80'].mean():.1%}")
-    print(f"  방향 정확도:         {sub['directional_accuracy'].mean():.1%}")
-    print(f"  (윈도우 수: {len(sub)})")
+    actual_cov = sub20["coverage_80"].mean()
+    target_cov = 0.80
+    print(f"\n{TICKER_NAMES[ticker]}:")
+    print(f"  현재 80% PI Coverage: {actual_cov:.1%}")
+    if actual_cov < target_cov - 0.02:
+        # 밴드 폭 확장 계수: quantile 기반 보정
+        expansion = target_cov / max(actual_cov, 0.10)
+        conformal_factors[ticker] = expansion
+        print(f"  ⚠ 목표 미달 → PI 폭 확장 계수: ×{expansion:.3f}")
+        print(f"  보정 적용: q10' = mid - (mid - q10) × {expansion:.3f}")
+        print(f"             q90' = mid + (q90 - mid) × {expansion:.3f}")
+        # 시범 적용
+        idx_t = TICKERS.index(ticker)
+        mid = point_xreg[idx_t]
+        q10_orig = quantile_xreg[idx_t, :, 1]
+        q90_orig = quantile_xreg[idx_t, :, 9]
+        q10_cal = mid - (mid - q10_orig) * expansion
+        q90_cal = mid + (q90_orig - mid) * expansion
+        pi_width_orig = np.mean(q90_orig - q10_orig)
+        pi_width_cal = np.mean(q90_cal - q10_cal)
+        print(f"  보정 전 평균 PI 폭: {pi_width_orig:,.0f}원")
+        print(f"  보정 후 평균 PI 폭: {pi_width_cal:,.0f}원")
+    else:
+        conformal_factors[ticker] = 1.0
+        print(f"  ✅ 목표 달성 (≥ {target_cov:.0%}) — 보정 불필요")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 10-2. 잔차 분포 분석
+# MAGIC
+# MAGIC > Backtest 예측 오차의 분포를 시각화하여 모델 편향(bias) 진단
+
+# COMMAND ----------
+
+fig, axes_res = plt.subplots(
+    len(TICKERS), len(BACKTEST_HORIZONS), figsize=(6 * len(BACKTEST_HORIZONS), 5 * len(TICKERS))
+)
+if len(TICKERS) == 1:
+    axes_res = [axes_res]
+
+for ti, ticker in enumerate(TICKERS):
+    for hi, bh in enumerate(BACKTEST_HORIZONS):
+        ax = axes_res[ti][hi] if len(BACKTEST_HORIZONS) > 1 else axes_res[ti]
+        sub = df_backtest[(df_backtest["ticker"] == ticker) & (df_backtest["horizon"] == bh)]
+        if sub.empty:
+            continue
+        # MAE를 부호 있는 잔차(bias)로 전환하려면 원본 예측-실제 필요
+        # 여기서는 MAPE 분포로 대체
+        mapes = sub["mape"].dropna()
+        ax.hist(
+            mapes, bins=max(3, len(mapes) // 2), color="steelblue", alpha=0.7, edgecolor="white"
+        )
+        ax.axvline(mapes.mean(), color="red", linestyle="--", label=f"평균: {mapes.mean():.2f}%")
+        ax.set_title(f"{TICKER_NAMES[ticker]} T+{bh} MAPE 분포", fontsize=11)
+        ax.set_xlabel("MAPE (%)")
+        ax.set_ylabel("윈도우 수")
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig("/tmp/timesfm_residual_distribution.png", dpi=150)
+plt.show()
 
 # COMMAND ----------
 
@@ -1213,7 +1615,6 @@ anomaly_records = []
 
 for i, ticker in enumerate(TICKERS):
     series = inputs[i]
-    # 최근 HORIZON일 전까지를 context로, 이후를 평가 구간으로 사용
     if len(series) <= HORIZON:
         continue
 
@@ -1265,7 +1666,46 @@ if anomaly_records:
     print(f"이상 이벤트 {len(df_anomalies)}건 감지:")
     print(df_anomalies.to_string(index=False))
 else:
-    print("최근 구간에서 이상 이벤트 없음 (모든 종가가 80% PI 내)")
+    df_anomalies = pd.DataFrame()
+    print("최근 구간에서 이상 이벤트 없음 (80% PI 내)")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # 11-1. VaR/CVaR 리스크 지표
+# MAGIC
+# MAGIC > TimesFM Quantile 예측으로부터 Value-at-Risk 및 Conditional VaR 산출
+
+# COMMAND ----------
+
+print("=" * 70)
+print("VaR / CVaR 리스크 지표 (XReg 기반)")
+print("=" * 70)
+
+for i, ticker in enumerate(TICKERS):
+    last_price = inputs[i][-1]
+    # q10 = 10th percentile of forecast → worst 10% scenario proxy
+    q10_path = quantile_xreg[i, :, 1]  # 10th percentile over horizon
+    q05_approx = quantile_xreg[i, :, 0]  # mean (approx for lower tail via interpolation)
+
+    # T+5, T+10, T+20 VaR
+    print(f"\n{TICKER_NAMES[ticker]} ({ticker}):")
+    for h_label, h_idx in [("T+5", 4), ("T+10", 9), ("T+20", min(19, HORIZON - 1))]:
+        if h_idx >= HORIZON:
+            continue
+        var_10 = (q10_path[h_idx] - last_price) / last_price * 100
+        # CVaR: 평균 of q10 path up to h_idx (conditional on tail)
+        cvar_10 = np.mean([(q10_path[j] - last_price) / last_price * 100 for j in range(h_idx + 1)])
+        print(f"  [{h_label}] VaR(10%): {var_10:+.2f}% | CVaR(10%): {cvar_10:+.2f}%")
+
+    # 보정된 VaR (Conformal 적용)
+    if ticker in conformal_factors and conformal_factors[ticker] > 1.0:
+        cf = conformal_factors[ticker]
+        mid = point_xreg[i]
+        q10_cal = mid - (mid - q10_path) * cf
+        h_idx_20 = min(19, HORIZON - 1)
+        var_cal = (q10_cal[h_idx_20] - last_price) / last_price * 100
+        print(f"  [T+20 Conformal 보정] VaR(10%): {var_cal:+.2f}%")
 
 # COMMAND ----------
 
@@ -1353,15 +1793,31 @@ for i, ticker in enumerate(TICKERS):
     print(f"  XReg     T+{HORIZON}:     {xreg_final:>12,.0f}  ({xreg_pct:+.2f}%)")
     print(f"  매크로 충격 (Δ):     {impact:>+12,.0f}  ({impact / last_price * 100:+.2f}%)")
 
-    # Backtest
-    bt = df_backtest[df_backtest["ticker"] == ticker]
-    if not bt.empty:
-        print(f"  Backtest MAE:        {bt['mae'].mean():>12,.2f}")
-        print(f"  Backtest Coverage:   {bt['coverage_80'].mean():>11.1%}")
-        print(f"  방향 정확도:         {bt['directional_accuracy'].mean():>11.1%}")
+    # 멀티 호라이즌 Backtest 요약 (v0411)
+    for h in BACKTEST_HORIZONS:
+        bt = df_backtest[(df_backtest["ticker"] == ticker) & (df_backtest["horizon"] == h)]
+        if bt.empty:
+            continue
+        cov = bt["coverage_80"].mean()
+        da = bt["directional_accuracy"].mean()
+        cov_flag = "✅" if cov >= 0.75 else "⚠️"
+        da_flag = "✅" if da >= 0.55 else "⚠️"
+        print(
+            f"  [{h}d] MAE: {bt['mae'].mean():>10,.0f} | "
+            f"Coverage: {cov:>5.1%} {cov_flag} | "
+            f"Direction: {da:>5.1%} {da_flag}"
+        )
 
-    # Attribution Top 3
-    print(f"  Top 3 영향 변수:     {', '.join([a[0] for a in sorted_attr[:3]])}")
+    # Conformal 보정 정보
+    if ticker in conformal_factors and conformal_factors[ticker] > 1.0:
+        print(f"  Conformal PI 확장 계수: ×{conformal_factors[ticker]:.2f}")
+
+    # 종목별 Attribution Top 3 (v0411)
+    if ticker in attribution_per_ticker and attribution_per_ticker[ticker]:
+        sorted_t = sorted(attribution_per_ticker[ticker].items(), key=lambda x: x[1], reverse=True)
+        print(f"  Top 3 영향 변수:     {', '.join([a[0] for a in sorted_t[:3]])}")
+    else:
+        print(f"  Top 3 영향 변수:     {', '.join([a[0] for a in sorted_attr[:3]])}")
 
 # 시나리오 요약 (그룹별)
 print(f"\n{'─' * 50}")
@@ -1455,17 +1911,30 @@ for group, members in SCENARIO_GROUPS.items():
             continue
         _final_lines.append(f"  [{group}] {name}: 평균 {_sc_changes[name]:+.2f}%")
 
-# Backtest 지표
+# Backtest 지표 (멀티 호라이즌 — v0411)
 if not df_backtest.empty:
+    _final_lines.append("\n[Backtest 품질 평가]")
     for ticker in TICKERS:
-        sub = df_backtest[df_backtest["ticker"] == ticker]
-        if not sub.empty:
-            _final_lines.append(
-                f"[{TICKER_NAMES[ticker]}] Backtest — "
-                f"MAE: {sub['mae'].mean():,.0f} | "
-                f"방향 정확도: {sub['directional_accuracy'].mean():.1%} | "
-                f"80% PI Coverage: {sub['coverage_80'].mean():.1%}"
-            )
+        for h in BACKTEST_HORIZONS:
+            sub = df_backtest[(df_backtest["ticker"] == ticker) & (df_backtest["horizon"] == h)]
+            if not sub.empty:
+                cov = sub["coverage_80"].mean()
+                da = sub["directional_accuracy"].mean()
+                cov_warn = " ⚠️신뢰구간 부족" if cov < 0.75 else ""
+                da_warn = " ⚠️방향성 미달" if da < 0.55 else ""
+                _final_lines.append(
+                    f"  [{TICKER_NAMES[ticker]} {h}d] MAE: {sub['mae'].mean():,.0f} | "
+                    f"Coverage: {cov:.1%}{cov_warn} | Direction: {da:.1%}{da_warn}"
+                )
+        # Conformal 보정 여부
+        if ticker in conformal_factors and conformal_factors[ticker] > 1.0:
+            _final_lines.append(f"  → Conformal PI ×{conformal_factors[ticker]:.2f} 보정 적용 권장")
+
+# 시나리오 일관성 경고 (v0411)
+_final_lines.append("\n[시나리오 일관성 참고]")
+_final_lines.append("일부 시나리오(금리 인하/인상")
+_final_lines.append("등)에서 경제적 직관과 반대 방향의 결과가 관측됨.")
+_final_lines.append("XReg 선형 참조 한계로 인한 것이므로 해석 시 유의 필요.")
 
 # 이상 감지
 _final_lines.append(

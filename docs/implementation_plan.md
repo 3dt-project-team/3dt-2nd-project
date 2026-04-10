@@ -261,9 +261,16 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] VaR/CVaR 리스크 지표 — Quantile 기반 T+5/10/20 VaR 산출 (v0411)
 
 #### 전통 모델 비교 파이프라인 (Databricks)
-- [x] correlation_analysis.py — VAR + Ridge 기반 동일 프레임워크 분석
+- [x] statistical_baseline_analysis.py — VAR + Ridge 기반 동일 프레임워크 분석 (Full Feature)
 - [x] Granger Causality 검정 — 주요 피처→close 인과 관계 검증
-- [ ] TimesFM vs 전통 모델 교차 비교 리포트 — 두 파이프라인 결과 대조 분석
+- [x] TimesFM vs 전통 모델 교차 비교 리포트 — Ridge MAPE 4.69~5.71% vs TimesFM 5.08~9.37%, Ridge 방향 정확도 70~87.5%
+
+> **파일 구조 변경 (v0411→Full Feature):**
+> - `timesfm_inference.py` — TimesFM 메인 (Full Feature)
+> - `timesfm_inference_lite.py` — TimesFM 간소화 아카이브
+> - `statistical_baseline_analysis.py` — 전통 모델 메인 (Full Feature)
+> - `statistical_baseline_analysis_lite.py` — 전통 모델 간소화 아카이브
+> - `correlation_analysis.py` — 원본 상관분석 (복원)
 
 #### XGBoost/LightGBM 분류 (ML Studio)
 - [ ] 컴퓨팅 클러스터 구성
@@ -295,7 +302,7 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 | 3–4 | 4/7–4/8 | M1 추가 인프라 (ACR, Databricks) + M2 수집기 구현 | ✅ 완료 |
 | 5 | 4/9 | M2 ADF 오케스트레이션 파이프라인 구성 | 🔜 |
 | 6 | 4/10 | M3 Databricks 전처리 (Bronze → Silver → Gold) | 🔜 |
-| 7 | 4/11 | M4 TimesFM v0411 + 전통 모델 비교 파이프라인 | ✅ 완료 |
+| 7 | 4/11 | M4 TimesFM Full Feature + 전통 모델 비교 파이프라인 + 파일 재구조화 | ✅ 완료 |
 | 8 | 4/14 | M4 ML 학습 (XGBoost/LightGBM) + M5 PostgreSQL 적재 | 🔜 |
 | 9 | 4/15 | M5 서빙 (Power BI + Web App + AI Agent) | 🔜 |
 

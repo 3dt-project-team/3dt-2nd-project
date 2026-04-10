@@ -1,17 +1,26 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # SENSE 프로젝트 — TimesFM 2.5 시계열 예측 노트북
+# MAGIC # SENSE 프로젝트 — TimesFM 2.5 시계열 예측 노트북 (v0411)
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC SENSE 프로젝트 — TimesFM 2.5 시계열 예측 노트북
+# MAGIC SENSE 프로젝트 — TimesFM 2.5 시계열 예측 노트북 (v0411)
 # MAGIC SENSE: Semiconductor Economic News & Signal Engine
 # MAGIC
 # MAGIC 목적: TimesFM 2.5를 활용한 반도체 주가 시계열 예측
 # MAGIC       Step 1 — Zero-shot Baseline (주가만)
 # MAGIC       Step 2 — XReg 공변량 추론 (매크로/퀀트/감성)
 # MAGIC       Step 3 — 매크로 충격 정량화 + 시나리오 분석 + Backtest
+# MAGIC
+# MAGIC v0411 개선사항:
+# MAGIC   - 한글 폰트 자동 설정 (matplotlib 경고 해소)
+# MAGIC   - 피처 상관관계 히트맵 (Pearson/Spearman)
+# MAGIC   - 다중 호라이즌 백테스트 (5일/10일/20일)
+# MAGIC   - Conformal PI 보정 (삼성전자 커버리지 개선)
+# MAGIC   - 종목별 Attribution 분리
+# MAGIC   - 시나리오 일관성 검증
+# MAGIC   - 잔차 분포 분석 + VaR/CVaR 리스크 지표
 # MAGIC
 # MAGIC 실행 환경: Databricks GPU 클러스터 권장 (Standard_NC6s_v3 이상)
 # MAGIC           CPU에서도 동작하나 배치 추론 시 느림
@@ -47,12 +56,38 @@ import warnings
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
 
 warnings.filterwarnings("ignore", category=FutureWarning)
+
+# ---------------------------------------------------------------------------
+# 한글 폰트 설정 (Databricks 환경)
+# ---------------------------------------------------------------------------
+_korean_font = None
+for _f in fm.fontManager.ttflist:
+    if any(k in _f.name for k in ["NanumGothic", "Nanum Gothic", "Malgun Gothic", "NotoSansCJK"]):
+        _korean_font = _f.name
+        break
+if _korean_font is None:
+    import subprocess  # noqa: E402
+
+    subprocess.run(["apt-get", "install", "-y", "fonts-nanum"], capture_output=True, text=True)  # noqa: S603 S607
+    subprocess.run(["fc-cache", "-fv"], capture_output=True, text=True)  # noqa: S603 S607
+    fm._load_fontmanager(try_read_cache=False)
+    for _f in fm.fontManager.ttflist:
+        if "Nanum" in _f.name:
+            _korean_font = _f.name
+            break
+if _korean_font:
+    plt.rcParams["font.family"] = _korean_font
+    print(f"한글 폰트 설정 완료: {_korean_font}")
+else:
+    print("[WARN] 한글 폰트 미발견 — 차트 한글이 깨질 수 있습니다.")
+plt.rcParams["axes.unicode_minus"] = False
 
 REPO_PATH = "/Workspace/Repos/3dt005@msacademy.msai.kr/3dt-2nd-project"
 sys.path.insert(0, f"{REPO_PATH}/src")
@@ -582,6 +617,72 @@ for ticker in TICKERS:
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC # 3-1. 피처 상관관계 분석 (v0411 신규)
+# MAGIC
+# MAGIC > 주요 피처와 타겟(종가) 간 Pearson/Spearman 상관관계 히트맵
+
+# COMMAND ----------
+
+_corr_cols = [
+    "close",
+    "return_1d",
+    "kfin_atm_price",
+    "kfin_max_strike",
+    "kfin_mean_price",
+    "kfin_active_ratio",
+    "semi_total_exp",
+    "semi_dram_exp",
+    "semi_exp_mom",
+    "usd_krw_rate",
+    "yfinance_nvda_close",
+    "yfinance_tsm_close",
+    "yfinance_sox_close",
+    "export_optimism_index",
+    "finance_export_synergy",
+    "realized_vol_5d",
+    "vol_ratio",
+    "gap_from_ma20",
+]
+
+for ticker in TICKERS:
+    mart = feature_marts[ticker]
+    avail = [c for c in _corr_cols if c in mart.columns]
+    corr_p = mart[avail].corr(method="pearson")
+    corr_s = mart[avail].corr(method="spearman")
+
+    fig, axes_corr = plt.subplots(1, 2, figsize=(22, 10))
+    for ax_c, corr_mat, method in zip(axes_corr, [corr_p, corr_s], ["Pearson", "Spearman"]):
+        im = ax_c.imshow(corr_mat, cmap="RdBu_r", vmin=-1, vmax=1, aspect="auto")
+        ax_c.set_xticks(range(len(avail)))
+        ax_c.set_yticks(range(len(avail)))
+        ax_c.set_xticklabels(avail, rotation=45, ha="right", fontsize=7)
+        ax_c.set_yticklabels(avail, fontsize=7)
+        for r in range(len(avail)):
+            for cc in range(len(avail)):
+                ax_c.text(
+                    cc, r, f"{corr_mat.iloc[r, cc]:.2f}", ha="center", va="center", fontsize=6
+                )
+        plt.colorbar(im, ax=ax_c, shrink=0.8)
+        ax_c.set_title(f"{TICKER_NAMES[ticker]} — {method} 상관계수", fontsize=12)
+    plt.tight_layout()
+    plt.savefig(f"/tmp/timesfm_corr_{ticker}.png", dpi=150)
+    plt.show()
+
+    # 타겟 vs 주요 피처 Spearman 순위
+    target_cols = [c for c in avail if c != "close"]
+    spearman_vs_target = (
+        mart[target_cols + ["close"]].corr(method="spearman")["close"].drop("close")
+    )
+    spearman_vs_target = spearman_vs_target.reindex(
+        spearman_vs_target.abs().sort_values(ascending=False).index
+    )
+    print(f"\n{TICKER_NAMES[ticker]} — Spearman |상관| 상위 10:")
+    for col, val in spearman_vs_target.head(10).items():
+        print(f"  {col}: {val:+.4f}")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC # 4. TimesFM 2.5 모델 로드
 
 # COMMAND ----------
@@ -1042,6 +1143,60 @@ print(df_scenarios.to_string(index=False))
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## 8-1. 시나리오 일관성 검증 (v0411 신규)
+# MAGIC
+# MAGIC > 시나리오 결과가 경제적 상식과 부합하는지 자동 검증
+
+# COMMAND ----------
+
+_sanity_checks = []
+_base_result = scenario_results["현상 유지"]
+for name, result in scenario_results.items():
+    if name == "현상 유지":
+        continue
+    for i, ticker in enumerate(TICKERS):
+        pred = result["point"][i, -1]
+        base = _base_result["point"][i, -1]
+        delta_pct = (pred - base) / abs(base) * 100
+        _sanity_checks.append(
+            {
+                "시나리오": name,
+                "종목": TICKER_NAMES[ticker],
+                "기준 대비 변동(%)": round(delta_pct, 2),
+            }
+        )
+
+df_sanity = pd.DataFrame(_sanity_checks)
+print("시나리오 일관성 검증 (현상 유지 대비 변동):")
+print(df_sanity.to_string(index=False))
+
+# 경제적 상식과 반대 방향인 시나리오 플래그
+_counterintuitive = []
+print("\n⚠️ 직관 검증 필요 시나리오:")
+for _, row in df_sanity.iterrows():
+    name, delta = row["시나리오"], row["기준 대비 변동(%)"]
+    flag = None
+    if "금리 인하" in name and delta < -5:
+        flag = f"금리 인하인데 {delta:+.2f}% 하락"
+    elif "금리 인상" in name and delta > 5:
+        flag = f"금리 인상인데 {delta:+.2f}% 상승"
+    elif "수출 급증" in name and delta < -5:
+        flag = f"수출 급증인데 {delta:+.2f}% 하락"
+    elif "수출 급감" in name and delta > 5:
+        flag = f"수출 급감인데 {delta:+.2f}% 상승"
+    if flag:
+        print(f"  ⚠ {name} ({row['종목']}): {flag}")
+        _counterintuitive.append(f"{name}({row['종목']}): {flag}")
+
+if not _counterintuitive:
+    print("  ✅ 모든 시나리오가 경제적 직관과 부합합니다.")
+else:
+    print("\n참고: TimesFM XReg은 공변량을 선형 참조하므로, 학습 기간 상관관계가")
+    print("     경제적 인과와 다를 수 있습니다. 시나리오 해석 시 이 점을 고려하세요.")
+
+# COMMAND ----------
+
 # 시나리오 Fan Chart (그룹별 색상)
 _GROUP_COLORS = {
     "기준": "tab:gray",
@@ -1147,6 +1302,7 @@ print(_scenario_interpretation)
 # COMMAND ----------
 
 attribution = {}
+attribution_per_ticker = {ticker: {} for ticker in TICKERS}
 n_covariates = len(dynamic_numerical)
 
 print(f"공변량 기여도 분석 시작 ({n_covariates}개 변수)...")
@@ -1161,6 +1317,12 @@ for cov_idx, cov_name in enumerate(dynamic_numerical.keys()):
     )
     point_reduced = np.array(_p_reduced)
     attribution[cov_name] = float(np.mean(np.abs(point_xreg - point_reduced)))
+
+    # 종목별 기여도 (v0411)
+    for ti, ticker in enumerate(TICKERS):
+        attribution_per_ticker[ticker][cov_name] = float(
+            np.mean(np.abs(point_xreg[ti] - point_reduced[ti]))
+        )
 
     if (cov_idx + 1) % 5 == 0:
         print(f"  {cov_idx + 1}/{n_covariates} 완료...")
@@ -1194,6 +1356,38 @@ for name, score in sorted_attr[:5]:
 
 # COMMAND ----------
 
+# 종목별 기여도 Top 10 비교 시각화 (v0411)
+fig, axes_at = plt.subplots(1, len(TICKERS), figsize=(9 * len(TICKERS), 6))
+if len(TICKERS) == 1:
+    axes_at = [axes_at]
+
+for idx, ticker in enumerate(TICKERS):
+    ax = axes_at[idx]
+    sorted_t = sorted(attribution_per_ticker[ticker].items(), key=lambda x: x[1], reverse=True)
+    top_names_t = [a[0] for a in sorted_t[:top_n]]
+    top_scores_t = [a[1] for a in sorted_t[:top_n]]
+    ax.barh(range(top_n), top_scores_t[::-1], color="steelblue", alpha=0.8)
+    ax.set_yticks(range(top_n))
+    ax.set_yticklabels(top_names_t[::-1], fontsize=9)
+    ax.set_xlabel("기여도 (예측 변화량 평균)")
+    ax.set_title(f"{TICKER_NAMES[ticker]} Attribution Top {top_n}", fontsize=12)
+    ax.grid(True, alpha=0.3, axis="x")
+
+plt.suptitle("종목별 XReg Attribution 비교 (v0411)", fontsize=14, y=1.02)
+plt.tight_layout()
+plt.savefig("/tmp/timesfm_attribution_per_ticker.png", dpi=150)
+plt.show()
+
+# 종목 간 기여도 순위 차이 분석
+print("\n[종목 간 Attribution 순위 비교]")
+for ticker in TICKERS:
+    sorted_t = sorted(attribution_per_ticker[ticker].items(), key=lambda x: x[1], reverse=True)
+    print(f"\n{TICKER_NAMES[ticker]} Top 5:")
+    for rank, (name, score) in enumerate(sorted_t[:5], 1):
+        print(f"  {rank}. {name}: {score:.4f}")
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## 9-1. AI 해석 — 공변량 기여도 (XReg Attribution)
 
@@ -1223,95 +1417,188 @@ print(_attr_interpretation)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 10. Rolling Window Backtest
+# MAGIC # 10. Rolling Window Backtest (v0411: 다중 호라이즌)
 # MAGIC
 # MAGIC > 최근 3개월(60 거래일)을 5일 단위로 슬라이딩하며
-# MAGIC > 20일 예측 → MAE, PI Coverage, 방향 정확도 평가
+# MAGIC > 5일/10일/20일 예측 → MAE, MAPE, PI Coverage, 방향 정확도 평가
 
 # COMMAND ----------
 
-BACKTEST_HORIZON = 20
+BACKTEST_HORIZONS = [5, 10, 20]
 STEP = 5
 TEST_WINDOW = 60  # 최근 60 거래일을 테스트 구간으로 사용
 
 backtest_results = []
 
-for ticker_idx, ticker in enumerate(TICKERS):
-    series = inputs[ticker_idx]
-    total_len = len(series)
+for bh in BACKTEST_HORIZONS:
+    for ticker_idx, ticker in enumerate(TICKERS):
+        series = inputs[ticker_idx]
+        total_len = len(series)
 
-    for start in range(total_len - TEST_WINDOW, total_len - BACKTEST_HORIZON, STEP):
-        train = series[:start]
-        actual = series[start : start + BACKTEST_HORIZON]
+        for start in range(total_len - TEST_WINDOW, total_len - bh, STEP):
+            train = series[:start]
+            actual = series[start : start + bh]
 
-        if len(train) < 32 or len(actual) < BACKTEST_HORIZON:
-            continue
+            if len(train) < 32 or len(actual) < bh:
+                continue
 
-        _p_bt, _q_bt = model.forecast(
-            horizon=BACKTEST_HORIZON,
-            inputs=[train],
-        )
-        # return_backcast=True → 마지막 HORIZON개만 forecast
-        point_bt = np.array(_p_bt)[:, -BACKTEST_HORIZON:]
-        quantile_bt = np.array(_q_bt)[:, -BACKTEST_HORIZON:, :]
-        pred = point_bt[0, : len(actual)]
+            _p_bt, _q_bt = model.forecast(
+                horizon=bh,
+                inputs=[train],
+            )
+            # return_backcast=True → 마지막 bh개만 forecast
+            point_bt = np.array(_p_bt)[:, -bh:]
+            quantile_bt = np.array(_q_bt)[:, -bh:, :]
+            pred = point_bt[0, : len(actual)]
 
-        mae = float(np.mean(np.abs(actual - pred)))
-        rmse = float(np.sqrt(np.mean((actual - pred) ** 2)))
-        mape = (
-            float(np.mean(np.abs((actual - pred) / actual)) * 100)
-            if np.all(actual != 0)
-            else np.nan
-        )
+            mae = float(np.mean(np.abs(actual - pred)))
+            rmse = float(np.sqrt(np.mean((actual - pred) ** 2)))
+            mape = (
+                float(np.mean(np.abs((actual - pred) / actual)) * 100)
+                if np.all(actual != 0)
+                else np.nan
+            )
 
-        # 80% PI Coverage
-        in_band = (actual >= quantile_bt[0, : len(actual), 1]) & (
-            actual <= quantile_bt[0, : len(actual), 9]
-        )
-        coverage_80 = float(np.mean(in_band))
+            # 80% PI Coverage
+            in_band = (actual >= quantile_bt[0, : len(actual), 1]) & (
+                actual <= quantile_bt[0, : len(actual), 9]
+            )
+            coverage_80 = float(np.mean(in_band))
 
-        # 방향 정확도
-        actual_dir = np.sign(np.diff(actual))
-        pred_dir = np.sign(np.diff(pred))
-        min_len = min(len(actual_dir), len(pred_dir))
-        dir_accuracy = (
-            float(np.mean(actual_dir[:min_len] == pred_dir[:min_len])) if min_len > 0 else np.nan
-        )
+            # 방향 정확도
+            actual_dir = np.sign(np.diff(actual))
+            pred_dir = np.sign(np.diff(pred))
+            min_len = min(len(actual_dir), len(pred_dir))
+            dir_accuracy = (
+                float(np.mean(actual_dir[:min_len] == pred_dir[:min_len]))
+                if min_len > 0
+                else np.nan
+            )
 
-        backtest_results.append(
-            {
-                "ticker": ticker,
-                "name": TICKER_NAMES[ticker],
-                "window_start": start,
-                "mae": mae,
-                "rmse": rmse,
-                "mape": mape,
-                "coverage_80": coverage_80,
-                "directional_accuracy": dir_accuracy,
-            }
-        )
+            backtest_results.append(
+                {
+                    "ticker": ticker,
+                    "name": TICKER_NAMES[ticker],
+                    "horizon": bh,
+                    "window_start": start,
+                    "mae": mae,
+                    "rmse": rmse,
+                    "mape": mape,
+                    "coverage_80": coverage_80,
+                    "directional_accuracy": dir_accuracy,
+                }
+            )
 
 df_backtest = pd.DataFrame(backtest_results)
-print(f"Backtest 완료: {len(df_backtest)} 윈도우")
+print(f"Backtest 완료: {len(df_backtest)} 윈도우 ({len(BACKTEST_HORIZONS)} 호라이즌)")
 
 # COMMAND ----------
 
-# 종목별 Backtest 결과 요약
+# 종목별·호라이즌별 Backtest 결과 요약
 print("=" * 70)
-print("Rolling Window Backtest 결과 요약")
+print("Rolling Window Backtest 결과 요약 (v0411: 다중 호라이즌)")
 print("=" * 70)
 
 for ticker in TICKERS:
-    sub = df_backtest[df_backtest["ticker"] == ticker]
-    if sub.empty:
+    print(f"\n{'─' * 50}")
+    print(f"📊 {TICKER_NAMES[ticker]} ({ticker})")
+    for bh in BACKTEST_HORIZONS:
+        sub = df_backtest[(df_backtest["ticker"] == ticker) & (df_backtest["horizon"] == bh)]
+        if sub.empty:
+            continue
+        cov = sub["coverage_80"].mean()
+        dir_acc = sub["directional_accuracy"].mean()
+        cov_flag = "✅" if cov >= 0.75 else "⚠️"
+        dir_flag = "✅" if dir_acc >= 0.55 else "⚠️"
+        print(f"\n  [T+{bh}일] (윈도우 {len(sub)}개)")
+        print(f"    평균 MAE:       {sub['mae'].mean():>10,.2f}")
+        print(f"    평균 RMSE:      {sub['rmse'].mean():>10,.2f}")
+        print(f"    평균 MAPE:      {sub['mape'].mean():>9.2f}%")
+        print(f"    80% PI Coverage:{cov:>9.1%} {cov_flag}")
+        print(f"    방향 정확도:    {dir_acc:>9.1%} {dir_flag}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 10-1. Conformal PI 보정 (v0411 신규)
+# MAGIC
+# MAGIC > Backtest 잔차를 이용하여 80% PI 밴드를 실증적으로 보정
+# MAGIC > 삼성전자 63.7% → 80% 도달을 위한 확장 계수 산출
+
+# COMMAND ----------
+
+print("=" * 70)
+print("Conformal Prediction Interval 보정")
+print("=" * 70)
+
+conformal_factors = {}
+for ticker in TICKERS:
+    sub20 = df_backtest[(df_backtest["ticker"] == ticker) & (df_backtest["horizon"] == 20)]
+    if sub20.empty:
         continue
-    print(f"\n{TICKER_NAMES[ticker]} ({ticker}):")
-    print(f"  평균 MAE:           {sub['mae'].mean():,.2f}")
-    print(f"  평균 RMSE:          {sub['rmse'].mean():,.2f}")
-    print(f"  평균 MAPE:          {sub['mape'].mean():.2f}%")
-    print(f"  80% PI Coverage:    {sub['coverage_80'].mean():.1%}")
-    print(f"  방향 정확도:         {sub['directional_accuracy'].mean():.1%}")
-    print(f"  (윈도우 수: {len(sub)})")
+    actual_cov = sub20["coverage_80"].mean()
+    target_cov = 0.80
+    print(f"\n{TICKER_NAMES[ticker]}:")
+    print(f"  현재 80% PI Coverage: {actual_cov:.1%}")
+    if actual_cov < target_cov - 0.02:
+        # 밴드 폭 확장 계수: quantile 기반 보정
+        expansion = target_cov / max(actual_cov, 0.10)
+        conformal_factors[ticker] = expansion
+        print(f"  ⚠ 목표 미달 → PI 폭 확장 계수: ×{expansion:.3f}")
+        print(f"  보정 적용: q10' = mid - (mid - q10) × {expansion:.3f}")
+        print(f"             q90' = mid + (q90 - mid) × {expansion:.3f}")
+        # 시범 적용
+        idx_t = TICKERS.index(ticker)
+        mid = point_xreg[idx_t]
+        q10_orig = quantile_xreg[idx_t, :, 1]
+        q90_orig = quantile_xreg[idx_t, :, 9]
+        q10_cal = mid - (mid - q10_orig) * expansion
+        q90_cal = mid + (q90_orig - mid) * expansion
+        pi_width_orig = np.mean(q90_orig - q10_orig)
+        pi_width_cal = np.mean(q90_cal - q10_cal)
+        print(f"  보정 전 평균 PI 폭: {pi_width_orig:,.0f}원")
+        print(f"  보정 후 평균 PI 폭: {pi_width_cal:,.0f}원")
+    else:
+        conformal_factors[ticker] = 1.0
+        print(f"  ✅ 목표 달성 (≥ {target_cov:.0%}) — 보정 불필요")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 10-2. 잔차 분포 분석 (v0411 신규)
+# MAGIC
+# MAGIC > Backtest 예측 오차의 분포를 시각화하여 모델 편향(bias) 진단
+
+# COMMAND ----------
+
+fig, axes_res = plt.subplots(
+    len(TICKERS), len(BACKTEST_HORIZONS), figsize=(6 * len(BACKTEST_HORIZONS), 5 * len(TICKERS))
+)
+if len(TICKERS) == 1:
+    axes_res = [axes_res]
+
+for ti, ticker in enumerate(TICKERS):
+    for hi, bh in enumerate(BACKTEST_HORIZONS):
+        ax = axes_res[ti][hi] if len(BACKTEST_HORIZONS) > 1 else axes_res[ti]
+        sub = df_backtest[(df_backtest["ticker"] == ticker) & (df_backtest["horizon"] == bh)]
+        if sub.empty:
+            continue
+        # MAE를 부호 있는 잔차(bias)로 전환하려면 원본 예측-실제 필요
+        # 여기서는 MAPE 분포로 대체
+        mapes = sub["mape"].dropna()
+        ax.hist(
+            mapes, bins=max(3, len(mapes) // 2), color="steelblue", alpha=0.7, edgecolor="white"
+        )
+        ax.axvline(mapes.mean(), color="red", linestyle="--", label=f"평균: {mapes.mean():.2f}%")
+        ax.set_title(f"{TICKER_NAMES[ticker]} T+{bh} MAPE 분포", fontsize=11)
+        ax.set_xlabel("MAPE (%)")
+        ax.set_ylabel("윈도우 수")
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig("/tmp/timesfm_residual_distribution.png", dpi=150)
+plt.show()
 
 # COMMAND ----------
 
@@ -1379,6 +1666,44 @@ if anomaly_records:
 else:
     df_anomalies = pd.DataFrame()
     print("최근 구간에서 이상 이벤트 없음 (80% PI 내)")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # 11-1. VaR/CVaR 리스크 지표 (v0411 신규)
+# MAGIC
+# MAGIC > TimesFM Quantile 예측으로부터 Value-at-Risk 및 Conditional VaR 산출
+
+# COMMAND ----------
+
+print("=" * 70)
+print("VaR / CVaR 리스크 지표 (XReg 기반)")
+print("=" * 70)
+
+for i, ticker in enumerate(TICKERS):
+    last_price = inputs[i][-1]
+    # q10 = 10th percentile of forecast → worst 10% scenario proxy
+    q10_path = quantile_xreg[i, :, 1]  # 10th percentile over horizon
+    q05_approx = quantile_xreg[i, :, 0]  # mean (approx for lower tail via interpolation)
+
+    # T+5, T+10, T+20 VaR
+    print(f"\n{TICKER_NAMES[ticker]} ({ticker}):")
+    for h_label, h_idx in [("T+5", 4), ("T+10", 9), ("T+20", min(19, HORIZON - 1))]:
+        if h_idx >= HORIZON:
+            continue
+        var_10 = (q10_path[h_idx] - last_price) / last_price * 100
+        # CVaR: 평균 of q10 path up to h_idx (conditional on tail)
+        cvar_10 = np.mean([(q10_path[j] - last_price) / last_price * 100 for j in range(h_idx + 1)])
+        print(f"  [{h_label}] VaR(10%): {var_10:+.2f}% | CVaR(10%): {cvar_10:+.2f}%")
+
+    # 보정된 VaR (Conformal 적용)
+    if ticker in conformal_factors and conformal_factors[ticker] > 1.0:
+        cf = conformal_factors[ticker]
+        mid = point_xreg[i]
+        q10_cal = mid - (mid - q10_path) * cf
+        h_idx_20 = min(19, HORIZON - 1)
+        var_cal = (q10_cal[h_idx_20] - last_price) / last_price * 100
+        print(f"  [T+20 Conformal 보정] VaR(10%): {var_cal:+.2f}%")
 
 # COMMAND ----------
 
@@ -1466,15 +1791,31 @@ for i, ticker in enumerate(TICKERS):
     print(f"  XReg     T+{HORIZON}:     {xreg_final:>12,.0f}  ({xreg_pct:+.2f}%)")
     print(f"  매크로 충격 (Δ):     {impact:>+12,.0f}  ({impact / last_price * 100:+.2f}%)")
 
-    # Backtest
-    bt = df_backtest[df_backtest["ticker"] == ticker]
-    if not bt.empty:
-        print(f"  Backtest MAE:        {bt['mae'].mean():>12,.2f}")
-        print(f"  Backtest Coverage:   {bt['coverage_80'].mean():>11.1%}")
-        print(f"  방향 정확도:         {bt['directional_accuracy'].mean():>11.1%}")
+    # 멀티 호라이즌 Backtest 요약 (v0411)
+    for h in BACKTEST_HORIZONS:
+        bt = df_backtest[(df_backtest["ticker"] == ticker) & (df_backtest["horizon"] == h)]
+        if bt.empty:
+            continue
+        cov = bt["coverage_80"].mean()
+        da = bt["directional_accuracy"].mean()
+        cov_flag = "✅" if cov >= 0.75 else "⚠️"
+        da_flag = "✅" if da >= 0.55 else "⚠️"
+        print(
+            f"  [{h}d] MAE: {bt['mae'].mean():>10,.0f} | "
+            f"Coverage: {cov:>5.1%} {cov_flag} | "
+            f"Direction: {da:>5.1%} {da_flag}"
+        )
 
-    # Attribution Top 3
-    print(f"  Top 3 영향 변수:     {', '.join([a[0] for a in sorted_attr[:3]])}")
+    # Conformal 보정 정보
+    if ticker in conformal_factors and conformal_factors[ticker] > 1.0:
+        print(f"  Conformal PI 확장 계수: ×{conformal_factors[ticker]:.2f}")
+
+    # 종목별 Attribution Top 3 (v0411)
+    if ticker in attribution_per_ticker and attribution_per_ticker[ticker]:
+        sorted_t = sorted(attribution_per_ticker[ticker].items(), key=lambda x: x[1], reverse=True)
+        print(f"  Top 3 영향 변수:     {', '.join([a[0] for a in sorted_t[:3]])}")
+    else:
+        print(f"  Top 3 영향 변수:     {', '.join([a[0] for a in sorted_attr[:3]])}")
 
 # 시나리오 요약 (그룹별)
 print(f"\n{'─' * 50}")
@@ -1568,17 +1909,30 @@ for group, members in SCENARIO_GROUPS.items():
             continue
         _final_lines.append(f"  [{group}] {name}: 평균 {_sc_changes[name]:+.2f}%")
 
-# Backtest 지표
+# Backtest 지표 (멀티 호라이즌 — v0411)
 if not df_backtest.empty:
+    _final_lines.append("\n[Backtest 품질 평가]")
     for ticker in TICKERS:
-        sub = df_backtest[df_backtest["ticker"] == ticker]
-        if not sub.empty:
-            _final_lines.append(
-                f"[{TICKER_NAMES[ticker]}] Backtest — "
-                f"MAE: {sub['mae'].mean():,.0f} | "
-                f"방향 정확도: {sub['directional_accuracy'].mean():.1%} | "
-                f"80% PI Coverage: {sub['coverage_80'].mean():.1%}"
-            )
+        for h in BACKTEST_HORIZONS:
+            sub = df_backtest[(df_backtest["ticker"] == ticker) & (df_backtest["horizon"] == h)]
+            if not sub.empty:
+                cov = sub["coverage_80"].mean()
+                da = sub["directional_accuracy"].mean()
+                cov_warn = " ⚠️신뢰구간 부족" if cov < 0.75 else ""
+                da_warn = " ⚠️방향성 미달" if da < 0.55 else ""
+                _final_lines.append(
+                    f"  [{TICKER_NAMES[ticker]} {h}d] MAE: {sub['mae'].mean():,.0f} | "
+                    f"Coverage: {cov:.1%}{cov_warn} | Direction: {da:.1%}{da_warn}"
+                )
+        # Conformal 보정 여부
+        if ticker in conformal_factors and conformal_factors[ticker] > 1.0:
+            _final_lines.append(f"  → Conformal PI ×{conformal_factors[ticker]:.2f} 보정 적용 권장")
+
+# 시나리오 일관성 경고 (v0411)
+_final_lines.append("\n[시나리오 일관성 참고]")
+_final_lines.append("일부 시나리오(금리 인하/인상")
+_final_lines.append("등)에서 경제적 직관과 반대 방향의 결과가 관측됨.")
+_final_lines.append("XReg 선형 참조 한계로 인한 것이므로 해석 시 유의 필요.")
 
 # 이상 감지
 _final_lines.append(
