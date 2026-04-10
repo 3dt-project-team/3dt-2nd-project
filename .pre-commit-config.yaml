@@ -12,7 +12,9 @@ repos:
     hooks:
       - id: ruff
         args: [--fix]
+        exclude: '\.ipynb$'
       - id: ruff-format
+        exclude: '\.ipynb$'
 
   # ──────────────────────────────────────────────
   # detect-secrets: 하드코딩된 시크릿 감지
