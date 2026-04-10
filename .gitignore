@@ -84,3 +84,10 @@ CLAUDE.md
 
 .python_packages
 ref/
+
+# 개인 테스트용 스크립트
+_count_months.py
+
+# 로컬 설정 (보통 이미 들어있지만 확인차 추가)
+Local.settings.json
+.env
