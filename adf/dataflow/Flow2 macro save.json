@@ -109,7 +109,7 @@
 				"          final_date as date",
 				"     ),",
 				"     format: 'parquet',",
-				"     partitionFileNames:['pre_macro_1y_adf'],",
+				"     partitionFileNames:['pre_macro_1y_adf.parquet'],",
 				"     umask: 0022,",
 				"     preCommands: [],",
 				"     postCommands: [],",
