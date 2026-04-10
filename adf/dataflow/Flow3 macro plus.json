@@ -26,6 +26,13 @@
 						"type": "DatasetReference"
 					},
 					"name": "sink1"
+				},
+				{
+					"dataset": {
+						"referenceName": "silver_kfinance",
+						"type": "DatasetReference"
+					},
+					"name": "sink2"
 				}
 			],
 			"transformations": [
@@ -37,6 +44,9 @@
 				},
 				{
 					"name": "derivedColumn2"
+				},
+				{
+					"name": "select2"
 				}
 			],
 			"scriptLines": [
@@ -76,17 +86,29 @@
 				"     validateSchema: false,",
 				"     ignoreNoFilesFound: false,",
 				"     format: 'parquet') ~> gfinance",
-				"semiconductor derive(date = toDate(toString(year) + '.01', 'yyyy.MM.dd')) ~> derivedColumn1",
+				"semiconductor derive(date = toDate(toString(year) + '.01', 'yyyy.MM.dd'),",
+				"          semiconductor_collected_at_utc = currentUTC()) ~> derivedColumn1",
 				"derivedColumn1 select(mapColumn(",
 				"          date,",
 				"          hsCode,",
 				"          statKor,",
 				"          expDlr,",
-				"          impDlr",
+				"          impDlr,",
+				"          semiconductor_collected_at_utc",
 				"     ),",
 				"     skipDuplicateMapInputs: true,",
 				"     skipDuplicateMapOutputs: true) ~> select1",
-				"gfinance derive() ~> derivedColumn2",
+				"gfinance derive(date = toDate(basDt,'yyyyMMdd'),",
+				"          kfinance_collected_at_utc = currentUTC(),",
+				"          ticker = 'gfinance_' + srtnCd) ~> derivedColumn2",
+				"derivedColumn2 select(mapColumn(",
+				"          date,",
+				"          ticker,",
+				"          close_price = clpr,",
+				"          kfinance_collected_at_utc",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> select2",
 				"select1 sink(allowSchemaDrift: true,",
 				"     validateSchema: false,",
 				"     input(",
@@ -103,7 +125,24 @@
 				"     postCommands: [],",
 				"     skipDuplicateMapInputs: true,",
 				"     skipDuplicateMapOutputs: true,",
-				"     partitionBy('hash', 1)) ~> sink1"
+				"     partitionBy('hash', 1)) ~> sink1",
+				"select2 sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          {기준일자} as date,",
+				"          {요일} as integer,",
+				"          {주말여부} as boolean,",
+				"          {한국_휴장일_여부} as boolean,",
+				"          {미국_휴장일_여부} as boolean",
+				"     ),",
+				"     format: 'parquet',",
+				"     partitionFileNames:['silver_kfinance.parquet'],",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     partitionBy('hash', 1)) ~> sink2"
 			]
 		}
 	}
