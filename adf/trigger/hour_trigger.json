@@ -1,0 +1,25 @@
+{
+	"name": "hour_trigger",
+	"properties": {
+		"annotations": [],
+		"runtimeState": "Started",
+		"pipelines": [
+			{
+				"pipelineReference": {
+					"referenceName": "pl_naver_news_preprocessing",
+					"type": "PipelineReference"
+				}
+			}
+		],
+		"type": "ScheduleTrigger",
+		"typeProperties": {
+			"recurrence": {
+				"frequency": "Hour",
+				"interval": 1,
+				"startTime": "2026-04-10T00:55:00",
+				"endTime": "2026-04-12T23:55:00",
+				"timeZone": "Korea Standard Time"
+			}
+		}
+	}
+}
