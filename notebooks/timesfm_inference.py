@@ -20,7 +20,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install timesfm[torch,xreg] --quiet
+# MAGIC %pip install timesfm[torch,xreg] openai --quiet
 
 # COMMAND ----------
 
@@ -59,6 +59,55 @@ account = vault.get_secret("adls-account-name")  # "3dtteam1adls"
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## 0-1. Azure OpenAI 클라이언트 초기화
+
+# COMMAND ----------
+
+from openai import AzureOpenAI  # noqa: E402
+
+OPENAI_DEPLOYMENT = "gpt-4.1-mini"
+OPENAI_API_VERSION = "2025-03-01-preview"
+
+_openai_endpoint = vault.get_secret("azure-openai-endpoint")
+_openai_key = vault.get_secret("azure-openai-key")
+
+openai_client = AzureOpenAI(
+    azure_endpoint=_openai_endpoint,
+    api_key=_openai_key,
+    api_version=OPENAI_API_VERSION,
+)
+
+_SYSTEM_MSG = (
+    "당신은 반도체 주식 시장 전문 퀀트 애널리스트입니다. "
+    "TimesFM 시계열 예측 결과를 바탕으로 한국어로 간결하고 "
+    "전문적인 투자 인사이트를 제공합니다. "
+    "수치 근거를 반드시 포함하고, 리스크도 균형있게 언급하세요."
+)
+
+
+def ask_gpt(prompt: str, system_msg: str | None = None, max_tokens: int = 1200) -> str:
+    """Azure OpenAI GPT에 프롬프트를 보내고 응답 문자열을 반환합니다."""
+    messages = []
+    if system_msg:
+        messages.append({"role": "system", "content": system_msg})
+    messages.append({"role": "user", "content": prompt})
+    try:
+        resp = openai_client.chat.completions.create(
+            model=OPENAI_DEPLOYMENT,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=0.3,
+        )
+        return resp.choices[0].message.content or ""
+    except Exception as e:  # noqa: BLE001
+        return f"[OpenAI 오류] {e}"
+
+
+print(f"Azure OpenAI 연결 완료 | 엔드포인트: {_openai_endpoint} | 배포: {OPENAI_DEPLOYMENT}")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## 1-1. 타겟 시계열 — 주가 OHLCV
 
 # COMMAND ----------
@@ -67,29 +116,62 @@ TICKERS = ["005930.KS", "000660.KS"]
 TICKER_NAMES = {"005930.KS": "삼성전자", "000660.KS": "SK하이닉스"}
 HORIZON = 20  # 향후 20 거래일 (약 4주)
 
-# Gold Layer 테이블 또는 ADLS parquet에서 로드
-# 아래 두 가지 방식 중 환경에 맞는 것을 사용
-# 방법 A: Delta Table
-# df_equity = spark.table("gold.fact_equity_ohlcv")
+# ---------------------------------------------------------------------------
+# ADLS 경로 헬퍼 — 경로가 아직 적재되지 않았을 경우 빈 DataFrame 반환
+# ---------------------------------------------------------------------------
+from pyspark.sql.utils import AnalysisException  # noqa: E402
 
-# 방법 B: ADLS parquet 직접 읽기
+
+def safe_read_parquet(path: str, date_col: str | None = None, index_col: str | None = None):
+    """
+    ADLS parquet을 읽습니다.
+    경로가 없거나 미적재 상태면 경고 후 빈 DataFrame을 반환합니다.
+    - date_col  : pd.to_datetime() 변환할 컬럼명
+    - index_col : set_index()할 컬럼명
+    """
+    try:
+        df = spark.read.parquet(path).toPandas()  # noqa: F821
+        if date_col and date_col in df.columns:
+            df[date_col] = pd.to_datetime(df[date_col])
+        if index_col and index_col in df.columns:
+            df = df.set_index(index_col).sort_index()
+        print(f"  [OK] {path.split('/')[-2] or path}: {len(df)} rows")
+        return df
+    except (AnalysisException, Exception) as e:  # noqa: BLE001
+        print(f"  [SKIP] 경로 없음 또는 미적재 — {path}\n         ({type(e).__name__})")
+        return pd.DataFrame()
+
+
+# ---------------------------------------------------------------------------
+# 1-1. 타겟 시계열 — 주가 OHLCV
+# ---------------------------------------------------------------------------
+#  컨테이너: feature  /  경로: equity/ohlcv/
+#  컬럼: ticker, trade_date, open, high, low, close, volume
 equity_path = f"abfss://feature@{account}.dfs.core.windows.net/equity/ohlcv/"
+_df_eq_raw = safe_read_parquet(equity_path, date_col="trade_date")
+
+if _df_eq_raw.empty:
+    # 데이터가 아직 없으면 curated 컨테이너에서도 시도
+    equity_path_curated = f"abfss://curated@{account}.dfs.core.windows.net/equity/ohlcv/"
+    _df_eq_raw = safe_read_parquet(equity_path_curated, date_col="trade_date")
+
 df_equity = (
-    spark.read.parquet(equity_path)  # noqa: F821
-    .filter(f"ticker IN {tuple(TICKERS)}")
-    .orderBy("trade_date")
-    .toPandas()
+    _df_eq_raw[_df_eq_raw["ticker"].isin(TICKERS)]
+    .sort_values(["ticker", "trade_date"])
+    .reset_index(drop=True)
+    if not _df_eq_raw.empty and "ticker" in _df_eq_raw.columns
+    else pd.DataFrame(columns=["ticker", "trade_date", "close"])
 )
 
-df_equity["trade_date"] = pd.to_datetime(df_equity["trade_date"])
-df_equity = df_equity.sort_values(["ticker", "trade_date"]).reset_index(drop=True)
-
-start = df_equity["trade_date"].min()
-end = df_equity["trade_date"].max()
-print(f"주가 데이터: {len(df_equity)} rows, 기간: {start} ~ {end}")
-for t in TICKERS:
-    n = len(df_equity[df_equity["ticker"] == t])
-    print(f"  {TICKER_NAMES[t]} ({t}): {n} 거래일")
+if not df_equity.empty:
+    _start = df_equity["trade_date"].min()
+    _end = df_equity["trade_date"].max()
+    print(f"주가 데이터: {len(df_equity)} rows, 기간: {_start} ~ {_end}")
+    for t in TICKERS:
+        n = len(df_equity[df_equity["ticker"] == t])
+        print(f"  {TICKER_NAMES[t]} ({t}): {n} 거래일")
+else:
+    print("[WARN] 주가 데이터 없음 — 이후 셀에서 오류 발생 가능")
 
 # COMMAND ----------
 
@@ -98,23 +180,27 @@ for t in TICKERS:
 
 # COMMAND ----------
 
-# FRED 금리 데이터
+# --- FRED 금리 데이터 ---
+#  컨테이너: feature  /  경로: macro/fred/
+#  컬럼: observed_date, series_code, rate_value
 fred_path = f"abfss://feature@{account}.dfs.core.windows.net/macro/fred/"
-df_fred_raw = spark.read.parquet(fred_path).toPandas()  # noqa: F821
-df_fred_raw["observed_date"] = pd.to_datetime(df_fred_raw["observed_date"])
+df_fred_raw = safe_read_parquet(fred_path, date_col="observed_date")
 
-# 시리즈별 피벗
-FRED_SERIES = ["DGS10", "DGS2", "T10Y2Y", "BAMLH0A0HYM2", "DFF", "DFII10"]
-df_fred = (
-    df_fred_raw.pivot_table(index="observed_date", columns="series_code", values="rate_value")
-    .sort_index()
-    .ffill()
-)
+if not df_fred_raw.empty and "series_code" in df_fred_raw.columns:
+    FRED_SERIES = ["DGS10", "DGS2", "T10Y2Y", "BAMLH0A0HYM2", "DFF", "DFII10"]
+    df_fred = (
+        df_fred_raw.pivot_table(index="observed_date", columns="series_code", values="rate_value")
+        .sort_index()
+        .ffill()
+    )
+else:
+    df_fred = pd.DataFrame()
 
-# Yahoo Finance 매크로 지표 (DXY, WTI, Gold, Copper, USD/KRW)
+# --- Yahoo Finance 매크로 지표 (DXY, WTI, Gold, Copper) ---
+#  컨테이너: feature  /  경로: macro/daily/
+#  컬럼: trade_date, ticker, open, high, low, close, volume
 macro_path = f"abfss://feature@{account}.dfs.core.windows.net/macro/daily/"
-df_macro_raw = spark.read.parquet(macro_path).toPandas()  # noqa: F821
-df_macro_raw["trade_date"] = pd.to_datetime(df_macro_raw["trade_date"])
+df_macro_raw = safe_read_parquet(macro_path, date_col="trade_date")
 
 MACRO_TICKERS = {
     "DX-Y.NYB": "dxy",
@@ -122,20 +208,30 @@ MACRO_TICKERS = {
     "GC=F": "gold",
     "HG=F": "copper",
 }
-df_macro = (
-    df_macro_raw.pivot_table(index="trade_date", columns="ticker", values="close")
-    .sort_index()
-    .ffill()
-)
-df_macro.columns = [MACRO_TICKERS.get(c, c) for c in df_macro.columns]
+if not df_macro_raw.empty and "ticker" in df_macro_raw.columns:
+    df_macro = (
+        df_macro_raw.pivot_table(index="trade_date", columns="ticker", values="close")
+        .sort_index()
+        .ffill()
+    )
+    df_macro.columns = [MACRO_TICKERS.get(c, c) for c in df_macro.columns]
+else:
+    df_macro = pd.DataFrame()
 
-# 환율
+# --- 환율 USD/KRW ---
+#  컨테이너: feature  /  경로: fx/usd_krw/
+#  컬럼: trade_date, close  또는  trade_date, usd_krw
 fx_path = f"abfss://feature@{account}.dfs.core.windows.net/fx/usd_krw/"
-df_fx = spark.read.parquet(fx_path).toPandas()  # noqa: F821
-df_fx["trade_date"] = pd.to_datetime(df_fx["trade_date"])
-df_fx = df_fx.set_index("trade_date").sort_index()
+df_fx = safe_read_parquet(fx_path, date_col="trade_date", index_col="trade_date")
+# 컬럼명 정규화: close → usd_krw
+if not df_fx.empty and "close" in df_fx.columns and "usd_krw" not in df_fx.columns:
+    df_fx = df_fx.rename(columns={"close": "usd_krw"})
 
-print(f"FRED: {len(df_fred)} rows | Macro: {len(df_macro)} rows | FX: {len(df_fx)} rows")
+print(
+    f"FRED: {len(df_fred)} rows | Macro: {len(df_macro)} rows | FX: {len(df_fx)} rows"
+    if not (df_fred.empty and df_macro.empty and df_fx.empty)
+    else "[WARN] 매크로 데이터 모두 미적재"
+)
 
 # COMMAND ----------
 
@@ -144,27 +240,38 @@ print(f"FRED: {len(df_fred)} rows | Macro: {len(df_macro)} rows | FX: {len(df_fx
 
 # COMMAND ----------
 
-# SOX 동조화
+# --- SOX 동조화 ---
+#  컨테이너: feature  /  경로: quant/sox_sync/
+#  컬럼: kr_effective_date, sox_return_1d, nvda_return_1d
 sox_path = f"abfss://feature@{account}.dfs.core.windows.net/quant/sox_sync/"
-df_sox = spark.read.parquet(sox_path).toPandas()  # noqa: F821
-df_sox["kr_effective_date"] = pd.to_datetime(df_sox["kr_effective_date"])
-df_sox = df_sox.set_index("kr_effective_date").sort_index()
+df_sox = safe_read_parquet(sox_path, date_col="kr_effective_date", index_col="kr_effective_date")
 
-# 메모리 기업 Proxy
+# --- 메모리 기업 Proxy (MU + WDC 가중 수익률) ---
+#  컨테이너: feature  /  경로: quant/memory_proxy/
+#  컬럼: trade_date, memory_sentiment_index
 memory_path = f"abfss://feature@{account}.dfs.core.windows.net/quant/memory_proxy/"
-df_memory = spark.read.parquet(memory_path).toPandas()  # noqa: F821
-df_memory["trade_date"] = pd.to_datetime(df_memory["trade_date"])
-df_memory = df_memory.set_index("trade_date").sort_index()
+df_memory = safe_read_parquet(memory_path, date_col="trade_date", index_col="trade_date")
 
-# PCR
+# --- PCR (Put/Call Ratio) ---
+#  컨테이너: feature  /  경로: quant/pcr/
+#  컬럼: trade_date, pcr_ratio
 pcr_path = f"abfss://feature@{account}.dfs.core.windows.net/quant/pcr/"
-df_pcr = spark.read.parquet(pcr_path).toPandas()  # noqa: F821
-df_pcr["trade_date"] = pd.to_datetime(df_pcr["trade_date"])
-df_pcr = df_pcr.set_index("trade_date").sort_index()
+df_pcr = safe_read_parquet(pcr_path, date_col="trade_date", index_col="trade_date")
 
-# 관세청 수출 통계 (10일 주기 → 일별 Forward Fill)
+# --- 관세청 수출 통계 (10일 주기 → 일별 Forward Fill) ---
+#  컨테이너: feature  /  경로: quant/customs/
+#  컬럼: trade_date, yoy_change_pct
 customs_path = f"abfss://feature@{account}.dfs.core.windows.net/quant/customs/"
-df_customs = spark.read.parquet(customs_path).toPandas()  # noqa: F821
+df_customs_raw = safe_read_parquet(customs_path, date_col="trade_date")
+
+if not df_customs_raw.empty and "trade_date" in df_customs_raw.columns:
+    df_customs = df_customs_raw.set_index("trade_date").sort_index()
+    # 10일 주기 → 일별 Full Forward Fill
+    if "yoy_change_pct" in df_customs.columns:
+        all_dates = pd.date_range(df_customs.index.min(), df_customs.index.max(), freq="B")
+        df_customs = df_customs.reindex(all_dates).ffill()
+else:
+    df_customs = pd.DataFrame()
 
 print(
     f"SOX: {len(df_sox)} | Memory: {len(df_memory)}"
@@ -178,11 +285,13 @@ print(
 
 # COMMAND ----------
 
-# 뉴스 감성 일별 집계 (Gold Layer)
+# --- 뉴스 감성 일별 집계 ---
+#  컨테이너: feature  /  경로: news/daily_sentiment/
+#  컬럼: published_date, absa_daily_score, absa_supply_chain, absa_regulation, keyword_momentum_max
 news_agg_path = f"abfss://feature@{account}.dfs.core.windows.net/news/daily_sentiment/"
-df_news_agg = spark.read.parquet(news_agg_path).toPandas()  # noqa: F821
-df_news_agg["published_date"] = pd.to_datetime(df_news_agg["published_date"])
-df_news_agg = df_news_agg.set_index("published_date").sort_index()
+df_news_agg = safe_read_parquet(
+    news_agg_path, date_col="published_date", index_col="published_date"
+)
 
 print(f"뉴스 감성: {len(df_news_agg)} rows")
 
@@ -195,7 +304,16 @@ print(f"뉴스 감성: {len(df_news_agg)} rows")
 
 
 def build_feature_mart(
-    df_equity, ticker, df_fred, df_macro, df_fx, df_sox, df_memory, df_pcr, df_news_agg
+    df_equity,
+    ticker,
+    df_fred,
+    df_macro,
+    df_fx,
+    df_sox,
+    df_memory,
+    df_pcr,
+    df_news_agg,
+    df_customs=None,
 ):
     """종목별 통합 피처 마트를 date 기준으로 LEFT JOIN하여 구성합니다."""
     df = df_equity[df_equity["ticker"] == ticker][["trade_date", "close"]].copy()
@@ -205,29 +323,50 @@ def build_feature_mart(
     df["return_1d"] = df["close"].pct_change()
 
     # --- 매크로 환경 지표 ---
-    if "DGS10" in df_fred.columns:
+    if not df_fred.empty and "DGS10" in df_fred.columns:
         df = df.join(df_fred[["DGS10", "DGS2", "T10Y2Y", "BAMLH0A0HYM2"]], how="left")
-    for col in ["dxy", "wti", "gold", "copper"]:
-        if col in df_macro.columns:
-            df = df.join(df_macro[[col]].rename(columns={col: f"{col}_close"}), how="left")
-    if "usd_krw" in df_fx.columns:
-        df = df.join(df_fx[["usd_krw"]], how="left")
-    elif "close" in df_fx.columns:
-        df = df.join(df_fx[["close"]].rename(columns={"close": "usd_krw"}), how="left")
+    if not df_macro.empty:
+        for col in ["dxy", "wti", "gold", "copper"]:
+            if col in df_macro.columns:
+                df = df.join(df_macro[[col]].rename(columns={col: f"{col}_close"}), how="left")
+    if not df_fx.empty:
+        if "usd_krw" in df_fx.columns:
+            df = df.join(df_fx[["usd_krw"]], how="left")
+        elif "close" in df_fx.columns:
+            df = df.join(df_fx[["close"]].rename(columns={"close": "usd_krw"}), how="left")
 
     # --- 퀀트 선행 지표 ---
-    sox_cols = [c for c in ["sox_return_1d", "nvda_return_1d"] if c in df_sox.columns]
-    if sox_cols:
-        df = df.join(df_sox[sox_cols], how="left")
-    if "memory_sentiment_index" in df_memory.columns:
+    if not df_sox.empty:
+        sox_cols = [c for c in ["sox_return_1d", "nvda_return_1d"] if c in df_sox.columns]
+        if sox_cols:
+            df = df.join(df_sox[sox_cols], how="left")
+    if not df_memory.empty and "memory_sentiment_index" in df_memory.columns:
         df = df.join(df_memory[["memory_sentiment_index"]], how="left")
-    if "pcr_ratio" in df_pcr.columns:
+    if not df_pcr.empty and "pcr_ratio" in df_pcr.columns:
         df = df.join(df_pcr[["pcr_ratio"]], how="left")
 
+    # --- 관세청 수출 (10일 주기 → 일별 Forward Fill 완료 상태로 입력) ---
+    if df_customs is not None and not df_customs.empty and "yoy_change_pct" in df_customs.columns:
+        df = df.join(
+            df_customs[["yoy_change_pct"]].rename(columns={"yoy_change_pct": "customs_yoy_pct"}),
+            how="left",
+        )
+        df["customs_yoy_pct"] = df["customs_yoy_pct"].ffill()
+
     # --- 뉴스 감성 ---
-    news_cols = [c for c in ["absa_daily_score"] if c in df_news_agg.columns]
-    if news_cols:
-        df = df.join(df_news_agg[news_cols], how="left")
+    if not df_news_agg.empty:
+        news_cols = [
+            c
+            for c in [
+                "absa_daily_score",
+                "absa_supply_chain",
+                "absa_regulation",
+                "keyword_momentum_max",
+            ]
+            if c in df_news_agg.columns
+        ]
+        if news_cols:
+            df = df.join(df_news_agg[news_cols], how="left")
 
     # Forward fill 후 첫 행 NaN 제거
     df = df.ffill().bfill()
@@ -248,6 +387,7 @@ for ticker in TICKERS:
         df_memory,
         df_pcr,
         df_news_agg,
+        df_customs=df_customs,
     )
     print(f"{TICKER_NAMES[ticker]}: {feature_marts[ticker].shape}")
 
@@ -470,6 +610,49 @@ for i, ticker in enumerate(TICKERS):
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## 6-1. AI 해석 — 예측 결과 (Zero-shot vs XReg)
+
+# COMMAND ----------
+
+# GPT-4.1-mini로 Step 1 + Step 2 예측 결과를 투자 관점에서 해석
+_forecast_summary_lines = [
+    f"SENSE TimesFM 2.5 모델 — 향후 {HORIZON} 거래일(약 4주) 주가 예측 결과입니다.\n",
+]
+for i, ticker in enumerate(TICKERS):
+    lp = inputs[i][-1]
+    b_fin = point_baseline[i, -1]
+    x_fin = point_xreg[i, -1]
+    delta = x_fin - b_fin
+    b_pct = (b_fin - lp) / lp * 100
+    x_pct = (x_fin - lp) / lp * 100
+    d_pct = delta / lp * 100
+    _forecast_summary_lines.append(
+        f"[{TICKER_NAMES[ticker]} ({ticker})]\n"
+        f"  현재가: {lp:,.0f}원\n"
+        f"  Zero-shot Baseline T+{HORIZON}: {b_fin:,.0f}원 ({b_pct:+.2f}%)\n"
+        f"  XReg(매크로반영) T+{HORIZON}: {x_fin:,.0f}원 ({x_pct:+.2f}%)\n"
+        f"  매크로 충격 Δ: {delta:+,.0f}원 ({d_pct:+.2f}%) "
+        f"→ {'매크로가 주가를 끌어올리는 방향' if delta > 0 else '매크로가 주가를 억누르는 방향'}\n"
+        f"  XReg 80% PI: [{quantile_xreg[i, -1, 1]:,.0f}, {quantile_xreg[i, -1, 9]:,.0f}]원\n"
+    )
+
+_forecast_prompt = (
+    "\n".join(_forecast_summary_lines) + "\n위 예측 결과를 바탕으로:\n"
+    "1) 두 종목의 단기 방향성과 매크로 환경의 영향을 종합 해석해 주세요.\n"
+    "2) Zero-shot과 XReg 차이(매크로 충격)의 의미를 설명해 주세요.\n"
+    "3) 투자자가 주목해야 할 핵심 포인트 2~3가지를 제시해 주세요.\n"
+    "답변은 한국어로, 300자 이내로 핵심만 간결하게 작성해 주세요."
+)
+
+_forecast_interpretation = ask_gpt(_forecast_prompt, system_msg=_SYSTEM_MSG, max_tokens=600)
+print("=" * 70)
+print("🤖 AI 해석 — 예측 결과")
+print("=" * 70)
+print(_forecast_interpretation)
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC # 7. 매크로 충격 분석 및 시각화
 
 # COMMAND ----------
@@ -687,6 +870,39 @@ plt.show()
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## 8-1. AI 해석 — 시나리오 분석
+
+# COMMAND ----------
+
+# GPT-4.1-mini로 시나리오별 결과를 경제적 맥락에서 해석
+_scenario_lines = [
+    f"반도체 주가 TimesFM 시나리오 분석 결과 (향후 {HORIZON} 거래일):\n",
+]
+for name in SCENARIOS:
+    row_parts = []
+    for i, ticker in enumerate(TICKERS):
+        pred = scenario_results[name]["point"][i, -1]
+        chg = (pred - inputs[i][-1]) / inputs[i][-1] * 100
+        row_parts.append(f"{TICKER_NAMES[ticker]} {chg:+.2f}%")
+    _scenario_lines.append(f"  [{name}]: {' | '.join(row_parts)}")
+
+_scenario_prompt = (
+    "\n".join(_scenario_lines) + "\n\n위 5가지 시나리오 분석 결과를 바탕으로:\n"
+    "1) 각 시나리오가 반도체 주가에 미치는 영향을 경제적 논리와 함께 설명해 주세요.\n"
+    "2) 가장 위험한 시나리오와 가장 유리한 시나리오를 특정하고 그 이유를 서술해 주세요.\n"
+    "3) 현재 투자자가 헤지해야 할 시나리오 1가지를 추천해 주세요.\n"
+    "답변은 한국어로, 400자 이내로 작성해 주세요."
+)
+
+_scenario_interpretation = ask_gpt(_scenario_prompt, system_msg=_SYSTEM_MSG, max_tokens=700)
+print("=" * 70)
+print("🤖 AI 해석 — 시나리오 분석")
+print("=" * 70)
+print(_scenario_interpretation)
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC # 9. XReg Attribution — 공변량 기여도 분석
 # MAGIC
 # MAGIC > Leave-One-Out 방식: 공변량을 하나씩 제외하며 추론 → 예측 변화량 = 해당 변수의 기여도
@@ -738,6 +954,34 @@ plt.show()
 print("\n[XReg 기여도 Top 5]")
 for name, score in sorted_attr[:5]:
     print(f"  {name}: {score:.4f}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 9-1. AI 해석 — 공변량 기여도 (XReg Attribution)
+
+# COMMAND ----------
+
+# GPT-4.1-mini로 상위 기여 변수의 의미와 투자 시사점을 해석
+_attr_lines = [
+    "TimesFM XReg Leave-One-Out Attribution 분석 결과 (예측에 영향을 가장 크게 미친 변수):\n",
+]
+for rank, (name, score) in enumerate(sorted_attr[:10], 1):
+    _attr_lines.append(f"  {rank}위. {name}: 기여도 {score:.4f}")
+
+_attr_prompt = (
+    "\n".join(_attr_lines) + "\n\n위 변수 기여도 분석 결과를 바탕으로:\n"
+    "1) 상위 3개 변수가 왜 반도체 주가 예측에 중요한지 경제적 논리를 설명해 주세요.\n"
+    "2) 현재 시장 상황에서 이 변수들이 시사하는 리스크 또는 기회를 서술해 주세요.\n"
+    "3) 향후 모니터링이 가장 중요한 변수 2가지와 그 이유를 제시해 주세요.\n"
+    "답변은 한국어로, 350자 이내로 작성해 주세요."
+)
+
+_attr_interpretation = ask_gpt(_attr_prompt, system_msg=_SYSTEM_MSG, max_tokens=650)
+print("=" * 70)
+print("🤖 AI 해석 — XReg Attribution (핵심 영향 변수)")
+print("=" * 70)
+print(_attr_interpretation)
 
 # COMMAND ----------
 
@@ -1006,3 +1250,82 @@ else:
 print(f"\n{'=' * 70}")
 print("전략 문서: ref/TimesFM.md")
 print("다음 단계: XGBoost/LightGBM 분류 결과와 교차 합의(Consensus) 판정")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # 14. AI 종합 투자 의견
+
+# COMMAND ----------
+
+# GPT-4.1-mini가 모든 분석 결과를 종합하여 최종 투자 의견을 생성
+_final_lines = [
+    "SENSE TimesFM 전체 분석 종합 요약:\n",
+    f"분석 대상: {', '.join(f'{TICKER_NAMES[t]}({t})' for t in TICKERS)}",
+    f"예측 기간: 향후 {HORIZON} 거래일\n",
+]
+
+# 예측 방향성
+for i, ticker in enumerate(TICKERS):
+    lp = inputs[i][-1]
+    x_fin = point_xreg[i, -1]
+    x_pct = (x_fin - lp) / lp * 100
+    delta_pct = (point_xreg[i, -1] - point_baseline[i, -1]) / lp * 100
+    _final_lines.append(
+        f"[{TICKER_NAMES[ticker]}] XReg 예측: {x_pct:+.2f}% | 매크로 충격: {delta_pct:+.2f}%"
+    )
+
+# Attribution Top 3
+_final_lines.append(f"\n핵심 영향 변수 Top 3: {', '.join([a[0] for a in sorted_attr[:3]])}")
+
+# 시나리오 요약 (최선/최악)
+_sc_changes = {}
+for name in SCENARIOS:
+    avg_chg = np.mean(
+        [
+            (scenario_results[name]["point"][i, -1] - inputs[i][-1]) / inputs[i][-1] * 100
+            for i in range(len(TICKERS))
+        ]
+    )
+    _sc_changes[name] = avg_chg
+_best_sc = max(_sc_changes, key=_sc_changes.get)
+_worst_sc = min(_sc_changes, key=_sc_changes.get)
+_final_lines.append(f"최선 시나리오: [{_best_sc}] 평균 {_sc_changes[_best_sc]:+.2f}%")
+_final_lines.append(f"최악 시나리오: [{_worst_sc}] 평균 {_sc_changes[_worst_sc]:+.2f}%")
+
+# Backtest 지표
+if not df_backtest.empty:
+    for ticker in TICKERS:
+        sub = df_backtest[df_backtest["ticker"] == ticker]
+        if not sub.empty:
+            _final_lines.append(
+                f"[{TICKER_NAMES[ticker]}] Backtest — "
+                f"MAE: {sub['mae'].mean():,.0f} | "
+                f"방향 정확도: {sub['directional_accuracy'].mean():.1%} | "
+                f"80% PI Coverage: {sub['coverage_80'].mean():.1%}"
+            )
+
+# 이상 감지
+_final_lines.append(
+    f"\n이상 이벤트: {'없음' if not anomaly_records else f'{len(anomaly_records)}건 감지'}"
+)
+
+_final_prompt = (
+    "\n".join(_final_lines)
+    + "\n\n위 SENSE 전체 분석을 종합하여 다음 형식으로 최종 투자 의견을 작성해 주세요:\n\n"
+    "★ 종합 시장 진단 (2문장)\n"
+    "★ 삼성전자 투자 의견 및 근거 (2문장)\n"
+    "★ SK하이닉스 투자 의견 및 근거 (2문장)\n"
+    "★ 핵심 리스크 요인 (2가지)\n"
+    "★ 핵심 기회 요인 (2가지)\n"
+    "★ 단기 모니터링 포인트 (2가지)\n\n"
+    "답변은 한국어로, 실제 애널리스트 보고서 수준으로 작성해 주세요. "
+    "단, 투자 손실에 대한 책임 면책 문구를 마지막에 한 줄 추가해 주세요."
+)
+
+_final_interpretation = ask_gpt(_final_prompt, system_msg=_SYSTEM_MSG, max_tokens=1500)
+print("=" * 70)
+print("🤖 AI 종합 투자 의견 (SENSE × TimesFM × GPT-4.1-mini)")
+print("=" * 70)
+print(_final_interpretation)
+print(f"\n{'=' * 70}")
