@@ -179,11 +179,9 @@ class KeyVaultManager:
               - "sqlalchemy" → sqlalchemy.Engine. pd.read_sql / Session과 함께 사용하세요.
 
         Key Vault 시크릿:
-          pg-connection-string : PostgreSQL 연결 문자열 (libpq 형식)
-
-        연결 문자열 예시:
-          "host={server}.postgres.database.azure.com dbname={db}
-           user={user} password={pass} sslmode=require"
+          pg-connection-string : PostgreSQL 연결 문자열. 아래 두 형식 모두 지원합니다.
+            - SQLAlchemy URL 형식  : "postgresql+psycopg://user:pass@host/db?sslmode=require"
+            - libpq key=value 형식 : "host=... dbname=... user=... password=... sslmode=require"
         """
         connection_string = self.get_secret("pg-connection-string")
         if not connection_string:
@@ -192,17 +190,41 @@ class KeyVaultManager:
                 "KV 시크릿 'pg-connection-string' 또는 환경 변수 PG_CONNECTION_STRING을 설정하세요."
             )
 
+        # KV에 저장된 형식 자동 감지
+        # "postgresql://" 이나 "postgresql+<driver>://" 로 시작하면 URL 형식
+        _is_url = connection_string.startswith(("postgresql://", "postgresql+"))
+
         if engine == "sqlalchemy":
+            import psycopg as _psycopg  # psycopg3
             from sqlalchemy import create_engine
 
+            if _is_url:
+                # "+psycopg" 등 SQLAlchemy 전용 드라이버 접두사를 제거합니다.
+                # psycopg3 URI 파서는 "postgresql://" 만 인식하며,
+                # "postgresql+psycopg://" 를 그대로 전달하면 libpq 파서가
+                # 'missing "=" after "postgresql"' 오류를 냅니다.
+                _pg_uri = "postgresql://" + connection_string.split("://", 1)[1]
+            else:
+                # libpq key=value 형식: psycopg3 가 직접 파싱 가능
+                _pg_uri = connection_string
+
+            # creator 함수로 SQLAlchemy dialect 의 conninfo 재구성 과정을 우회합니다.
+            # dialect 선언("postgresql+psycopg://") 은 psycopg3 타입 처리에만 사용됩니다.
             return create_engine(
-                f"postgresql+psycopg:///?{connection_string}",
+                "postgresql+psycopg://",
+                creator=lambda: _psycopg.connect(_pg_uri),
                 pool_pre_ping=True,
             )
 
         import psycopg
 
-        return psycopg.connect(connection_string)
+        if _is_url:
+            # psycopg는 URI에서 "+psycopg" 드라이버 접미사를 인식하지 못함
+            # "postgresql+psycopg://" → "postgresql://" 로 변환
+            psycopg_uri = connection_string.replace("postgresql+psycopg://", "postgresql://", 1)
+            return psycopg.connect(psycopg_uri)
+        else:
+            return psycopg.connect(connection_string)
 
 
 # 모듈 레벨 싱글톤 — 다른 모듈에서 바로 import해서 사용
