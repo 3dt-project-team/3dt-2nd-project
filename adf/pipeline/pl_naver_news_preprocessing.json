@@ -46,7 +46,11 @@
 					"headers": {
 						"Content-Type": "application/json"
 					},
-					"url": "https://navernews-collector.azurewebsites.net/api/daily_crawl_hourly"
+					"url": "https://navernews-collector.azurewebsites.net/api/crawl",
+					"authentication": {
+						"type": "MSI",
+						"resource": "https://navernews-collector.azurewebsites.net"
+					}
 				}
 			}
 		],
