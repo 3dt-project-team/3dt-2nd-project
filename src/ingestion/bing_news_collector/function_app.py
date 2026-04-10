@@ -683,9 +683,9 @@ def get_month_existing_records(storage_conn_str: str, container_name: str, folde
     return filtered
 
 
-@app.timer_trigger(schedule="0 0 1 * * *", arg_name="myTimer", run_on_startup=False, use_monitor=False)
-def semiconductor_news_fetcher(myTimer: func.TimerRequest) -> None:
-    if myTimer.past_due:
+@app.route(route="collect", auth_level=func.AuthLevel.FUNCTION)
+def semiconductor_news_fetcher(req: func.HttpRequest) -> func.HttpResponse:
+    if getattr(req, "past_due", False):
         logging.info("The timer is past due!")
 
     logging.info("반도체 뉴스 수집 파이프라인 시작 (Bing RSS + AI 하이브리드, Production Backfill)")
@@ -701,7 +701,7 @@ def semiconductor_news_fetcher(myTimer: func.TimerRequest) -> None:
     missing = [key for key in REQUIRED_ENV_KEYS if not os.environ.get(key, "").strip()]
     if missing:
         logging.error("필수 환경 변수가 누락되었습니다: %s", ", ".join(missing))
-        return
+        return func.HttpResponse("Missing required environment variables", status_code=500)
 
     now_utc_date = datetime.datetime.now(datetime.timezone.utc).date()
     if os.environ.get("BACKFILL_MODE", "0").strip() in {"1", "true", "TRUE", "yes", "YES"}:
@@ -877,3 +877,6 @@ def semiconductor_news_fetcher(myTimer: func.TimerRequest) -> None:
 
     except Exception as ex:
         logging.exception("반도체 뉴스 수집 파이프라인 오류: %s", ex)
+        return func.HttpResponse("Error", status_code=500)
+
+    return func.HttpResponse("Success", status_code=200)
