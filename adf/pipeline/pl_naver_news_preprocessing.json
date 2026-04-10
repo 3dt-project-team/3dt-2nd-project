@@ -5,7 +5,14 @@
 			{
 				"name": "Notebook1",
 				"type": "DatabricksNotebook",
-				"dependsOn": [],
+				"dependsOn": [
+					{
+						"activity": "act_crawl_naver_news",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
 				"policy": {
 					"timeout": "0.12:00:00",
 					"retry": 0,
@@ -38,7 +45,8 @@
 					"method": "POST",
 					"headers": {
 						"Content-Type": "application/json"
-					}
+					},
+					"url": "https://navernews-collector.azurewebsites.net/api/daily_crawl_hourly"
 				}
 			}
 		],
