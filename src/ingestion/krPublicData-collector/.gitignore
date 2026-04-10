@@ -132,49 +132,4 @@ local.settings.json
 __blobstorage__
 __queuestorage__
 __azurite_db*__.json
-# ============================================================
-# 데이터 파일 — 절대 Git에 커밋하지 말 것
-# 모든 데이터는 ADLS Gen2(Azure Data Lake)에 보관하세요.
-# ============================================================
-*.csv
-*.parquet
-*.xlsx
-*.json.gz
-*.feather
-*.pkl
-data/
-raw/
-
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb_checkpoints
-
-# IDE
-
-.idea/
-
-# Azure Functions
-local.settings.json
-
-# Azurite
-AzuriteConfig
-__blobstorage__/
-__queuestorage__/
-*.code-workspace
-
-# OS
-.DS_Store
-Thumbs.db
-
-# MLflow
-mlruns/
-mlartifacts/
-
-# azure functions
-__blobstorage__/
-__azurite_db_*.json
-__blobstorage__/
-# coding agent
-CLAUDE.md
-
 .python_packages

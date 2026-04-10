@@ -1,0 +1,9 @@
+{
+	"name": "sense-adf",
+	"location": "koreacentral",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "d2d59569-d95d-4118-9424-acf039a5a91c",
+		"tenantId": "5fb256f0-fbf2-40d2-81d5-bac1b32c419d"
+	}
+}
