@@ -1,6 +1,5 @@
 azure-functions
+fredapi
 pandas
-pyarrow
-requests
 azure-storage-blob
-azure-core
+pyarrow
