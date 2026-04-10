@@ -195,17 +195,26 @@ class KeyVaultManager:
         _is_url = connection_string.startswith(("postgresql://", "postgresql+"))
 
         if engine == "sqlalchemy":
+            import psycopg as _psycopg  # psycopg3
             from sqlalchemy import create_engine
 
             if _is_url:
-                # 이미 SQLAlchemy URL 형식 → 그대로 전달 (이중 인코딩 방지)
-                return create_engine(connection_string, pool_pre_ping=True)
+                # "+psycopg" 등 SQLAlchemy 전용 드라이버 접두사를 제거합니다.
+                # psycopg3 URI 파서는 "postgresql://" 만 인식하며,
+                # "postgresql+psycopg://" 를 그대로 전달하면 libpq 파서가
+                # 'missing "=" after "postgresql"' 오류를 냅니다.
+                _pg_uri = "postgresql://" + connection_string.split("://", 1)[1]
             else:
-                # libpq key=value 형식 → psycopg 쿼리 파라미터 방식으로 변환
-                return create_engine(
-                    f"postgresql+psycopg:///?{connection_string}",
-                    pool_pre_ping=True,
-                )
+                # libpq key=value 형식: psycopg3 가 직접 파싱 가능
+                _pg_uri = connection_string
+
+            # creator 함수로 SQLAlchemy dialect 의 conninfo 재구성 과정을 우회합니다.
+            # dialect 선언("postgresql+psycopg://") 은 psycopg3 타입 처리에만 사용됩니다.
+            return create_engine(
+                "postgresql+psycopg://",
+                creator=lambda: _psycopg.connect(_pg_uri),
+                pool_pre_ping=True,
+            )
 
         import psycopg
 
