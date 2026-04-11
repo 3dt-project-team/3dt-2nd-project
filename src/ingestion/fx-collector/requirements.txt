@@ -1,0 +1,6 @@
+azure-functions
+pandas
+pyarrow
+requests
+azure-storage-blob
+azure-core

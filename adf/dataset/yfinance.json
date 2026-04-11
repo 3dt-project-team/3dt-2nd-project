@@ -1,18 +1,20 @@
 {
-	"name": "fred_1y",
+	"name": "yfinance",
 	"properties": {
-		"description": "금리 정보, 최근 1년",
 		"linkedServiceName": {
 			"referenceName": "3dtteam1adls",
 			"type": "LinkedServiceReference"
+		},
+		"folder": {
+			"name": "raw-1y"
 		},
 		"annotations": [],
 		"type": "DelimitedText",
 		"typeProperties": {
 			"location": {
 				"type": "AzureBlobFSLocation",
-				"fileName": "rates_data_250408-260406.csv",
-				"folderPath": "fred_macro_data",
+				"fileName": "yahoo_finance_raw_20260408.csv",
+				"folderPath": "yfinance/year=2026/month=04/day=08",
 				"fileSystem": "raw"
 			},
 			"columnDelimiter": ",",
@@ -22,22 +24,37 @@
 		},
 		"schema": [
 			{
-				"name": "관측일자",
+				"name": "Date",
 				"type": "String"
 			},
 			{
-				"name": "지표코드",
+				"name": "Ticker",
 				"type": "String"
 			},
 			{
-				"name": "금리값",
+				"name": "Name",
 				"type": "String"
 			},
 			{
-				"name": "수집일시",
+				"name": "Open",
+				"type": "String"
+			},
+			{
+				"name": "High",
+				"type": "String"
+			},
+			{
+				"name": "Low",
+				"type": "String"
+			},
+			{
+				"name": "Close",
+				"type": "String"
+			},
+			{
+				"name": "Volume",
 				"type": "String"
 			}
 		]
-	},
-	"type": "Microsoft.DataFactory/factories/datasets"
+	}
 }

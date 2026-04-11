@@ -1,0 +1,80 @@
+{
+	"name": "macro preprocessing",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"dataset": {
+						"referenceName": "silver_join",
+						"type": "DatasetReference"
+					},
+					"name": "source1"
+				}
+			],
+			"sinks": [],
+			"transformations": [
+				{
+					"name": "MapDrifted1",
+					"description": "각 드리프트된 열의 명시적 매핑을 만듭니다."
+				},
+				{
+					"name": "select1"
+				}
+			],
+			"scriptLines": [
+				"source(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'parquet') ~> source1",
+				"source1 derive(date = toDate(byName('date')),",
+				"          usd_krw_rate = toFloat(byName('usd_krw_rate')),",
+				"          fx_collected_at_utc = toTimestamp(byName('fx_collected_at_utc')),",
+				"          yfinance_collected_at_utc = toTimestamp(byName('yfinance_collected_at_utc')),",
+				"          yfinance_amd_close = toFloat(byName('yfinance_amd_close')),",
+				"          yfinance_asml_close = toFloat(byName('yfinance_asml_close')),",
+				"          yfinance_intc_close = toFloat(byName('yfinance_intc_close')),",
+				"          yfinance_mu_close = toFloat(byName('yfinance_mu_close')),",
+				"          yfinance_nvda_close = toFloat(byName('yfinance_nvda_close')),",
+				"          yfinance_samsung_close = toFloat(byName('yfinance_samsung_close')),",
+				"          yfinance_skhynix_close = toFloat(byName('yfinance_skhynix_close')),",
+				"          yfinance_sox_close = toFloat(byName('yfinance_sox_close')),",
+				"          yfinance_tsm_close = toFloat(byName('yfinance_tsm_close')),",
+				"          yfinance_wdc_close = toFloat(byName('yfinance_wdc_close')),",
+				"          fred_collected_at_utc = toTimestamp(byName('fred_collected_at_utc')),",
+				"          fred_bamlh0a0hym2 = toFloat(byName('fred_bamlh0a0hym2')),",
+				"          fred_dff = toFloat(byName('fred_dff')),",
+				"          fred_dfii10 = toFloat(byName('fred_dfii10')),",
+				"          fred_dgs10 = toFloat(byName('fred_dgs10')),",
+				"          fred_dgs2 = toFloat(byName('fred_dgs2')),",
+				"          fred_t10y2y = toFloat(byName('fred_t10y2y')),",
+				"          final_date = toDate(byName('final_date'))) ~> MapDrifted1",
+				"MapDrifted1 select(mapColumn(",
+				"          date = final_date,",
+				"          usd_krw_rate,",
+				"          yfinance_amd_close,",
+				"          yfinance_asml_close,",
+				"          yfinance_intc_close,",
+				"          yfinance_mu_close,",
+				"          yfinance_nvda_close,",
+				"          yfinance_samsung_close,",
+				"          yfinance_skhynix_close,",
+				"          yfinance_sox_close,",
+				"          yfinance_tsm_close,",
+				"          yfinance_wdc_close,",
+				"          fred_bamlh0a0hym2,",
+				"          fred_dff,",
+				"          fred_dfii10,",
+				"          fred_dgs10,",
+				"          fred_dgs2,",
+				"          fred_t10y2y,",
+				"          fx_collected_at_utc,",
+				"          yfinance_collected_at_utc,",
+				"          fred_collected_at_utc",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> select1"
+			]
+		}
+	}
+}

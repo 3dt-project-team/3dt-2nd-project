@@ -67,7 +67,7 @@ def build_parquet_bytes(row: dict) -> bytes:
     return sink.getvalue().to_pybytes()
 
 
-@app.function_name(name="CollectUsdKrwHourly")
+@app.function_name(name="krw-collector")
 @app.timer_trigger(
     schedule="0 3 * * * *",  # 매시 03분
     arg_name="mytimer",

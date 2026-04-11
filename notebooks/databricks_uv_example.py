@@ -63,13 +63,43 @@ vault.get_storage_client()  # Spark conf 설정 완료 → None 반환 (정상)
 # MAGIC # 4. PostgreSQL 연결
 # MAGIC
 # MAGIC pandas로 결과 조회 예시
+# MAGIC
+# MAGIC > **SQLAlchemy 2.x + pandas 2.x 호환성 주의**
+# MAGIC > `pd.read_sql(sql, engine)` 에 Engine 을 직접 넘기는 방식은 deprecated.
+# MAGIC > 반드시 `engine.connect()` 컨텍스트 매니저로 Connection 을 꺼내 사용하세요.
 
 # COMMAND ----------
 
-# import pandas as pd
-# conn = vault.get_pg_connection(engine="sqlalchemy")
-# df_result = pd.read_sql("SELECT * FROM results LIMIT 100", conn)
-# display(df_result)  # noqa: F821
+from sqlalchemy import text  # noqa: E402
+
+# vault.get_pg_connection("sqlalchemy") → SQLAlchemy Engine 반환
+# KV 시크릿 'pg-connection-string' 형식을 자동 감지:
+#   - "postgresql+psycopg://..."  → URL 형식, 그대로 Engine 생성
+#   - "host=... user=... ..."     → libpq key=value 형식, 변환 후 Engine 생성
+engine = vault.get_pg_connection(engine="sqlalchemy")
+
+# --- 연결 테스트 ---
+with engine.connect() as conn:
+    result = conn.execute(text("SELECT 1 AS ok"))
+    print("[OK] PostgreSQL 연결 성공:", result.fetchone())
+
+# --- 실제 테이블 조회 (테이블명은 sense_db 실제 테이블로 교체) ---
+# with engine.connect() as conn:
+#     df_result = pd.read_sql(
+#         text("SELECT * FROM fact_timesfm_forecast LIMIT 100"), conn
+#     )
+#     display(df_result)  # noqa: F821
+
+# --- 테이블 목록 확인 ---
+# with engine.connect() as conn:
+#     df_tables = pd.read_sql(
+#         text(
+#             "SELECT table_name FROM information_schema.tables"
+#             " WHERE table_schema = 'public' ORDER BY table_name"
+#         ),
+#         conn,
+#     )
+#     display(df_tables)  # noqa: F821
 
 # COMMAND ----------
 
