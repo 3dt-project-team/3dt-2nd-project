@@ -269,12 +269,20 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] 피처 파리티 — 전통 모델 파생 변수 40→47개 통일 (TimesFM 동일) (v0412)
 - [x] 한글 폰트 수정 — glob+addfont 직접 등록 방식으로 교체 (v0412)
 - [x] 분석 결과 보고서 — `docs/analysis_results.md` 생성 (v0412)
+- [x] apt-get update 추가 — Databricks 패키지 저장소 갱신 후 fonts-nanum 설치 (v0413)
+- [x] 동적 가중치 앙상블 — `ensemble_strategy.py` 신규 (TimesFM×ElasticNet 후처리 파이프라인) (v0413)
+- [x] Feature Engineering 고도화 — RSI(14), ATR(14), 120d 이격도, 로그수익률 추가 (v0413)
+- [x] ElasticNetCV + Time-Decay — Ridge→ElasticNet 전환, 60d half-life 지수감쇠 가중치 (v0413)
+- [x] 레짐 기반 동적 가중치 — RSI/ATR/이격도 조건부 가중치 조정 + Confidence Score (v0413)
+- [x] 앙상블 시각화 — Dynamic Weighting Strategy 차트 (ref/image.png 재현) (v0413)
+- [x] fact_ensemble_forecast — PostgreSQL 적재용 DataFrame 포맷 정의 (v0413)
 
-> **파일 구조 변경 (v0411→Full Feature):**
+> **파일 구조 변경 (v0411→Full Feature, v0413→Ensemble):**
 > - `timesfm_inference.py` — TimesFM 메인 (Full Feature)
 > - `timesfm_inference_lite.py` — TimesFM 간소화 아카이브
 > - `statistical_baseline_analysis.py` — 전통 모델 메인 (Full Feature)
 > - `statistical_baseline_analysis_lite.py` — 전통 모델 간소화 아카이브
+> - `ensemble_strategy.py` — 동적 가중치 앙상블 (v0413 신규)
 > - `correlation_analysis.py` — 원본 상관분석 (복원)
 
 #### XGBoost/LightGBM 분류 (ML Studio)
@@ -287,7 +295,8 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [ ] AML Batch Endpoint 등록 및 ADF 연동 (MS [Orchestrate ML](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/orchestrate-machine-learning-azure-databricks) 참조)
 
 #### 앙상블 합의 판정
-- [ ] TimesFM 방향성 + XGBoost 확률 + 매크로 충격 3축 Consensus 로직 구현
+- [x] 동적 가중치 앙상블 (`ensemble_strategy.py`) — TimesFM(추세) × ElasticNet(회귀) 후처리 결합 (v0413)
+- [ ] XGBoost 확률 통합 — 하방 리스크 확률을 앙상블 가중치에 반영
 - [ ] RAG 연동 — XReg Attribution 기반 예측 근거 자동 생성
 
 ### M5: 서빙

@@ -28,6 +28,13 @@
 
 # COMMAND ----------
 
+# MAGIC %sh
+# MAGIC sudo apt-get update
+# MAGIC sudo apt-get install -y fonts-nanum
+# MAGIC fc-cache -fv
+
+# COMMAND ----------
+
 import datetime
 import os
 import sys

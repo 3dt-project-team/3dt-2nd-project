@@ -48,6 +48,13 @@
 
 # COMMAND ----------
 
+# MAGIC %sh
+# MAGIC sudo apt-get update
+# MAGIC sudo apt-get install -y fonts-nanum
+# MAGIC fc-cache -fv
+
+# COMMAND ----------
+
 # DBTITLE 1,Imports & env setup
 import os
 import sys

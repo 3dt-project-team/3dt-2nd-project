@@ -235,6 +235,62 @@
 | 2 | yfinance_tsm_close (글로벌) | yfinance_asml_close (글로벌) |
 | 3 | kfin_mean_price (옵션) | fred_dff (금리) |
 
+---
+
+## 5. Dynamic Weighting Ensemble 전략 (v0413)
+
+> **구현 파일**: `notebooks/ensemble_strategy.py`
+> **목적**: TimesFM(추세)과 ElasticNet(평균 회귀) 예측의 Mean-Reversion 바이어스를 시장 국면에 따라 동적으로 보정
+
+### 5-1. 문제 인식
+
+| 문제 | 현상 | 원인 |
+|---|---|---|
+| Historical Bias | 두 모델 모두 -10~-13% 하락 예측 | 과거 평균으로 회귀하는 경향 |
+| Price-Level 의존 | 206,000원 → 뉴럴넷이 "과대평가"로 해석 | 명목 가격 기반 학습 |
+| 퀀트 지표 과해석 | RSI·이격도 등이 과매수 시그널 과잉 | 구조적 상승기(AI 슈퍼사이클)를 반영 못 함 |
+
+### 5-2. 개선 사항
+
+| 항목 | v0412 (Ridge) | v0413 (ElasticNetCV) |
+|---|---|---|
+| 정규화 | L2 (Ridge) | L1+L2 (ElasticNet) — 불필요 변수 자동 제거 |
+| 가중치 | 균등 | Time-Decay ($\text{half-life}=60\text{d}$) |
+| 앙상블 | 없음 (단일 모델) | Regime-based Dynamic Weighting |
+| 피처 추가 | 47개 기본 | +RSI(14), ATR(14), 120d 이격도, log return |
+| 신뢰도 | PI Coverage만 | Confidence Score (0–100) |
+
+### 5-3. Regime Detection 규칙
+
+시장 국면 분류 후 Trend(TimesFM) vs Mean-Reversion(ElasticNet) 가중치를 `[0.2, 0.8]` 범위 내에서 조절:
+
+- **RSI > 70** → 과매수, Mean-Rev 가중치 ↑ (w_trend −0.20)
+- **RSI < 30** → 과매도, Trend 가중치 ↑ (w_trend +0.20)
+- **vol_ratio > 1.5** → 변동성 폭발, Mean-Rev ↑ (w_trend −0.20)
+- **vol_ratio < 0.8** → 안정 추세, Trend ↑ (w_trend +0.20)
+- **이격도 > +20%** → 과열, Mean-Rev ↑ (w_trend −0.10)
+- **이격도 < −10%** → 과매도, Trend ↑ (w_trend +0.20)
+
+### 5-4. Confidence Score
+
+$$\text{Score} = \underbrace{50 \times \left(1 - \frac{\text{PI width}}{\text{last price}}\right)}_{\text{PI 기반 (0–50)}} + \underbrace{50 \times \left(1 - \frac{|\text{trend} - \text{meanrev}|}{\text{last price}}\right)}_{\text{합의도 기반 (0–50)}}$$
+
+- 80+ → 높은 신뢰도 (두 모델 합의 + 좁은 PI)
+- 50–79 → 중간 신뢰도
+- < 50 → 낮은 신뢰도 (모델 불일치 또는 넓은 PI)
+
+### 5-5. PostgreSQL 적재 스키마
+
+| 테이블 | 컬럼 | 설명 |
+|---|---|---|
+| `fact_ensemble_forecast` | date, ticker, base_date, horizon_day, trend_score, mean_rev_score, trend_pred, meanrev_pred, final_pred, pi_lower, pi_upper, confidence_score, regime_flag, regime_label, run_timestamp | 앙상블 예측 결과 15개 컬럼 |
+
+### 5-6. 환경 수정 (apt-get update)
+
+Databricks 클러스터에서 `fonts-nanum` 설치 실패 문제 해결:
+- **원인**: 패키지 저장소 인덱스가 오래되어 `apt-get install fonts-nanum` 실패
+- **수정**: `sudo apt-get update` 추가 (`timesfm_inference_lite.py`, `statistical_baseline_analysis_lite.py` 모두 적용)
+
 - **TimesFM**: 국내 옵션 시장 지표에 민감
 - **Ridge**: 글로벌 반도체 주가에 민감
 - **공통**: yfinance_tsm_close(TSMC)가 두 모델 모두에서 상위권
