@@ -116,7 +116,7 @@ account = vault.get_secret("adls-account-name")  # "3dtteam1adls"
 
 # DBTITLE 1,Curated Parquet 로드
 # 통합 피처 마트 로드 — TimesFM/Statistical 노트북과 동일한 데이터 소스
-_curated_path = f"abfss://curated@{account}.dfs.core.windows.net/macro/pre_macro_1y_adf.parquet"
+_curated_path = f"abfss://curated@{account}.dfs.core.windows.net/pre_macro_1y_adf.parquet"
 df_curated = spark.read.parquet(_curated_path).toPandas()  # noqa: F821
 df_curated["date"] = pd.to_datetime(df_curated["date"])
 df_curated = df_curated.sort_values("date").reset_index(drop=True)
@@ -126,9 +126,7 @@ print(f"Curated 로드: {df_curated.shape}")
 
 # DBTITLE 1,반도체 수출입 데이터 (Silver)
 try:
-    _semi_path = (
-        f"abfss://curated@{account}.dfs.core.windows.net/semiconductor/silver_semiconductor"
-    )
+    _semi_path = f"abfss://curated@{account}.dfs.core.windows.net/silver_semiconductor.parquet"
     df_semi = spark.read.parquet(_semi_path).toPandas()  # noqa: F821
     if "date" in df_semi.columns:
         df_semi["date"] = pd.to_datetime(df_semi["date"])
@@ -148,7 +146,7 @@ except Exception as e:
 
 # DBTITLE 1,KFinance 데이터 (Silver)
 try:
-    _kfin_path = f"abfss://curated@{account}.dfs.core.windows.net/kfinance/silver_kfinance"
+    _kfin_path = f"abfss://curated@{account}.dfs.core.windows.net/silver_kfinance.parquet"
     df_kfin = spark.read.parquet(_kfin_path).toPandas()  # noqa: F821
     if "date" in df_kfin.columns:
         df_kfin["date"] = pd.to_datetime(df_kfin["date"])
@@ -167,29 +165,32 @@ except Exception as e:
 
 # DBTITLE 1,피처 마트 구성 (종목별)
 # TimesFM/Statistical 노트북과 동일한 피처 마트 구성 로직
+# df_curated 컬럼 매핑 (timesfm_inference_lite 노트북의 TICKER_COL_MAP 준용)
+TICKER_COL_MAP = {
+    "005930.KS": "yfinance_samsung_close",
+    "000660.KS": "yfinance_skhynix_close",
+}
+
 feature_marts = {}
 for ticker in TICKERS:
     name = TICKER_NAMES[ticker]
-    # yfinance 주가 컬럼 추출
-    close_col = None
-    for c in df_curated.columns:
-        if ticker.replace(".KS", "").lower() in c.lower() and "close" in c.lower():
-            close_col = c
-            break
-    if close_col is None:
-        # fallback: 직접 이름 매칭
-        _map = {"005930.KS": "stock_005930_close", "000660.KS": "stock_000660_close"}
-        close_col = _map.get(ticker)
+    close_col = TICKER_COL_MAP.get(ticker)
 
-    mart = df_curated[["date"]].copy()
-    if close_col and close_col in df_curated.columns:
-        mart["close"] = df_curated[close_col].values
-    else:
-        print(f"[WARN] {name}: close 컬럼 미발견 — 스킵")
+    if close_col is None or close_col not in df_curated.columns:
+        print(f"[WARN] {name}: close 컬럼({close_col}) 미발견 — 스킵")
         continue
 
-    # 매크로/퀀트 컬럼 병합
-    _exclude = {"date", close_col}
+    mart = df_curated[["date"]].copy()
+    mart["close"] = df_curated[close_col].values
+
+    # 매크로/퀀트 컬럼 병합 (date, 타겟 close, 메타 컬럼 제외)
+    _exclude = {
+        "date",
+        close_col,
+        "fx_collected_at_utc",
+        "yfinance_collected_at_utc",
+        "fred_collected_at_utc",
+    }
     for c in df_curated.columns:
         if c not in _exclude:
             mart[c] = df_curated[c].values

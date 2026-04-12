@@ -276,6 +276,14 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] 레짐 기반 동적 가중치 — RSI/ATR/이격도 조건부 가중치 조정 + Confidence Score (v0413)
 - [x] 앙상블 시각화 — Dynamic Weighting Strategy 차트 (ref/image.png 재현) (v0413)
 - [x] fact_ensemble_forecast — PostgreSQL 적재용 DataFrame 포맷 정의 (v0413)
+- [x] ADLS 경로 수정 — curated/ 하위 경로 및 TICKER_COL_MAP 직접 매핑으로 수정 (v0413)
+- [x] fact_ensemble_forecast PostgreSQL 적재 완료 — 40행 (2종목 × 20일) (v0413)
+
+> ⚠️ **v0413 실행 결과 발견 이슈:**
+> - SK하이닉스 ElasticNet R²=−0.33 (음수, 학습 실패) → 종목별 하이퍼파라미터 분리 필요
+> - Confidence Score 5.5/4.5 (극히 낮음) → TimesFM 시뮬레이션과 ElasticNet 간 예측 격차 과대
+> - l1_ratio=0.90 (두 종목 동일), 활성 피처 27/28 → L1 정규화 효과 미미
+> - KFinance(28행, 1컬럼), 반도체 수출입(24행, 4컬럼) → Silver 데이터 품질 점검 필요
 
 > **파일 구조 변경 (v0411→Full Feature, v0413→Ensemble):**
 > - `timesfm_inference.py` — TimesFM 메인 (Full Feature)

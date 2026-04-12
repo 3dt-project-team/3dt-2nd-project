@@ -1,7 +1,7 @@
 # SENSE 모델 출력 분석 및 해석 보고서
 
-> **분석 일자**: 2025-04-12  
-> **대상 노트북**: `timesfm_inference_lite.ipynb`, `statistical_baseline_analysis_lite.ipynb`  
+> **분석 일자**: 2025-04-12 (v0412), 2025-04-13 (v0413 앙상블)
+> **대상 노트북**: `timesfm_inference_lite.ipynb`, `statistical_baseline_analysis_lite.ipynb`, `ensemble_strategy.ipynb`  
 > **분석 환경**: Databricks (Azure)
 
 ---
@@ -241,6 +241,7 @@
 
 > **구현 파일**: `notebooks/ensemble_strategy.py`
 > **목적**: TimesFM(추세)과 ElasticNet(평균 회귀) 예측의 Mean-Reversion 바이어스를 시장 국면에 따라 동적으로 보정
+> **실행 환경**: Databricks (Azure), 2026-04-12 실행
 
 ### 5-1. 문제 인식
 
@@ -250,17 +251,111 @@
 | Price-Level 의존 | 206,000원 → 뉴럴넷이 "과대평가"로 해석 | 명목 가격 기반 학습 |
 | 퀀트 지표 과해석 | RSI·이격도 등이 과매수 시그널 과잉 | 구조적 상승기(AI 슈퍼사이클)를 반영 못 함 |
 
-### 5-2. 개선 사항
+### 5-2. ADLS 경로 수정 (실행 중 발견)
+
+| 항목 | 수정 전 | 수정 후 |
+|---|---|---|
+| Curated 경로 | `curated/macro/pre_macro_1y_adf.parquet` | `curated/pre_macro_1y_adf.parquet` |
+| Semiconductor | `curated/semiconductor/silver_semiconductor` | `curated/silver_semiconductor.parquet` |
+| KFinance | `curated/kfinance/silver_kfinance` | `curated/silver_kfinance.parquet` |
+| 종가 컬럼 | 동적 탐색 (ticker 기반 fuzzy match) | `TICKER_COL_MAP` 직접 매핑 |
+| 제외 컬럼 | 없음 | `fx_collected_at_utc`, `yfinance_collected_at_utc`, `fred_collected_at_utc` 제외 |
+
+### 5-3. 데이터 로드 결과
+
+| 데이터셋 | 행 × 열 | 비고 |
+|---|---|---|
+| Curated (매크로) | 475 × 21 | 기본 피처 마트 |
+| Silver 반도체 수출입 | 24 × 4 | 규모 작음 — merge 후 대부분 NaN |
+| Silver KFinance | 28 × 1 | 1개 컬럼만 유효 |
+| 피처 마트 (종목별) | 475 × 22 (기본) → 475 × 30 (파생 추가) | 파생 8개: RSI, ATR, atr_pct, disparity, log_return, realized_vol 등 |
+
+### 5-4. Feature Engineering 결과
+
+| 종목 | RSI(14) | ATR(14) | 120d 이격도 | 총 컬럼 |
+|---|---|---|---|---|
+| 삼성전자 | 70.2 (과매수 경계) | 8,646원 | +20.2% (과열 경계) | 30 |
+| SK하이닉스 | 69.2 (과매수 근접) | 53,055원 | +14.0% | 30 |
+
+### 5-5. ElasticNetCV 결과
+
+| 지표 | 삼성전자 | SK하이닉스 |
+|---|---|---|
+| **T+20 예측가** | 175,501원 (−16.13%) | 835,731원 (−16.59%) |
+| **alpha** | 40.85 | 189.31 |
+| **l1_ratio** | 0.90 | 0.90 |
+| **활성 피처** | 27/28 | 27/28 |
+| **R² (train)** | 0.6970 | **−0.3288** ⚠️ |
+
+> ⚠️ **SK하이닉스 R²가 음수** — 모델이 평균 대비 나쁜 예측을 하고 있음. 근본 원인 분석 필요.
+
+**ElasticNet 피처 중요도 (|계수| Top 5):**
+
+| 순위 | 삼성전자 | 계수 | SK하이닉스 | 계수 |
+|---|---|---|---|---|
+| 1 | semi_expDlr | +2959 | yfinance_samsung_close | +6587 |
+| 2 | disparity_120d | +2861 | atr_14 | +6115 |
+| 3 | yfinance_mu_close | +2824 | semi_expDlr | +6097 |
+| 4 | yfinance_wdc_close | +2787 | yfinance_mu_close | +5871 |
+| 5 | yfinance_skhynix_close | +2775 | yfinance_wdc_close | +5740 |
+
+### 5-6. 앙상블 결과
+
+| 항목 | 삼성전자 | SK하이닉스 |
+|---|---|---|
+| **현재가** | 209,250원 | 1,002,000원 |
+| **레짐** | MEAN_REV (flag=−1) | TREND (flag=+1) |
+| **가중치** | TimesFM 40% / ElasticNet 60% | TimesFM 70% / ElasticNet 30% |
+| **Regime 조건** | RSI>70(과매수), vol<0.8(안정), 이격도>+20%(과열) | vol<0.8(안정 추세) |
+| **TimesFM T+20** | 278,915원 (+33.29%) ※시뮬레이션 | 1,441,123원 (+43.82%) ※시뮬레이션 |
+| **ElasticNet T+20** | 175,501원 (−16.13%) | 835,731원 (−16.59%) |
+| **★ 앙상블 T+20** | **216,867원 (+3.64%)** | **1,259,505원 (+25.70%)** |
+| **Confidence Score** | **5.5/100** ⚠️ | **4.5/100** ⚠️ |
+
+### 5-7. AI 분석 요약 (GPT-4.1-mini)
+
+**삼성전자**: MEAN_REV 레짐. RSI 과매수(70.2) + 이격도 과열(+20.2%)로 회귀 모델 가중 60%. 최종 +3.64% 상승 전망이나 Confidence 5.5/100으로 극히 낮음. 단기 조정 압력 주의.
+
+**SK하이닉스**: TREND 레짐. 변동성 안정(0.59) → 추세 모델 70% 가중. +25.70% 상승 전망이나 Confidence 4.5/100. RSI 69.2로 과매수 근접, 글로벌 수요 변수 급변 리스크.
+
+### 5-8. PostgreSQL 적재
+
+| 테이블 | 행수 | 상태 |
+|---|---|---|
+| `fact_ensemble_forecast` | 40행 (2종목 × 20일) | ✅ 적재 완료 |
+
+### 5-9. 핵심 발견 및 개선 필요사항
+
+| # | 발견 | 심각도 | 원인 분석 | 개선 방향 |
+|---|---|---|---|---|
+| 1 | **Confidence Score 극도로 낮음** (5.5, 4.5/100) | 🔴 Critical | TimesFM(시뮬레이션 +33~44%) vs ElasticNet(−16%) 예측 격차가 과대 → 합의도(consensus) 항이 거의 0 | 실제 TimesFM 추론 결과 연동 시 개선 예상. 시뮬레이션 fallback 사용 시 합의도 항 스케일링 필요 |
+| 2 | **SK하이닉스 R²=−0.33** | 🔴 Critical | ElasticNet이 이 종목에서 학습 실패 (평균보다 나쁜 예측) | 종목별 하이퍼파라미터 분리, 피처 선택(mRMR 등) 적용, 또는 별도 모델 전략 |
+| 3 | **l1_ratio=0.90 (두 종목 동일)** | 🟡 Medium | 거의 Lasso 수준이나 27/28 피처 활성 → L1 정규화 효과 미미 | alpha 범위 확장, 피처 사전 선별로 sparsity 유도 |
+| 4 | **KFinance 데이터 축소** (28행, 1컬럼) | 🟡 Medium | Silver 레이어 데이터 품질/범위 이슈 | 데이터 파이프라인 점검, 옵션 데이터 확보 강화 |
+| 5 | **TimesFM 시뮬레이션 의존** | 🟡 Medium | 독립 실행 시 실제 TimesFM 결과 없어 랜덤 시뮬레이션 사용 | 노트북 간 결과 공유 메커니즘 (ADLS 중간 저장 또는 Delta 테이블) |
+| 6 | **ElasticNet 양 종목 −16% 하락 예측** | 🟠 Info | Mean-Reversion 바이어스 여전히 존재 (v0412 Ridge −12~14%와 유사) | Time-Decay half-life 단축(30d), 또는 수익률 기반 타겟 변환 검토 |
+
+### 5-10. 개선 사항 비교 (v0412 → v0413)
 
 | 항목 | v0412 (Ridge) | v0413 (ElasticNetCV) |
 |---|---|---|
 | 정규화 | L2 (Ridge) | L1+L2 (ElasticNet) — 불필요 변수 자동 제거 |
 | 가중치 | 균등 | Time-Decay ($\text{half-life}=60\text{d}$) |
 | 앙상블 | 없음 (단일 모델) | Regime-based Dynamic Weighting |
-| 피처 추가 | 47개 기본 | +RSI(14), ATR(14), 120d 이격도, log return |
+| 피처 추가 | 47개 기본 | +RSI(14), ATR(14), 120d 이격도, log return → 30개 |
 | 신뢰도 | PI Coverage만 | Confidence Score (0–100) |
+| PostgreSQL | fact_stat_forecast (28행) | +fact_ensemble_forecast (40행) |
 
-### 5-3. Regime Detection 규칙
+### 5-11. Confidence Score 수식
+
+$$\text{Score} = \underbrace{50 \times \left(1 - \frac{\text{PI width}}{\text{last price}}\right)}_{\text{PI 기반 (0–50)}} + \underbrace{50 \times \left(1 - \frac{|\text{trend} - \text{meanrev}|}{\text{last price}}\right)}_{\text{합의도 기반 (0–50)}}$$
+
+- 80+ → 높은 신뢰도 (두 모델 합의 + 좁은 PI)
+- 50–79 → 중간 신뢰도
+- < 50 → 낮은 신뢰도 (모델 불일치 또는 넓은 PI)
+- **실측**: 5.5, 4.5 → 시뮬레이션 TimesFM과 ElasticNet 간 49%p 예측 격차로 합의도 항이 0 근접
+
+### 5-12. Regime Detection 규칙
 
 시장 국면 분류 후 Trend(TimesFM) vs Mean-Reversion(ElasticNet) 가중치를 `[0.2, 0.8]` 범위 내에서 조절:
 
@@ -271,25 +366,11 @@
 - **이격도 > +20%** → 과열, Mean-Rev ↑ (w_trend −0.10)
 - **이격도 < −10%** → 과매도, Trend ↑ (w_trend +0.20)
 
-### 5-4. Confidence Score
-
-$$\text{Score} = \underbrace{50 \times \left(1 - \frac{\text{PI width}}{\text{last price}}\right)}_{\text{PI 기반 (0–50)}} + \underbrace{50 \times \left(1 - \frac{|\text{trend} - \text{meanrev}|}{\text{last price}}\right)}_{\text{합의도 기반 (0–50)}}$$
-
-- 80+ → 높은 신뢰도 (두 모델 합의 + 좁은 PI)
-- 50–79 → 중간 신뢰도
-- < 50 → 낮은 신뢰도 (모델 불일치 또는 넓은 PI)
-
-### 5-5. PostgreSQL 적재 스키마
-
-| 테이블 | 컬럼 | 설명 |
-|---|---|---|
-| `fact_ensemble_forecast` | date, ticker, base_date, horizon_day, trend_score, mean_rev_score, trend_pred, meanrev_pred, final_pred, pi_lower, pi_upper, confidence_score, regime_flag, regime_label, run_timestamp | 앙상블 예측 결과 15개 컬럼 |
-
-### 5-6. 환경 수정 (apt-get update)
+### 5-13. 환경 수정 (apt-get update)
 
 Databricks 클러스터에서 `fonts-nanum` 설치 실패 문제 해결:
 - **원인**: 패키지 저장소 인덱스가 오래되어 `apt-get install fonts-nanum` 실패
-- **수정**: `sudo apt-get update` 추가 (`timesfm_inference_lite.py`, `statistical_baseline_analysis_lite.py` 모두 적용)
+- **수정**: `sudo apt-get update` 추가 (`timesfm_inference_lite.py`, `statistical_baseline_analysis_lite.py`, `ensemble_strategy.py` 모두 적용)
 
 - **TimesFM**: 국내 옵션 시장 지표에 민감
 - **Ridge**: 글로벌 반도체 주가에 민감
@@ -357,6 +438,7 @@ Databricks 클러스터에서 `fonts-nanum` 설치 실패 문제 해결:
 |---|---|---|
 | `fact_timesfm_forecast` | 40행 | Zero-shot + XReg + 시나리오 12개 |
 | `fact_stat_forecast` | 28행 | VAR + Ridge + 시나리오 10개 |
+| `fact_ensemble_forecast` | 40행 | Dynamic Weighting Ensemble (v0413) |
 
 ---
 
@@ -367,6 +449,14 @@ Databricks 클러스터에서 `fonts-nanum` 설치 실패 문제 해결:
 - **단기(5d)**: Ridge 기반 방향 예측 활용 (TimesFM 방향성 불안정)
 - **중장기(20d)**: Ridge와 TimesFM XReg의 **합의(Consensus)** 기반 판단
 - **리스크 관리**: VaR/CVaR 기반 포지션 사이징
+- **앙상블(v0413)**: 실제 TimesFM 결과 연동 후 Confidence Score 유효성 검증 필요. 현재 시뮬레이션 기반 Score(5.5/4.5)는 참고 수준
+
+### 8-2. v0413 앙상블 주요 개선 과제
+
+1. **실제 TimesFM 결과 연동**: 노트북 간 Delta 테이블 또는 ADLS 중간 저장으로 연동
+2. **SK하이닉스 ElasticNet R² 개선**: 종목별 하이퍼파라미터 분리, mRMR 피처 선택
+3. **Confidence Score 스케일링**: 시뮬레이션 fallback 시 합의도 항 정규화
+4. **KFinance/반도체 데이터 품질**: Silver 레이어 데이터 범위 확대
 
 ### 8-2. 다음 단계
 
