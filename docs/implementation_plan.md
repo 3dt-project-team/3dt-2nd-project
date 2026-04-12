@@ -264,6 +264,11 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] statistical_baseline_analysis.py — VAR + Ridge 기반 동일 프레임워크 분석 (Full Feature)
 - [x] Granger Causality 검정 — 주요 피처→close 인과 관계 검증
 - [x] TimesFM vs 전통 모델 교차 비교 리포트 — Ridge MAPE 4.69~5.71% vs TimesFM 5.08~9.37%, Ridge 방향 정확도 70~87.5%
+- [x] VaR/CVaR 리스크 지표 — Ridge 잔차 기반 T+5/10/20 VaR/CVaR 산출 (v0412)
+- [x] 백테스트 개선 — AutoReg 다단계 예측 (AR(1) proxy 교체), Bootstrap PI (±2σ 교체), Step-wise 방향 정확도 (v0412)
+- [x] 피처 파리티 — 전통 모델 파생 변수 40→47개 통일 (TimesFM 동일) (v0412)
+- [x] 한글 폰트 수정 — glob+addfont 직접 등록 방식으로 교체 (v0412)
+- [x] 분석 결과 보고서 — `docs/analysis_results.md` 생성 (v0412)
 
 > **파일 구조 변경 (v0411→Full Feature):**
 > - `timesfm_inference.py` — TimesFM 메인 (Full Feature)

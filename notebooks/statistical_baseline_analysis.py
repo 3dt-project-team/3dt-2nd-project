@@ -69,6 +69,7 @@ account = vault.get_secret("adls-account-name")  # "3dtteam1adls"
 # COMMAND ----------
 
 # DBTITLE 1,한글 폰트 설정 (Databricks)
+import glob  # noqa: E402
 import subprocess  # noqa: E402
 
 _korean_font = None
@@ -77,13 +78,24 @@ for _f in fm.fontManager.ttflist:
         _korean_font = _f.name
         break
 if _korean_font is None:
-    subprocess.run(["apt-get", "install", "-y", "fonts-nanum"], capture_output=True, text=True)
-    subprocess.run(["fc-cache", "-fv"], capture_output=True, text=True)
-    fm._load_fontmanager(try_read_cache=False)
-    for _f in fm.fontManager.ttflist:
-        if "Nanum" in _f.name:
-            _korean_font = _f.name
-            break
+    subprocess.run(["apt-get", "install", "-y", "fonts-nanum"], capture_output=True, text=True)  # noqa: S603 S607
+    subprocess.run(["fc-cache", "-fv"], capture_output=True, text=True)  # noqa: S603 S607
+    # 직접 폰트 파일을 찾아 등록 (fm._load_fontmanager보다 안정적)
+    _nanum_paths = glob.glob("/usr/share/fonts/**/Nanum*.ttf", recursive=True)
+    if not _nanum_paths:
+        _nanum_paths = glob.glob("/usr/share/fonts/**/nanum*.ttf", recursive=True)
+    for _fp in _nanum_paths:
+        fm.fontManager.addfont(_fp)
+    if _nanum_paths:
+        _prop = fm.FontProperties(fname=_nanum_paths[0])
+        _korean_font = _prop.get_name()
+    else:
+        # fallback: fontmanager 재로드
+        fm._load_fontmanager(try_read_cache=False)
+        for _f in fm.fontManager.ttflist:
+            if "Nanum" in _f.name:
+                _korean_font = _f.name
+                break
 if _korean_font:
     plt.rcParams["font.family"] = _korean_font
     print(f"한글 폰트 설정: {_korean_font}")
@@ -375,8 +387,15 @@ for ticker in TICKERS:
 
 
 def create_derived_features(df):
-    """timesfm_inference.py와 동일한 파생 변수 생성."""
+    """timesfm_inference.py와 동일한 47개 파생 변수 생성."""
     out = df.copy()
+
+    # 기본 수익률/이동평균
+    if "close" in out.columns:
+        out["return_1d"] = out["close"].pct_change()
+        out["return_5d"] = out["close"].pct_change(5)
+        out["ma_5"] = out["close"].rolling(5).mean()
+        out["ma_20"] = out["close"].rolling(20).mean()
 
     # === 교호 작용 파생 변수 ===
 
@@ -432,18 +451,23 @@ def create_derived_features(df):
         out["kfin_active_ratio_ma5"] = out["kfin_active_ratio"].rolling(5, min_periods=1).mean()
 
     # === 변동성 피처 ===
-    if "return_1d" not in out.columns and "close" in out.columns:
-        out["return_1d"] = out["close"].pct_change()
-    out["realized_vol_5d"] = out["return_1d"].rolling(5, min_periods=1).std()
-    out["realized_vol_20d"] = out["return_1d"].rolling(20, min_periods=1).std()
-    out["vol_ratio"] = out["realized_vol_5d"] / out["realized_vol_20d"].replace(0, np.nan)
-    out["gap_from_ma20"] = (out["close"] - out["close"].rolling(20).mean()) / out["close"].rolling(
-        20
-    ).mean()
+    if "return_1d" in out.columns:
+        out["realized_vol_5d"] = out["return_1d"].rolling(5, min_periods=1).std()
+        out["realized_vol_20d"] = out["return_1d"].rolling(20, min_periods=1).std()
+        out["vol_ratio"] = out["realized_vol_5d"] / out["realized_vol_20d"].replace(0, np.nan)
+    if "close" in out.columns:
+        out["gap_from_ma20"] = (out["close"] - out["close"].rolling(20).mean()) / out[
+            "close"
+        ].rolling(20).mean()
+
+    # 구버전 호환: export_optimism_index fallback
+    if "export_optimism_index" not in out.columns:
+        exp_cols = [c for c in out.columns if "exp" in c.lower() and "date" not in c.lower()]
+        if exp_cols and "close" in out.columns:
+            out["export_optimism_index"] = out[exp_cols].mean(axis=1)
 
     # NaN 정리
     out = out.ffill().bfill()
-
     return out
 
 
@@ -955,9 +979,12 @@ print(_attr_interp)
 
 # COMMAND ----------
 
+from statsmodels.tsa.ar_model import AutoReg  # noqa: E402
+
 BACKTEST_HORIZONS = [5, 10, 20]
 STEP = 5
 TEST_WINDOW = 60
+N_BOOT = 200  # bootstrap PI 반복 횟수
 
 backtest_results_stat = []
 for horizon_eval in BACKTEST_HORIZONS:
@@ -975,10 +1002,18 @@ for horizon_eval in BACKTEST_HORIZONS:
             if len(actual) < horizon_eval:
                 continue
 
-            # --- VAR Baseline --- (AR(1) proxy for per-ticker)
+            # --- VAR Baseline --- (AutoReg 다단계 예측으로 교체)
             train_close = close_series[:start]
-            trend = np.mean(np.diff(train_close[-20:])) if len(train_close) >= 21 else 0
-            var_pred = np.array([train_close[-1] + trend * (i + 1) for i in range(horizon_eval)])
+            try:
+                ar_lag = min(optimal_lag, max(1, len(train_close) // 10))
+                ar_model_bt = AutoReg(train_close, lags=ar_lag).fit()
+                var_pred = ar_model_bt.forecast(steps=horizon_eval)
+            except Exception:
+                # fallback: random walk (drift)
+                drift = np.mean(np.diff(train_close[-20:])) if len(train_close) >= 21 else 0
+                var_pred = np.array(
+                    [train_close[-1] + drift * (i + 1) for i in range(horizon_eval)]
+                )
 
             # --- Ridge ---
             y_train_bt = close_series[horizon_eval : start + horizon_eval]
@@ -1003,14 +1038,25 @@ for horizon_eval in BACKTEST_HORIZONS:
             mae_ridge = np.mean(np.abs(actual - ridge_pred_arr[: len(actual)]))
             mape_ridge = np.mean(np.abs((actual - ridge_pred_arr[: len(actual)]) / actual)) * 100
 
-            # PI: ±2σ of train residuals
+            # PI: Bootstrap 잔차 기반 80% 예측 구간
             train_resid = y_train_bt - ridge_bt.predict(X_train_s)
-            pi_width = 2 * np.std(train_resid)
-            coverage = np.mean(np.abs(actual - ridge_pred_arr[: len(actual)]) <= pi_width)
+            rng = np.random.default_rng(42)
+            boot_preds = np.array(
+                [ridge_pred_arr + rng.choice(train_resid, size=horizon_eval) for _ in range(N_BOOT)]
+            )
+            pi_lo = np.percentile(boot_preds, 10, axis=0)
+            pi_hi = np.percentile(boot_preds, 90, axis=0)
+            coverage = np.mean((actual >= pi_lo[: len(actual)]) & (actual <= pi_hi[: len(actual)]))
 
-            # Direction
-            dir_actual = 1 if actual[-1] > actual[0] else 0
-            dir_ridge = 1 if ridge_pred_arr[-1] > ridge_pred_arr[0] else 0
+            # Direction: step-wise (TimesFM 동일)
+            actual_dir = np.sign(np.diff(actual))
+            pred_dir = np.sign(np.diff(ridge_pred_arr))
+            min_dir_len = min(len(actual_dir), len(pred_dir))
+            dir_acc = (
+                float(np.mean(actual_dir[:min_dir_len] == pred_dir[:min_dir_len]))
+                if min_dir_len > 0
+                else 0.0
+            )
 
             backtest_results_stat.append(
                 {
@@ -1022,7 +1068,7 @@ for horizon_eval in BACKTEST_HORIZONS:
                     "mae_ridge": mae_ridge,
                     "mape_ridge": mape_ridge,
                     "coverage_80": coverage,
-                    "directional_accuracy": int(dir_actual == dir_ridge),
+                    "directional_accuracy": dir_acc,
                 }
             )
 
@@ -1160,6 +1206,49 @@ for ticker in TICKERS:
     plt.tight_layout()
     plt.savefig(f"/tmp/stat_residual_{ticker}.png", dpi=150)
     plt.show()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 11-2. VaR/CVaR 리스크 지표 (Ridge 잔차 기반)
+# MAGIC
+# MAGIC > `timesfm_inference.py` §11-1 대응 — Ridge 잔차 분포로부터
+# MAGIC > Value-at-Risk 및 Conditional VaR 산출
+
+# COMMAND ----------
+
+print("VaR/CVaR 리스크 지표 (Ridge 잔차 기반)")
+print("=" * 60)
+
+for ticker in TICKERS:
+    mart = feature_marts[ticker]
+    scaler, feat_cols = ridge_scalers[ticker]
+    ridge = ridge_models[ticker]
+    last_price = mart["close"].iloc[-1]
+
+    X_all = scaler.transform(mart[feat_cols].fillna(0).values[:-HORIZON])
+    y_actual = mart["close"].values[HORIZON:]
+    min_len = min(len(X_all), len(y_actual))
+    y_pred = ridge.predict(X_all[:min_len])
+    residuals = y_actual[:min_len] - y_pred
+
+    # 잔차 → 수익률 잔차로 변환 (% 기준)
+    pct_residuals = residuals / y_actual[:min_len] * 100
+
+    print(f"\n{TICKER_NAMES[ticker]}:")
+    for h_label, h_days in [("T+5", 5), ("T+10", 10), ("T+20", 20)]:
+        # √t 스케일링으로 다중 호라이즌 VaR 추정
+        scale = np.sqrt(h_days)
+        var_10 = np.percentile(pct_residuals, 10) * scale
+        cvar_10 = np.mean(pct_residuals[pct_residuals <= np.percentile(pct_residuals, 10)]) * scale
+        print(f"  [{h_label}] VaR(10%): {var_10:+.2f}% | CVaR(10%): {cvar_10:+.2f}%")
+
+    # Conformal 보정 VaR
+    if ticker in conformal_factors_stat and conformal_factors_stat[ticker] > 1.0:
+        cf = conformal_factors_stat[ticker]
+        scale_20 = np.sqrt(20)
+        var_cal = np.percentile(pct_residuals, 10) * scale_20 * cf
+        print(f"  [T+20] Conformal VaR(10%): {var_cal:+.2f}% (보정 ×{cf:.2f})")
 
 # COMMAND ----------
 

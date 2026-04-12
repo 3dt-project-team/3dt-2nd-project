@@ -73,15 +73,27 @@ for _f in fm.fontManager.ttflist:
         _korean_font = _f.name
         break
 if _korean_font is None:
+    import glob  # noqa: E402
     import subprocess  # noqa: E402
 
     subprocess.run(["apt-get", "install", "-y", "fonts-nanum"], capture_output=True, text=True)  # noqa: S603 S607
     subprocess.run(["fc-cache", "-fv"], capture_output=True, text=True)  # noqa: S603 S607
-    fm._load_fontmanager(try_read_cache=False)
-    for _f in fm.fontManager.ttflist:
-        if "Nanum" in _f.name:
-            _korean_font = _f.name
-            break
+    # 직접 폰트 파일을 찾아 등록 (fm._load_fontmanager보다 안정적)
+    _nanum_paths = glob.glob("/usr/share/fonts/**/Nanum*.ttf", recursive=True)
+    if not _nanum_paths:
+        _nanum_paths = glob.glob("/usr/share/fonts/**/nanum*.ttf", recursive=True)
+    for _fp in _nanum_paths:
+        fm.fontManager.addfont(_fp)
+    if _nanum_paths:
+        _prop = fm.FontProperties(fname=_nanum_paths[0])
+        _korean_font = _prop.get_name()
+    else:
+        # fallback: fontmanager 재로드
+        fm._load_fontmanager(try_read_cache=False)
+        for _f in fm.fontManager.ttflist:
+            if "Nanum" in _f.name:
+                _korean_font = _f.name
+                break
 if _korean_font:
     plt.rcParams["font.family"] = _korean_font
     print(f"한글 폰트 설정 완료: {_korean_font}")
