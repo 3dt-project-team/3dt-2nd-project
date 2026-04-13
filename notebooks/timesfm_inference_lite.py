@@ -1,34 +1,32 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # SENSE 프로젝트 — TimesFM 2.5 시계열 예측 노트북 (Full Feature)
+# MAGIC # SENSE 프로젝트 — TimesFM 2.5 시계열 예측 노트북 (v0411)
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC SENSE 프로젝트 — TimesFM 2.5 시계열 예측 노트북 (Full Feature)
-# MAGIC SENSE: Semiconductor Economic News & Sentiment Engine
+# MAGIC SENSE 프로젝트 — TimesFM 2.5 시계열 예측 노트북 (v0411)
+# MAGIC SENSE: Semiconductor Economic News & Signal Engine
 # MAGIC
 # MAGIC 목적: TimesFM 2.5를 활용한 반도체 주가 시계열 예측
 # MAGIC       Step 1 — Zero-shot Baseline (주가만)
 # MAGIC       Step 2 — XReg 공변량 추론 (매크로/퀀트/감성)
 # MAGIC       Step 3 — 매크로 충격 정량화 + 시나리오 분석 + Backtest
 # MAGIC
-# MAGIC 주요 기능:
+# MAGIC v0411 개선사항:
 # MAGIC   - 한글 폰트 자동 설정 (matplotlib 경고 해소)
 # MAGIC   - 피처 상관관계 히트맵 (Pearson/Spearman)
 # MAGIC   - 다중 호라이즌 백테스트 (5일/10일/20일)
-# MAGIC   - Conformal PI 보정 (커버리지 개선)
+# MAGIC   - Conformal PI 보정 (삼성전자 커버리지 개선)
 # MAGIC   - 종목별 Attribution 분리
 # MAGIC   - 시나리오 일관성 검증
 # MAGIC   - 잔차 분포 분석 + VaR/CVaR 리스크 지표
-# MAGIC   - Azure OpenAI GPT-4.1-mini AI 투자 의견
 # MAGIC
 # MAGIC 실행 환경: Databricks GPU 클러스터 권장 (Standard_NC6s_v3 이상)
 # MAGIC           CPU에서도 동작하나 배치 추론 시 느림
 # MAGIC
 # MAGIC 전략 문서: ref/TimesFM.md
 # MAGIC 데이터 사전: docs/data_dict/
-# MAGIC 간소화 버전: notebooks/timesfm_inference_lite.py
 
 # COMMAND ----------
 
@@ -47,6 +45,13 @@
 # MAGIC %sh
 # MAGIC uv pip install "timesfm[torch] @ git+https://github.com/google-research/timesfm.git" openai "jax>=0.5,<0.6" "jaxlib>=0.5,<0.6" --upgrade  # noqa: E501
 # MAGIC echo "--- packages installed, restart python kernel ---"
+
+# COMMAND ----------
+
+# MAGIC %sh
+# MAGIC sudo apt-get update
+# MAGIC sudo apt-get install -y fonts-nanum
+# MAGIC fc-cache -fv
 
 # COMMAND ----------
 
@@ -631,7 +636,7 @@ for ticker in TICKERS:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 3-1. 피처 상관관계 분석
+# MAGIC # 3-1. 피처 상관관계 분석 (v0411 신규)
 # MAGIC
 # MAGIC > 주요 피처와 타겟(종가) 간 Pearson/Spearman 상관관계 히트맵
 
@@ -1158,7 +1163,7 @@ print(df_scenarios.to_string(index=False))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 8-1. 시나리오 일관성 검증
+# MAGIC ## 8-1. 시나리오 일관성 검증 (v0411 신규)
 # MAGIC
 # MAGIC > 시나리오 결과가 경제적 상식과 부합하는지 자동 검증
 
@@ -1387,7 +1392,7 @@ for idx, ticker in enumerate(TICKERS):
     ax.set_title(f"{TICKER_NAMES[ticker]} Attribution Top {top_n}", fontsize=12)
     ax.grid(True, alpha=0.3, axis="x")
 
-plt.suptitle("종목별 XReg Attribution 비교", fontsize=14, y=1.02)
+plt.suptitle("종목별 XReg Attribution 비교 (v0411)", fontsize=14, y=1.02)
 plt.tight_layout()
 plt.savefig("/tmp/timesfm_attribution_per_ticker.png", dpi=150)
 plt.show()
@@ -1431,7 +1436,7 @@ print(_attr_interpretation)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 10. Rolling Window Backtest (다중 호라이즌)
+# MAGIC # 10. Rolling Window Backtest (v0411: 다중 호라이즌)
 # MAGIC
 # MAGIC > 최근 3개월(60 거래일)을 5일 단위로 슬라이딩하며
 # MAGIC > 5일/10일/20일 예측 → MAE, MAPE, PI Coverage, 방향 정확도 평가
@@ -1510,7 +1515,7 @@ print(f"Backtest 완료: {len(df_backtest)} 윈도우 ({len(BACKTEST_HORIZONS)} 
 
 # 종목별·호라이즌별 Backtest 결과 요약
 print("=" * 70)
-print("Rolling Window Backtest 결과 요약 (다중 호라이즌)")
+print("Rolling Window Backtest 결과 요약 (v0411: 다중 호라이즌)")
 print("=" * 70)
 
 for ticker in TICKERS:
@@ -1534,7 +1539,7 @@ for ticker in TICKERS:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 10-1. Conformal PI 보정
+# MAGIC ## 10-1. Conformal PI 보정 (v0411 신규)
 # MAGIC
 # MAGIC > Backtest 잔차를 이용하여 80% PI 밴드를 실증적으로 보정
 # MAGIC > 삼성전자 63.7% → 80% 도달을 위한 확장 계수 산출
@@ -1579,7 +1584,7 @@ for ticker in TICKERS:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 10-2. 잔차 분포 분석
+# MAGIC ## 10-2. 잔차 분포 분석 (v0411 신규)
 # MAGIC
 # MAGIC > Backtest 예측 오차의 분포를 시각화하여 모델 편향(bias) 진단
 
@@ -1684,7 +1689,7 @@ else:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 11-1. VaR/CVaR 리스크 지표
+# MAGIC # 11-1. VaR/CVaR 리스크 지표 (v0411 신규)
 # MAGIC
 # MAGIC > TimesFM Quantile 예측으로부터 Value-at-Risk 및 Conditional VaR 산출
 

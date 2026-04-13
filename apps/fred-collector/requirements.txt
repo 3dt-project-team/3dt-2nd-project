@@ -1,4 +1,5 @@
 azure-functions
+fredapi
+pandas
 azure-storage-blob
-azure-core
 pyarrow
