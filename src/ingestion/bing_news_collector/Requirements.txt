@@ -1,0 +1,8 @@
+azure-functions
+azure-ai-projects==2.0.1
+azure-identity
+azure-storage-blob
+pandas
+pyarrow
+requests
+feedparser
