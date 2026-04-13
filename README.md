@@ -59,4 +59,5 @@ uv run pre-commit install
 | [docs/architecture.md](docs/architecture.md) | 전체 데이터 흐름 및 서비스 역할 |
 | [docs/uv_integration_guide.md](docs/uv_integration_guide.md) | Azure 서비스별 uv 통합 방법 |
 | [docs/implementation_plan.md](docs/implementation_plan.md) | 프로젝트 마일스톤 및 구현 계획 |
+| [docs/ensemble_model_guide.md](docs/ensemble_model_guide.md) | 앙상블 모델 가이드 (가중치 규칙, 튜닝 이력) |
 | [docs/analysis_results.md](docs/analysis_results.md) | TimesFM vs 전통 모델 출력 분석 보고서 |
