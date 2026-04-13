@@ -1,0 +1,29 @@
+{
+	"name": "pl_bing_news_ingestion",
+	"properties": {
+		"activities": [
+			{
+				"name": "Get_Bing_News",
+				"type": "AzureFunctionActivity",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"functionName": "collect",
+					"method": "POST"
+				},
+				"linkedServiceName": {
+					"referenceName": "bing_news_collctor",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"annotations": []
+	}
+}
