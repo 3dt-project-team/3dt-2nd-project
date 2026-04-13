@@ -106,7 +106,7 @@
 				}
 			},
 			{
-				"name": "Notebook1",
+				"name": "silver_preprocessed",
 				"type": "DatabricksNotebook",
 				"dependsOn": [
 					{
@@ -129,7 +129,14 @@
 					"secureOutput": false,
 					"secureInput": false
 				},
-				"userProperties": []
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/silver_preprocessed_incremental"
+				},
+				"linkedServiceName": {
+					"referenceName": "AzureDatabricks2",
+					"type": "LinkedServiceReference"
+				}
 			}
 		],
 		"annotations": []
