@@ -278,11 +278,17 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] fact_ensemble_forecast — PostgreSQL 적재용 DataFrame 포맷 정의 (v0413)
 - [x] ADLS 경로 수정 — curated/ 하위 경로 및 TICKER_COL_MAP 직접 매핑으로 수정 (v0413)
 - [x] fact_ensemble_forecast PostgreSQL 적재 완료 — 40행 (2종목 × 20일) (v0413)
+- [x] Soft Switching 동적 가중치 보간 — Hard Threshold→선형/비선형 연속 함수 전환 (v0414)
+- [x] 로그수익률 타겟 전환 — 절대가(원)→log(P_{t+20}/P_t) 스케일 불변 (v0414)
+- [x] Alpha 범위 축소 — 자동(40~189)→0.001~1.0 (과잉 정규화 방지) (v0414)
+- [x] Time-Decay 강화 — half_life 60→30 거래일 (최근 랠리 가중치 강화) (v0414)
+- [x] Interaction Term — RSI×vol_ratio 복합 신호 중첩 3가지 규칙 (v0414)
 
-> ⚠️ **v0413 실행 결과 발견 이슈:**
-> - SK하이닉스 ElasticNet R²=−0.33 (음수, 학습 실패) → 종목별 하이퍼파라미터 분리 필요
-> - Confidence Score 5.5/4.5 (극히 낮음) → TimesFM 시뮬레이션과 ElasticNet 간 예측 격차 과대
-> - l1_ratio=0.90 (두 종목 동일), 활성 피처 27/28 → L1 정규화 효과 미미
+> ⚠️ **v0413 실행 결과 발견 이슈 → v0414 대응:**
+> - SK하이닉스 ElasticNet R²=−0.33 → **v0414: 로그수익률 타겟으로 스케일 차이 해소**
+> - Confidence Score 5.5/4.5 → TimesFM 시뮬레이션과 ElasticNet 간 격차 과대 (실제 TFM 연동 시 개선 예상)
+> - alpha=40~189 (과잉 정규화) → **v0414: 0.001~1.0 범위로 축소**
+> - Hard Threshold 불연속 → **v0414: Soft Switching 연속 함수 전환**
 > - KFinance(28행, 1컬럼), 반도체 수출입(24행, 4컬럼) → Silver 데이터 품질 점검 필요
 
 > **파일 구조 변경 (v0411→Full Feature, v0413→Ensemble):**
