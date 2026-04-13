@@ -46,7 +46,11 @@
 					"headers": {
 						"Content-Type": "application/json"
 					},
-					"url": "https://navernews-collector.azurewebsites.net/api/crawl"
+					"url": "https://navernews-collector.azurewebsites.net/api/crawl",
+					"body": {
+						"value": "{}",
+						"type": "Expression"
+					}
 				}
 			}
 		],
