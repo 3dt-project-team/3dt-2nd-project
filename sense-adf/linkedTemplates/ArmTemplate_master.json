@@ -35,6 +35,10 @@
 			"type": "string",
 			"defaultValue": "https://e-news-collector-c2hmf3cpeefzateh.koreacentral-01.azurewebsites.net"
 		},
+		"AzureDatabricks2_3_properties_typeProperties_existingClusterId": {
+			"type": "string",
+			"defaultValue": "0409-064605-dkvq8aed"
+		},
 		"containerUri": {
 			"type": "string",
 			"metadata": "스토리지 계정 연결 된 ARM 서식 파일을 포함 하는 URI입니다."
@@ -82,6 +86,9 @@
 					},
 					"AzureDatabricks2_properties_typeProperties_existingClusterId": {
 						"value": "[parameters('AzureDatabricks2_properties_typeProperties_existingClusterId')]"
+					},
+					"AzureDatabricks2_3_properties_typeProperties_existingClusterId": {
+						"value": "[parameters('AzureDatabricks2_3_properties_typeProperties_existingClusterId')]"
 					}
 				}
 			},

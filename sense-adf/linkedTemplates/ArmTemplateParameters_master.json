@@ -26,6 +26,9 @@
 		"bing_news_collctor_properties_typeProperties_functionAppUrl": {
 			"value": "https://e-news-collector-c2hmf3cpeefzateh.koreacentral-01.azurewebsites.net"
 		},
+		"AzureDatabricks2_3_properties_typeProperties_existingClusterId": {
+			"value": "0409-064605-dkvq8aed"
+		},
 		"containerUri": {
 			"value": ""
 		},

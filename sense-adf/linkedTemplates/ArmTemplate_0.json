@@ -34,6 +34,10 @@
 		"AzureDatabricks2_properties_typeProperties_existingClusterId": {
 			"type": "string",
 			"defaultValue": "0409-063427-sodu1olk"
+		},
+		"AzureDatabricks2_3_properties_typeProperties_existingClusterId": {
+			"type": "string",
+			"defaultValue": "0409-064605-dkvq8aed"
 		}
 	},
 	"variables": {
@@ -356,13 +360,37 @@
 			]
 		},
 		{
+			"name": "[concat(parameters('factoryName'), '/AzureDatabricks2_3')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureDatabricks",
+				"typeProperties": {
+					"domain": "https://adb-7405616899208386.6.azuredatabricks.net",
+					"accessToken": {
+						"type": "AzureKeyVaultSecret",
+						"store": {
+							"referenceName": "AzureKeyVault2",
+							"type": "LinkedServiceReference"
+						},
+						"secretName": "databricks-pat-token"
+					},
+					"existingClusterId": "[parameters('AzureDatabricks2_3_properties_typeProperties_existingClusterId')]"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureKeyVault2')]"
+			]
+		},
+		{
 			"name": "[concat(parameters('factoryName'), '/pl_naver_news_preprocessing')]",
 			"type": "Microsoft.DataFactory/factories/pipelines",
 			"apiVersion": "2018-06-01",
 			"properties": {
 				"activities": [
 					{
-						"name": "Notebook1",
+						"name": "naver_preprocessed",
 						"type": "DatabricksNotebook",
 						"dependsOn": [
 							{
@@ -411,6 +439,92 @@
 								"type": "Expression"
 							}
 						}
+					},
+					{
+						"name": "Get_Bing_News",
+						"type": "AzureFunctionActivity",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"functionName": "collect",
+							"body": {
+								"value": "{}",
+								"type": "Expression"
+							},
+							"headers": {},
+							"method": "POST"
+						},
+						"linkedServiceName": {
+							"referenceName": "bing_news_collctor",
+							"type": "LinkedServiceReference"
+						}
+					},
+					{
+						"name": "bing_google_preprocessed",
+						"type": "DatabricksNotebook",
+						"dependsOn": [
+							{
+								"activity": "Get_Bing_News",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"notebookPath": "/Repos/3dt020@msacademy.msai.kr/3dt-2nd-project/notebooks/bing&google_integration_silver"
+						},
+						"linkedServiceName": {
+							"referenceName": "AzureDatabricks2",
+							"type": "LinkedServiceReference"
+						}
+					},
+					{
+						"name": "silver_preprocessed",
+						"type": "DatabricksNotebook",
+						"dependsOn": [
+							{
+								"activity": "naver_preprocessed",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							},
+							{
+								"activity": "bing_google_preprocessed",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/silver_preprocessed_incremental"
+						},
+						"linkedServiceName": {
+							"referenceName": "AzureDatabricks2",
+							"type": "LinkedServiceReference"
+						}
 					}
 				],
 				"policy": {
@@ -419,7 +533,8 @@
 				"annotations": []
 			},
 			"dependsOn": [
-				"[concat(variables('factoryId'), '/linkedServices/AzureDatabricks2')]"
+				"[concat(variables('factoryId'), '/linkedServices/AzureDatabricks2')]",
+				"[concat(variables('factoryId'), '/linkedServices/bing_news_collctor')]"
 			]
 		},
 		{
