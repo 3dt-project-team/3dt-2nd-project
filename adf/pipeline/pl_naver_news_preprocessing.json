@@ -101,7 +101,7 @@
 					"notebookPath": "/Repos/3dt020@msacademy.msai.kr/3dt-2nd-project/notebooks/bing&google_integration_silver"
 				},
 				"linkedServiceName": {
-					"referenceName": "AzureDatabricks2_3",
+					"referenceName": "AzureDatabricks2",
 					"type": "LinkedServiceReference"
 				}
 			},
