@@ -1,0 +1,91 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory 이름",
+			"defaultValue": "sense-adf"
+		},
+		"3dtteam1adls_accountKey": {
+			"type": "secureString",
+			"metadata": "'3dtteam1adls'의 'accountKey'에 대한 보안 문자열"
+		},
+		"bing_news_collctor_functionKey": {
+			"type": "secureString",
+			"metadata": "'bing_news_collctor'의 'functionKey'에 대한 보안 문자열"
+		},
+		"3dtteam1adls_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://3dtteam1adls.dfs.core.windows.net/"
+		},
+		"AzureDatabricks2_properties_typeProperties_existingClusterId": {
+			"type": "string",
+			"defaultValue": "0409-063427-sodu1olk"
+		},
+		"AzureKeyVault1_properties_typeProperties_baseUrl": {
+			"type": "string",
+			"defaultValue": "https://kv-3dt-team1.vault.azure.net/"
+		},
+		"AzureKeyVault2_properties_typeProperties_baseUrl": {
+			"type": "string",
+			"defaultValue": "https://kv-3dt-team1.vault.azure.net/"
+		},
+		"bing_news_collctor_properties_typeProperties_functionAppUrl": {
+			"type": "string",
+			"defaultValue": "https://e-news-collector-c2hmf3cpeefzateh.koreacentral-01.azurewebsites.net"
+		},
+		"containerUri": {
+			"type": "string",
+			"metadata": "스토리지 계정 연결 된 ARM 서식 파일을 포함 하는 URI입니다."
+		},
+		"containerSasToken": {
+			"type": "string",
+			"metadata": "연결된 ARM 템플릿을 포함하는 스토리지 계정에 대한 SAS 토큰"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "sense-adf_ArmTemplate_0",
+			"type": "Microsoft.Resources/deployments",
+			"apiVersion": "2024-03-01",
+			"properties": {
+				"mode": "incremental",
+				"templateLink": {
+					"uri": "[concat(parameters('containerUri'), '/ArmTemplate_0.json', parameters('containerSasToken'))]",
+					"contentVersion": "1.0.0.0"
+				},
+				"parameters": {
+					"factoryName": {
+						"value": "[parameters('factoryName')]"
+					},
+					"3dtteam1adls_accountKey": {
+						"value": "[parameters('3dtteam1adls_accountKey')]"
+					},
+					"bing_news_collctor_functionKey": {
+						"value": "[parameters('bing_news_collctor_functionKey')]"
+					},
+					"3dtteam1adls_properties_typeProperties_url": {
+						"value": "[parameters('3dtteam1adls_properties_typeProperties_url')]"
+					},
+					"AzureKeyVault1_properties_typeProperties_baseUrl": {
+						"value": "[parameters('AzureKeyVault1_properties_typeProperties_baseUrl')]"
+					},
+					"AzureKeyVault2_properties_typeProperties_baseUrl": {
+						"value": "[parameters('AzureKeyVault2_properties_typeProperties_baseUrl')]"
+					},
+					"bing_news_collctor_properties_typeProperties_functionAppUrl": {
+						"value": "[parameters('bing_news_collctor_properties_typeProperties_functionAppUrl')]"
+					},
+					"AzureDatabricks2_properties_typeProperties_existingClusterId": {
+						"value": "[parameters('AzureDatabricks2_properties_typeProperties_existingClusterId')]"
+					}
+				}
+			},
+			"dependsOn": []
+		}
+	]
+}

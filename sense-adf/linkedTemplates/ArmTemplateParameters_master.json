@@ -1,0 +1,36 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"value": "sense-adf"
+		},
+		"3dtteam1adls_accountKey": {
+			"value": ""
+		},
+		"bing_news_collctor_functionKey": {
+			"value": ""
+		},
+		"3dtteam1adls_properties_typeProperties_url": {
+			"value": "https://3dtteam1adls.dfs.core.windows.net/"
+		},
+		"AzureDatabricks2_properties_typeProperties_existingClusterId": {
+			"value": "0409-063427-sodu1olk"
+		},
+		"AzureKeyVault1_properties_typeProperties_baseUrl": {
+			"value": "https://kv-3dt-team1.vault.azure.net/"
+		},
+		"AzureKeyVault2_properties_typeProperties_baseUrl": {
+			"value": "https://kv-3dt-team1.vault.azure.net/"
+		},
+		"bing_news_collctor_properties_typeProperties_functionAppUrl": {
+			"value": "https://e-news-collector-c2hmf3cpeefzateh.koreacentral-01.azurewebsites.net"
+		},
+		"containerUri": {
+			"value": ""
+		},
+		"containerSasToken": {
+			"value": ""
+		}
+	}
+}
