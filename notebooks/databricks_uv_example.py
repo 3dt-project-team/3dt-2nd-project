@@ -1,5 +1,13 @@
 # Databricks notebook source
-# Databricks 노트북 — uv + vault_manager + ADLS Gen2 연동 예시
+# MAGIC %md
+# MAGIC # Databricks 노트북 — uv + vault_manager + ADLS Gen2 연동 예시
+
+# COMMAND ----------
+
+# MAGIC %load_ext autoreload
+# MAGIC %autoreload 2
+# MAGIC # Enables autoreload; learn more at https://docs.databricks.com/en/files/workspace-modules.html#autoreload-for-python-modules
+# MAGIC # To disable autoreload; run %autoreload 0
 
 # COMMAND ----------
 

@@ -250,13 +250,48 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 ### M4: 모델링 (ML Studio + TimesFM)
 
 #### TimesFM 2.5 시계열 예측 (Databricks)
-- [ ] TimesFM 2.5 환경 구성 — `pip install timesfm[torch,xreg]`, GPU 클러스터 설정
-- [ ] Step 1: Zero-shot Baseline 추론 — 삼성전자/SK하이닉스 종가 시계열 → 20일 예측 + Quantile PI
-- [ ] Step 2: XReg 공변량 추론 — 매크로/퀀트/감성 지표를 외부 회귀 변수로 입력
-- [ ] 교차 검증 파생 변수 생성 — `macro_sentiment_divergence`, `sox_news_confirm`, `rate_memory_cross` 등
-- [ ] 시나리오 분석 (What-If) — 금리 인하/인상/달러 급등 등 5개 시나리오별 예측 산출
-- [ ] Rolling Window Backtest — MAE, 80% PI Coverage, Directional Accuracy 평가
-- [ ] XReg Attribution (공변량 기여도 분석) — Leave-One-Out 방식으로 변수별 영향력 정량화
+- [x] TimesFM 2.5 환경 구성 — `pip install timesfm[torch,xreg]`, GPU 클러스터 설정
+- [x] Step 1: Zero-shot Baseline 추론 — 삼성전자/SK하이닉스 종가 시계열 → 20일 예측 + Quantile PI
+- [x] Step 2: XReg 공변량 추론 — 매크로/퀀트/감성 지표를 외부 회귀 변수로 입력
+- [x] 교차 검증 파생 변수 생성 — 47개 피처 (return, MA, vol, cross-signal 포함)
+- [x] 시나리오 분석 (What-If) — 5개 그룹, 12개 시나리오 + 일관성 검증 (v0411)
+- [x] Rolling Window Backtest — 멀티호라이즌(5d/10d/20d), Conformal PI 보정 (v0411)
+- [x] XReg Attribution (공변량 기여도) — 종목별 Leave-One-Out + 시각화 (v0411)
+- [x] 피처 상관관계 분석 — Pearson/Spearman 이중 히트맵 (v0411)
+- [x] VaR/CVaR 리스크 지표 — Quantile 기반 T+5/10/20 VaR 산출 (v0411)
+
+#### 전통 모델 비교 파이프라인 (Databricks)
+- [x] statistical_baseline_analysis.py — VAR + Ridge 기반 동일 프레임워크 분석 (Full Feature)
+- [x] Granger Causality 검정 — 주요 피처→close 인과 관계 검증
+- [x] TimesFM vs 전통 모델 교차 비교 리포트 — Ridge MAPE 4.69~5.71% vs TimesFM 5.08~9.37%, Ridge 방향 정확도 70~87.5%
+- [x] VaR/CVaR 리스크 지표 — Ridge 잔차 기반 T+5/10/20 VaR/CVaR 산출 (v0412)
+- [x] 백테스트 개선 — AutoReg 다단계 예측 (AR(1) proxy 교체), Bootstrap PI (±2σ 교체), Step-wise 방향 정확도 (v0412)
+- [x] 피처 파리티 — 전통 모델 파생 변수 40→47개 통일 (TimesFM 동일) (v0412)
+- [x] 한글 폰트 수정 — glob+addfont 직접 등록 방식으로 교체 (v0412)
+- [x] 분석 결과 보고서 — `docs/analysis_results.md` 생성 (v0412)
+- [x] apt-get update 추가 — Databricks 패키지 저장소 갱신 후 fonts-nanum 설치 (v0413)
+- [x] 동적 가중치 앙상블 — `ensemble_strategy.py` 신규 (TimesFM×ElasticNet 후처리 파이프라인) (v0413)
+- [x] Feature Engineering 고도화 — RSI(14), ATR(14), 120d 이격도, 로그수익률 추가 (v0413)
+- [x] ElasticNetCV + Time-Decay — Ridge→ElasticNet 전환, 60d half-life 지수감쇠 가중치 (v0413)
+- [x] 레짐 기반 동적 가중치 — RSI/ATR/이격도 조건부 가중치 조정 + Confidence Score (v0413)
+- [x] 앙상블 시각화 — Dynamic Weighting Strategy 차트 (ref/image.png 재현) (v0413)
+- [x] fact_ensemble_forecast — PostgreSQL 적재용 DataFrame 포맷 정의 (v0413)
+- [x] ADLS 경로 수정 — curated/ 하위 경로 및 TICKER_COL_MAP 직접 매핑으로 수정 (v0413)
+- [x] fact_ensemble_forecast PostgreSQL 적재 완료 — 40행 (2종목 × 20일) (v0413)
+
+> ⚠️ **v0413 실행 결과 발견 이슈:**
+> - SK하이닉스 ElasticNet R²=−0.33 (음수, 학습 실패) → 종목별 하이퍼파라미터 분리 필요
+> - Confidence Score 5.5/4.5 (극히 낮음) → TimesFM 시뮬레이션과 ElasticNet 간 예측 격차 과대
+> - l1_ratio=0.90 (두 종목 동일), 활성 피처 27/28 → L1 정규화 효과 미미
+> - KFinance(28행, 1컬럼), 반도체 수출입(24행, 4컬럼) → Silver 데이터 품질 점검 필요
+
+> **파일 구조 변경 (v0411→Full Feature, v0413→Ensemble):**
+> - `timesfm_inference.py` — TimesFM 메인 (Full Feature)
+> - `timesfm_inference_lite.py` — TimesFM 간소화 아카이브
+> - `statistical_baseline_analysis.py` — 전통 모델 메인 (Full Feature)
+> - `statistical_baseline_analysis_lite.py` — 전통 모델 간소화 아카이브
+> - `ensemble_strategy.py` — 동적 가중치 앙상블 (v0413 신규)
+> - `correlation_analysis.py` — 원본 상관분석 (복원)
 
 #### XGBoost/LightGBM 분류 (ML Studio)
 - [ ] 컴퓨팅 클러스터 구성
@@ -268,7 +303,8 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [ ] AML Batch Endpoint 등록 및 ADF 연동 (MS [Orchestrate ML](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/idea/orchestrate-machine-learning-azure-databricks) 참조)
 
 #### 앙상블 합의 판정
-- [ ] TimesFM 방향성 + XGBoost 확률 + 매크로 충격 3축 Consensus 로직 구현
+- [x] 동적 가중치 앙상블 (`ensemble_strategy.py`) — TimesFM(추세) × ElasticNet(회귀) 후처리 결합 (v0413)
+- [ ] XGBoost 확률 통합 — 하방 리스크 확률을 앙상블 가중치에 반영
 - [ ] RAG 연동 — XReg Attribution 기반 예측 근거 자동 생성
 
 ### M5: 서빙
@@ -288,8 +324,8 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 | 3–4 | 4/7–4/8 | M1 추가 인프라 (ACR, Databricks) + M2 수집기 구현 | ✅ 완료 |
 | 5 | 4/9 | M2 ADF 오케스트레이션 파이프라인 구성 | 🔜 |
 | 6 | 4/10 | M3 Databricks 전처리 (Bronze → Silver → Gold) | 🔜 |
-| 7 | 4/11 | M3 LLM 연동 + 피처 엔지니어링 | 🔜 |
-| 8 | 4/14 | M4 ML 학습 + M5 PostgreSQL 적재 | 🔜 |
+| 7 | 4/11 | M4 TimesFM Full Feature + 전통 모델 비교 파이프라인 + 파일 재구조화 | ✅ 완료 |
+| 8 | 4/14 | M4 ML 학습 (XGBoost/LightGBM) + M5 PostgreSQL 적재 | 🔜 |
 | 9 | 4/15 | M5 서빙 (Power BI + Web App + AI Agent) | 🔜 |
 
 ## 관련 문서
