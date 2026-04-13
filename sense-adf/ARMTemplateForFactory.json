@@ -23,6 +23,10 @@
 			"type": "string",
 			"defaultValue": "0409-063427-sodu1olk"
 		},
+		"AzureDatabricks2_3_properties_typeProperties_existingClusterId": {
+			"type": "string",
+			"defaultValue": "0409-064605-dkvq8aed"
+		},
 		"AzureKeyVault1_properties_typeProperties_baseUrl": {
 			"type": "string",
 			"defaultValue": "https://kv-3dt-team1.vault.azure.net/"
@@ -34,10 +38,6 @@
 		"bing_news_collctor_properties_typeProperties_functionAppUrl": {
 			"type": "string",
 			"defaultValue": "https://e-news-collector-c2hmf3cpeefzateh.koreacentral-01.azurewebsites.net"
-		},
-		"AzureDatabricks2_3_properties_typeProperties_existingClusterId": {
-			"type": "string",
-			"defaultValue": "0409-064605-dkvq8aed"
 		}
 	},
 	"variables": {
@@ -470,6 +470,30 @@
 			]
 		},
 		{
+			"name": "[concat(parameters('factoryName'), '/AzureDatabricks2_3')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureDatabricks",
+				"typeProperties": {
+					"domain": "https://adb-7405616899208386.6.azuredatabricks.net",
+					"accessToken": {
+						"type": "AzureKeyVaultSecret",
+						"store": {
+							"referenceName": "AzureKeyVault2",
+							"type": "LinkedServiceReference"
+						},
+						"secretName": "databricks-pat-token"
+					},
+					"existingClusterId": "[parameters('AzureDatabricks2_3_properties_typeProperties_existingClusterId')]"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureKeyVault2')]"
+			]
+		},
+		{
 			"name": "[concat(parameters('factoryName'), '/AzureKeyVault1')]",
 			"type": "Microsoft.DataFactory/factories/linkedServices",
 			"apiVersion": "2018-06-01",
@@ -574,30 +598,6 @@
 			},
 			"dependsOn": [
 				"[concat(variables('factoryId'), '/pipelines/pl_bing_news_ingestion')]"
-			]
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/AzureDatabricks2_3')]",
-			"type": "Microsoft.DataFactory/factories/linkedServices",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"annotations": [],
-				"type": "AzureDatabricks",
-				"typeProperties": {
-					"domain": "https://adb-7405616899208386.6.azuredatabricks.net",
-					"accessToken": {
-						"type": "AzureKeyVaultSecret",
-						"store": {
-							"referenceName": "AzureKeyVault2",
-							"type": "LinkedServiceReference"
-						},
-						"secretName": "databricks-pat-token"
-					},
-					"existingClusterId": "[parameters('AzureDatabricks2_3_properties_typeProperties_existingClusterId')]"
-				}
-			},
-			"dependsOn": [
-				"[concat(variables('factoryId'), '/linkedServices/AzureKeyVault2')]"
 			]
 		}
 	]

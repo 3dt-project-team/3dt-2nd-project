@@ -23,6 +23,10 @@
 			"type": "string",
 			"defaultValue": "0409-063427-sodu1olk"
 		},
+		"AzureDatabricks2_3_properties_typeProperties_existingClusterId": {
+			"type": "string",
+			"defaultValue": "0409-064605-dkvq8aed"
+		},
 		"AzureKeyVault1_properties_typeProperties_baseUrl": {
 			"type": "string",
 			"defaultValue": "https://kv-3dt-team1.vault.azure.net/"
@@ -34,10 +38,6 @@
 		"bing_news_collctor_properties_typeProperties_functionAppUrl": {
 			"type": "string",
 			"defaultValue": "https://e-news-collector-c2hmf3cpeefzateh.koreacentral-01.azurewebsites.net"
-		},
-		"AzureDatabricks2_3_properties_typeProperties_existingClusterId": {
-			"type": "string",
-			"defaultValue": "0409-064605-dkvq8aed"
 		},
 		"containerUri": {
 			"type": "string",
