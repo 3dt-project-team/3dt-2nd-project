@@ -16,6 +16,10 @@
 				"userProperties": [],
 				"typeProperties": {
 					"functionName": "collect",
+					"body": {
+						"value": "{}",
+						"type": "Expression"
+					},
 					"method": "POST"
 				},
 				"linkedServiceName": {
