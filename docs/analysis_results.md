@@ -1,6 +1,6 @@
 # SENSE 모델 출력 분석 및 해석 보고서
 
-> **분석 일자**: 2025-04-12 (v0412), 2025-04-13 (v0413 앙상블)
+> **분석 일자**: 2025-04-12 (v0412), 2025-04-13 (v0413 앙상블, v0414 Soft Switching)
 > **대상 노트북**: `timesfm_inference_lite.ipynb`, `statistical_baseline_analysis_lite.ipynb`, `ensemble_strategy.ipynb`  
 > **분석 환경**: Databricks (Azure)
 
@@ -335,16 +335,19 @@
 | 5 | **TimesFM 시뮬레이션 의존** | 🟡 Medium | 독립 실행 시 실제 TimesFM 결과 없어 랜덤 시뮬레이션 사용 | 노트북 간 결과 공유 메커니즘 (ADLS 중간 저장 또는 Delta 테이블) |
 | 6 | **ElasticNet 양 종목 −16% 하락 예측** | 🟠 Info | Mean-Reversion 바이어스 여전히 존재 (v0412 Ridge −12~14%와 유사) | Time-Decay half-life 단축(30d), 또는 수익률 기반 타겟 변환 검토 |
 
-### 5-10. 개선 사항 비교 (v0412 → v0413)
+### 5-10. 개선 사항 비교 (v0412 → v0413 → v0414)
 
-| 항목 | v0412 (Ridge) | v0413 (ElasticNetCV) |
-|---|---|---|
-| 정규화 | L2 (Ridge) | L1+L2 (ElasticNet) — 불필요 변수 자동 제거 |
-| 가중치 | 균등 | Time-Decay ($\text{half-life}=60\text{d}$) |
-| 앙상블 | 없음 (단일 모델) | Regime-based Dynamic Weighting |
-| 피처 추가 | 47개 기본 | +RSI(14), ATR(14), 120d 이격도, log return → 30개 |
-| 신뢰도 | PI Coverage만 | Confidence Score (0–100) |
-| PostgreSQL | fact_stat_forecast (28행) | +fact_ensemble_forecast (40행) |
+| 항목 | v0412 (Ridge) | v0413 (ElasticNetCV) | v0414 (Soft Switching) |
+|---|---|---|---|
+| 정규화 | L2 (Ridge) | L1+L2 (ElasticNet) | L1+L2 + **Alpha 0.001~1.0** |
+| 타겟 | 절대가 (원) | 절대가 (원) | **로그수익률** (스케일 불변) |
+| 가중치 | 균등 | Time-Decay ($\text{half-life}=60\text{d}$) | Time-Decay ($\text{half-life}=30\text{d}$) |
+| 레짐 판별 | 없음 | Hard Threshold (if/else) | **Soft Switching (선형/비선형 보간)** |
+| Interaction | 없음 | 없음 | **RSI×vol 복합 신호 중첩** |
+| 클리핑 | — | [0.20, 0.80] | **[0.15, 0.85]** |
+| 피처 추가 | 47개 기본 | +RSI, ATR, 이격도, log return → 30개 | 동일 30개 |
+| 신뢰도 | PI Coverage만 | Confidence Score (0–100) | 동일 |
+| PostgreSQL | fact_stat_forecast | +fact_ensemble_forecast (40행) | 동일 |
 
 ### 5-11. Confidence Score 수식
 
@@ -355,22 +358,65 @@ $$\text{Score} = \underbrace{50 \times \left(1 - \frac{\text{PI width}}{\text{la
 - < 50 → 낮은 신뢰도 (모델 불일치 또는 넓은 PI)
 - **실측**: 5.5, 4.5 → 시뮬레이션 TimesFM과 ElasticNet 간 49%p 예측 격차로 합의도 항이 0 근접
 
-### 5-12. Regime Detection 규칙
+### 5-12. Regime Detection 규칙 → Soft Switching (v0414)
 
-시장 국면 분류 후 Trend(TimesFM) vs Mean-Reversion(ElasticNet) 가중치를 `[0.2, 0.8]` 범위 내에서 조절:
+v0413에서는 고정 임계값(Hard Threshold)으로 가중치를 if/else 분기했으나,
+v0414에서는 **선형/비선형 가중치 보간법(Dynamic Weight Interpolation)**으로 교체하여
+경계값에서의 불연속성을 해소함.
 
-- **RSI > 70** → 과매수, Mean-Rev 가중치 ↑ (w_trend −0.20)
-- **RSI < 30** → 과매도, Trend 가중치 ↑ (w_trend +0.20)
-- **vol_ratio > 1.5** → 변동성 폭발, Mean-Rev ↑ (w_trend −0.20)
-- **vol_ratio < 0.8** → 안정 추세, Trend ↑ (w_trend +0.20)
-- **이격도 > +20%** → 과열, Mean-Rev ↑ (w_trend −0.10)
-- **이격도 < −10%** → 과매도, Trend ↑ (w_trend +0.20)
+#### Soft Switching 가중치 함수
+
+**RSI 보간 (선형 + 극단 가속)**:
+- RSI 30~50: `adj = +0.01 × (50 - RSI)` (선형, 최대 +0.20)
+- RSI 50~70: `adj = -0.01 × (RSI - 50)` (선형, 최대 -0.20)
+- RSI < 30: `adj = +0.20 + 0.10 × min((30-RSI)/30, 1)` (가속)
+- RSI > 70: `adj = -0.20 - 0.05 × min((RSI-70)/30, 1)` (가속)
+
+**이격도 보간 (1.5제곱 가속)**:
+- 양수 이격: `adj = -0.15 × min(d/20, 1)^1.5` (회귀 압력)
+- 음수 이격: `adj = +0.15 × min(|d|/10, 1)^1.5` (반등 기대)
+- 근거: "평균에서 멀어질수록 회귀하려는 인력은 제곱으로 강해진다"
+
+**변동성 보간**:
+- vol < 0.8: `adj = +0.15 × (0.8 - vol)/0.8` (안정 추세)
+- 0.8~1.2: 데드존 (무조정)
+- vol > 1.2: `adj = -0.20 × min((vol-1.2)/0.8, 1)` (레짐 전환)
+
+**Interaction Term (복합 신호 중첩)**:
+- RSI>60 + vol>1.2 → 하락 압력 가중 (`-0.10 × 강도곱`)
+- RSI<40 + vol>1.2 → 패닉 후 반등 가중 (`+0.10 × 강도곱`)
+- 이격도>15% + RSI>65 → 이중 회귀 압력 (`-0.08 × 강도곱`)
+
+최종 가중치 범위: `[0.15, 0.85]` (v0413의 `[0.20, 0.80]` 대비 확장)
 
 ### 5-13. 환경 수정 (apt-get update)
 
 Databricks 클러스터에서 `fonts-nanum` 설치 실패 문제 해결:
 - **원인**: 패키지 저장소 인덱스가 오래되어 `apt-get install fonts-nanum` 실패
 - **수정**: `sudo apt-get update` 추가 (`timesfm_inference_lite.py`, `statistical_baseline_analysis_lite.py`, `ensemble_strategy.py` 모두 적용)
+
+### 5-14. v0414 핵심 변경 — Soft Switching 및 스케일링 고도화
+
+#### 문제 진단 (v0413 실행 결과 기반)
+
+| 문제 | v0413 증상 | 근본 원인 |
+|---|---|---|
+| SK하이닉스 R²=−0.33 | 모델 학습 실패 | **절대가 타겟**: 삼성(20만원)/하이닉스(100만원) 스케일 차이로 하이닉스 모델 붕괴 |
+| 양 종목 −16% 하락 예측 | Historical Bias | **과잉 정규화**: alpha=40~189로 과거 저가 데이터에 과도하게 묶임 |
+| Hard Threshold 불연속 | RSI 69.9→70.1에서 가중치 점프 | **if/else 분기**: 경계값에서 모델 불안정성 유발 |
+
+#### 해결 (코드 변경)
+
+1. **타겟 = 로그수익률**: `log(P_{t+20}/P_t)` → 종목 간 스케일 불변, Historical Bias 완화
+2. **Alpha 범위 축소**: `np.logspace(-3, 0, 50)` (0.001~1.0) → 모델이 최근 변동성을 더 학습
+3. **Time-Decay 강화**: half_life 60→30 거래일 → 1.5개월 전 데이터가 절반 가중
+4. **Soft Switching**: 4개 연속 함수 (`_rsi_weight_adjustment`, `_vol_weight_adjustment`, `_disparity_weight_adjustment`, `_interaction_weight`)
+5. **Interaction Term**: RSI×vol_ratio 복합 신호 중첩 (3가지 규칙)
+
+> "고정 임계값(Hard Threshold)에 의한 예측값의 불연속성을 방지하고,
+> 지표의 극단값(Extreme Values)이 갖는 통계적 유의미성을 가중치에
+> 비례적으로 반영하기 위해 선형/비선형 가중치 보간법
+> (Dynamic Weight Interpolation)을 적용함."
 
 - **TimesFM**: 국내 옵션 시장 지표에 민감
 - **Ridge**: 글로벌 반도체 주가에 민감
@@ -449,14 +495,15 @@ Databricks 클러스터에서 `fonts-nanum` 설치 실패 문제 해결:
 - **단기(5d)**: Ridge 기반 방향 예측 활용 (TimesFM 방향성 불안정)
 - **중장기(20d)**: Ridge와 TimesFM XReg의 **합의(Consensus)** 기반 판단
 - **리스크 관리**: VaR/CVaR 기반 포지션 사이징
-- **앙상블(v0413)**: 실제 TimesFM 결과 연동 후 Confidence Score 유효성 검증 필요. 현재 시뮬레이션 기반 Score(5.5/4.5)는 참고 수준
+- **앙상블(v0414)**: Soft Switching + 로그수익률 타겟 전환으로 SK하이닉스 R² 개선 기대. 실제 Databricks 재실행 후 검증 필요
 
-### 8-2. v0413 앙상블 주요 개선 과제
+### 8-2. v0414 앙상블 주요 개선 과제
 
-1. **실제 TimesFM 결과 연동**: 노트북 간 Delta 테이블 또는 ADLS 중간 저장으로 연동
-2. **SK하이닉스 ElasticNet R² 개선**: 종목별 하이퍼파라미터 분리, mRMR 피처 선택
-3. **Confidence Score 스케일링**: 시뮬레이션 fallback 시 합의도 항 정규화
-4. **KFinance/반도체 데이터 품질**: Silver 레이어 데이터 범위 확대
+1. **v0414 Databricks 재실행**: 로그수익률 타겟 + Soft Switching 코드 실행 및 R²/Confidence 변화 검증
+2. **실제 TimesFM 결과 연동**: 노트북 간 Delta 테이블 또는 ADLS 중간 저장으로 연동
+3. **SK하이닉스 전용 피처 강화**: HBM 가격, 엔비디아 상관계수 등 종목 특화 변수 투입
+4. **Confidence Score 스케일링**: 시뮬레이션 fallback 시 합의도 항 정규화
+5. **KFinance/반도체 데이터 품질**: Silver 레이어 데이터 범위 확대
 
 ### 8-2. 다음 단계
 
