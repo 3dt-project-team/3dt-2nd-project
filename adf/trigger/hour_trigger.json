@@ -6,7 +6,7 @@
 		"pipelines": [
 			{
 				"pipelineReference": {
-					"referenceName": "pl_naver_news_preprocessing",
+					"referenceName": "pl_news_preprocessing",
 					"type": "PipelineReference"
 				}
 			}
