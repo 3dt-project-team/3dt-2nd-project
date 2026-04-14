@@ -40,10 +40,16 @@ CREATE TABLE IF NOT EXISTS gold_news.dim_news_display (
     press           TEXT,
     original_url    TEXT,
     stock_keyword   TEXT            NOT NULL,   -- samsung|skhynix
-    pub_date        DATE            NOT NULL
+    pub_date        DATE            NOT NULL,
+    is_surge        BOOLEAN                     -- 모멘텀 300% 이상 키워드 포함 여부 (UI 알람용)
 );
 COMMENT ON COLUMN gold_news.dim_news_display.sentiment_class IS
     'absa_score >= 0.3 → 호재 | <= -0.3 → 악재 | 그 외 → 중립';
+COMMENT ON COLUMN gold_news.dim_news_display.is_surge IS
+    'dynamic_keywords 가공 — 모멘텀 300% 이상 키워드 포함 시 TRUE (UI 알람용)';
+
+ALTER TABLE gold_news.dim_news_display
+    ADD COLUMN IF NOT EXISTS is_surge BOOLEAN;
 
 
 -- ② EDA / Power BI 리스크 차트 일별 집계

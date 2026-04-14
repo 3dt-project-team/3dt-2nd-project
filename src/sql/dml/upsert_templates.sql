@@ -115,12 +115,12 @@ DO UPDATE SET
 INSERT INTO gold_news.dim_news_display (
     news_id, display_title, core_summary,
     sentiment_class, category, press, original_url,
-    stock_keyword, pub_date
+    stock_keyword, pub_date, is_surge
 )
 VALUES (
     %(news_id)s, %(display_title)s, %(core_summary)s,
     %(sentiment_class)s, %(category)s, %(press)s, %(original_url)s,
-    %(stock_keyword)s, %(pub_date)s
+    %(stock_keyword)s, %(pub_date)s, %(is_surge)s
 )
 ON CONFLICT (news_id) DO NOTHING;
 

@@ -110,6 +110,7 @@
 | `original_url` | 원문 링크 | Text | `url` | 클릭 시 이동할 기사 원본 링크 | - |
 | `stock_keyword` | 대상 키워드 | Text | `stock_keyword` | 삼성전자/SK하이닉스 구분 필터 | Not Null |
 | `pub_date` | 발행 일자 | Date | `pub_date` | 날짜별 리스트 정렬 및 필터링 기준 | Not Null |
+| `is_surge` | 급증 여부 | BOOLEAN | `dynamic_keywords` (가공) | 모멘텀 300% 이상 키워드 포함 여부 (UI 알람용) | - |
 
 ### `agg_market_sentiment_daily` (Track: EDA 및 통계 분석)
 
