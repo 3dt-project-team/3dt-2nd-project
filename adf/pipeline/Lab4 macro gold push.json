@@ -31,7 +31,12 @@
 						"type": "AzurePostgreSqlSink",
 						"writeBatchSize": 1000000,
 						"writeBatchTimeout": "00:30:00",
-						"writeMethod": "Upsert"
+						"writeMethod": "Upsert",
+						"upsertSettings": {
+							"keys": [
+								"standard_date"
+							]
+						}
 					},
 					"enableStaging": false,
 					"translator": {
@@ -374,7 +379,13 @@
 						"type": "AzurePostgreSqlSink",
 						"writeBatchSize": 1000000,
 						"writeBatchTimeout": "00:30:00",
-						"writeMethod": "Upsert"
+						"writeMethod": "Upsert",
+						"upsertSettings": {
+							"keys": [
+								"base_date",
+								"hs_code"
+							]
+						}
 					},
 					"enableStaging": false,
 					"translator": {
@@ -501,7 +512,13 @@
 						"type": "AzurePostgreSqlSink",
 						"writeBatchSize": 1000000,
 						"writeBatchTimeout": "00:30:00",
-						"writeMethod": "Upsert"
+						"writeMethod": "Upsert",
+						"upsertSettings": {
+							"keys": [
+								"base_date",
+								"ticker"
+							]
+						}
 					},
 					"enableStaging": false,
 					"translator": {
