@@ -10,6 +10,7 @@
 		"typeProperties": {
 			"location": {
 				"type": "AzureBlobFSLocation",
+				"fileName": "part-00000-tid-1681513830616896574-41927a7d-00fa-479b-a9be-932d092d1b1b-25-1-c000.snappy.parquet",
 				"folderPath": "gold_macro_1y",
 				"fileSystem": "feature"
 			},
