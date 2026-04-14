@@ -3,3 +3,4 @@ pandas
 pyarrow
 requests
 azure-storage-blob
+azure-core

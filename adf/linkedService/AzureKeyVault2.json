@@ -1,0 +1,10 @@
+{
+	"name": "AzureKeyVault2",
+	"properties": {
+		"annotations": [],
+		"type": "AzureKeyVault",
+		"typeProperties": {
+			"baseUrl": "https://kv-3dt-team1.vault.azure.net/"
+		}
+	}
+}

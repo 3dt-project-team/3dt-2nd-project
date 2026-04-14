@@ -14,6 +14,8 @@ dependencies = [
     "python-dotenv>=1.0.0",                  # 로컬 .env 파일 로드
     "psycopg[binary]>=3.2.0",               # PostgreSQL 네이티브 드라이버
     "sqlalchemy>=2.0.0",                     # PostgreSQL ORM / pandas read_sql 지원
+    "aiohttp>=3.9.0",                       # 비동기 HTTP 클라이언트 (뉴스 본문 수집)
+    "beautifulsoup4>=4.12.0",               # HTML 파싱 (기사 본문 추출)
     "pyarrow>=23.0.1",
     "azure-functions>=1.24.0",
     "azure-storage-blob>=12.28.0",
@@ -44,6 +46,10 @@ dev = [
     "ty>=0.0.1a6",     # Astral 타입 체커 (Rust 기반 신표준, mypy 대체 방향)
     "pre-commit>=4.0.0",  # Git hook 관리 (린트·포맷·시크릿 감지 자동화)
 ]
+
+# ── pytest 설정 ────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+pythonpath = ["src"]
 
 # ── ruff 린터 설정 ──────────────────────────────────────────────────────────────
 # E: PEP8 스타일, F: Pyflakes(미사용 변수 등), I: isort(import 정렬)

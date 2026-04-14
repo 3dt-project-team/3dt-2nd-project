@@ -1,0 +1,144 @@
+{
+	"name": "pl_naver_news_preprocessing",
+	"properties": {
+		"activities": [
+			{
+				"name": "naver_preprocessed",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "act_crawl_naver_news",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/naver_news_preprocessing_incremental"
+				},
+				"linkedServiceName": {
+					"referenceName": "AzureDatabricks2",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "act_crawl_naver_news",
+				"type": "WebActivity",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"url": "https://navernews-collector.azurewebsites.net/api/crawl",
+					"body": {
+						"value": "{}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Get_Bing_News",
+				"type": "AzureFunctionActivity",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"functionName": "collect",
+					"body": {
+						"value": "{}",
+						"type": "Expression"
+					},
+					"method": "POST"
+				},
+				"linkedServiceName": {
+					"referenceName": "bing_news_collctor",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "bing_google_preprocessed",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "Get_Bing_News",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Repos/3dt020@msacademy.msai.kr/3dt-2nd-project/notebooks/bing&google_integration_silver"
+				},
+				"linkedServiceName": {
+					"referenceName": "AzureDatabricks2",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "silver_preprocessed",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "naver_preprocessed",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "bing_google_preprocessed",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/silver_preprocessed_incremental"
+				},
+				"linkedServiceName": {
+					"referenceName": "AzureDatabricks2",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"annotations": []
+	}
+}

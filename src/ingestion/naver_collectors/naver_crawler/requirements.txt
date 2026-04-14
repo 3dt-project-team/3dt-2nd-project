@@ -1,0 +1,8 @@
+aiohttp>=3.9.0
+playwright>=1.49.0
+tf-playwright-stealth>=1.0.6
+beautifulsoup4>=4.12.0
+pandas>=2.2.0
+azure-identity>=1.19.0
+azure-keyvault-secrets>=4.9.0
+azure-storage-file-datalake>=12.19.0
