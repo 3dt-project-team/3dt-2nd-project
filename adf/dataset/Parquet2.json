@@ -1,0 +1,88 @@
+{
+	"name": "Parquet2",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "3dtteam1adls",
+			"type": "LinkedServiceReference"
+		},
+		"folder": {
+			"name": "raw-1y/gov_finance"
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"folderPath": "public_data/finance/options",
+				"fileSystem": "raw"
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": [
+			{
+				"name": "basDt",
+				"type": "UTF8"
+			},
+			{
+				"name": "prdCtg",
+				"type": "UTF8"
+			},
+			{
+				"name": "srtnCd",
+				"type": "UTF8"
+			},
+			{
+				"name": "isinCd",
+				"type": "UTF8"
+			},
+			{
+				"name": "itmsNm",
+				"type": "UTF8"
+			},
+			{
+				"name": "clpr",
+				"type": "UTF8"
+			},
+			{
+				"name": "vs",
+				"type": "UTF8"
+			},
+			{
+				"name": "mkp",
+				"type": "UTF8"
+			},
+			{
+				"name": "hipr",
+				"type": "UTF8"
+			},
+			{
+				"name": "lopr",
+				"type": "UTF8"
+			},
+			{
+				"name": "nxtDdBsPrc",
+				"type": "UTF8"
+			},
+			{
+				"name": "iptVlty",
+				"type": "UTF8"
+			},
+			{
+				"name": "trqu",
+				"type": "UTF8"
+			},
+			{
+				"name": "trPrc",
+				"type": "UTF8"
+			},
+			{
+				"name": "opnint",
+				"type": "UTF8"
+			},
+			{
+				"name": "year_month",
+				"type": "UTF8"
+			}
+		]
+	}
+}
