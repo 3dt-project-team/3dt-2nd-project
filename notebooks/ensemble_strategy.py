@@ -379,7 +379,14 @@ for ticker in TICKERS:
     if ticker in feature_marts and ticker in sentiment_data:
         mart = feature_marts[ticker]
         sent = sentiment_data[ticker]
+
+        # date가 인덱스이면 컬럼으로 꺼내서 merge 후 다시 인덱스 설정
+        _date_is_index = mart.index.name == "date"
+        if _date_is_index:
+            mart = mart.reset_index()
         mart = mart.merge(sent, on="date", how="left")
+        if _date_is_index:
+            mart = mart.set_index("date")
 
         # 감성 데이터 NaN 처리: 뉴스 없는 날은 중립(0) / 0건
         mart["avg_sentiment"] = mart["avg_sentiment"].fillna(0.0)
