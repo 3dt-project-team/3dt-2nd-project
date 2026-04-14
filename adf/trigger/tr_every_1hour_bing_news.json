@@ -3,7 +3,7 @@
 	"properties": {
 		"description": "1시간 마다 자동 실행",
 		"annotations": [],
-		"runtimeState": "Started",
+		"runtimeState": "Stopped",
 		"pipelines": [],
 		"type": "ScheduleTrigger",
 		"typeProperties": {
