@@ -11,6 +11,10 @@
 			"type": "secureString",
 			"metadata": "'3dtteam1adls'의 'accountKey'에 대한 보안 문자열"
 		},
+		"AzurePostgreSql1_password": {
+			"type": "secureString",
+			"metadata": "'AzurePostgreSql1'의 'password'에 대한 보안 문자열"
+		},
 		"bing_news_collctor_functionKey": {
 			"type": "secureString",
 			"metadata": "'bing_news_collctor'의 'functionKey'에 대한 보안 문자열"
@@ -27,13 +31,21 @@
 			"type": "string",
 			"defaultValue": "0409-064605-dkvq8aed"
 		},
-		"AzureKeyVault1_properties_typeProperties_baseUrl": {
-			"type": "string",
-			"defaultValue": "https://kv-3dt-team1.vault.azure.net/"
-		},
 		"AzureKeyVault2_properties_typeProperties_baseUrl": {
 			"type": "string",
 			"defaultValue": "https://kv-3dt-team1.vault.azure.net/"
+		},
+		"AzurePostgreSql1_properties_typeProperties_server": {
+			"type": "string",
+			"defaultValue": "sense-pg-server.postgres.database.azure.com"
+		},
+		"AzurePostgreSql1_properties_typeProperties_database": {
+			"type": "string",
+			"defaultValue": "postgres"
+		},
+		"AzurePostgreSql1_properties_typeProperties_username": {
+			"type": "string",
+			"defaultValue": "senseadmin"
 		},
 		"bing_news_collctor_properties_typeProperties_functionAppUrl": {
 			"type": "string",
@@ -69,20 +81,47 @@
 					"3dtteam1adls_accountKey": {
 						"value": "[parameters('3dtteam1adls_accountKey')]"
 					},
+					"AzurePostgreSql1_password": {
+						"value": "[parameters('AzurePostgreSql1_password')]"
+					},
 					"bing_news_collctor_functionKey": {
 						"value": "[parameters('bing_news_collctor_functionKey')]"
 					},
 					"3dtteam1adls_properties_typeProperties_url": {
 						"value": "[parameters('3dtteam1adls_properties_typeProperties_url')]"
 					},
-					"AzureKeyVault1_properties_typeProperties_baseUrl": {
-						"value": "[parameters('AzureKeyVault1_properties_typeProperties_baseUrl')]"
-					},
 					"AzureKeyVault2_properties_typeProperties_baseUrl": {
 						"value": "[parameters('AzureKeyVault2_properties_typeProperties_baseUrl')]"
 					},
+					"AzurePostgreSql1_properties_typeProperties_server": {
+						"value": "[parameters('AzurePostgreSql1_properties_typeProperties_server')]"
+					},
+					"AzurePostgreSql1_properties_typeProperties_database": {
+						"value": "[parameters('AzurePostgreSql1_properties_typeProperties_database')]"
+					},
+					"AzurePostgreSql1_properties_typeProperties_username": {
+						"value": "[parameters('AzurePostgreSql1_properties_typeProperties_username')]"
+					},
 					"bing_news_collctor_properties_typeProperties_functionAppUrl": {
 						"value": "[parameters('bing_news_collctor_properties_typeProperties_functionAppUrl')]"
+					}
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "sense-adf_ArmTemplate_1",
+			"type": "Microsoft.Resources/deployments",
+			"apiVersion": "2024-03-01",
+			"properties": {
+				"mode": "incremental",
+				"templateLink": {
+					"uri": "[concat(parameters('containerUri'), '/ArmTemplate_1.json', parameters('containerSasToken'))]",
+					"contentVersion": "1.0.0.0"
+				},
+				"parameters": {
+					"factoryName": {
+						"value": "[parameters('factoryName')]"
 					},
 					"AzureDatabricks2_properties_typeProperties_existingClusterId": {
 						"value": "[parameters('AzureDatabricks2_properties_typeProperties_existingClusterId')]"
@@ -92,7 +131,9 @@
 					}
 				}
 			},
-			"dependsOn": []
+			"dependsOn": [
+				"[resourceId('Microsoft.Resources/deployments', 'sense-adf_ArmTemplate_0')]"
+			]
 		}
 	]
 }

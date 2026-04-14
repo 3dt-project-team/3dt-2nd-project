@@ -11,6 +11,10 @@
 			"type": "secureString",
 			"metadata": "'3dtteam1adls'의 'accountKey'에 대한 보안 문자열"
 		},
+		"AzurePostgreSql1_password": {
+			"type": "secureString",
+			"metadata": "'AzurePostgreSql1'의 'password'에 대한 보안 문자열"
+		},
 		"bing_news_collctor_functionKey": {
 			"type": "secureString",
 			"metadata": "'bing_news_collctor'의 'functionKey'에 대한 보안 문자열"
@@ -27,13 +31,21 @@
 			"type": "string",
 			"defaultValue": "0409-064605-dkvq8aed"
 		},
-		"AzureKeyVault1_properties_typeProperties_baseUrl": {
-			"type": "string",
-			"defaultValue": "https://kv-3dt-team1.vault.azure.net/"
-		},
 		"AzureKeyVault2_properties_typeProperties_baseUrl": {
 			"type": "string",
 			"defaultValue": "https://kv-3dt-team1.vault.azure.net/"
+		},
+		"AzurePostgreSql1_properties_typeProperties_server": {
+			"type": "string",
+			"defaultValue": "sense-pg-server.postgres.database.azure.com"
+		},
+		"AzurePostgreSql1_properties_typeProperties_database": {
+			"type": "string",
+			"defaultValue": "postgres"
+		},
+		"AzurePostgreSql1_properties_typeProperties_username": {
+			"type": "string",
+			"defaultValue": "senseadmin"
 		},
 		"bing_news_collctor_properties_typeProperties_functionAppUrl": {
 			"type": "string",
@@ -45,14 +57,15 @@
 	},
 	"resources": [
 		{
-			"name": "[concat(parameters('factoryName'), '/pl_bing_news_ingestion')]",
+			"name": "[concat(parameters('factoryName'), '/Lab1 macro join')]",
 			"type": "Microsoft.DataFactory/factories/pipelines",
 			"apiVersion": "2018-06-01",
 			"properties": {
+				"description": "조인까지",
 				"activities": [
 					{
-						"name": "Get_Bing_News",
-						"type": "AzureFunctionActivity",
+						"name": "Data flow1",
+						"type": "ExecuteDataFlow",
 						"dependsOn": [],
 						"policy": {
 							"timeout": "0.12:00:00",
@@ -63,17 +76,23 @@
 						},
 						"userProperties": [],
 						"typeProperties": {
-							"functionName": "collect",
-							"body": {
-								"value": "{}",
-								"type": "Expression"
+							"dataflow": {
+								"referenceName": "Flow1 macro join",
+								"type": "DataFlowReference",
+								"parameters": {},
+								"datasetParameters": {
+									"yfinance": {},
+									"fx": {},
+									"fred": {},
+									"sink1": {}
+								}
 							},
-							"headers": {},
-							"method": "POST"
-						},
-						"linkedServiceName": {
-							"referenceName": "bing_news_collctor",
-							"type": "LinkedServiceReference"
+							"staging": {},
+							"compute": {
+								"coreCount": 8,
+								"computeType": "General"
+							},
+							"traceLevel": "Fine"
 						}
 					}
 				],
@@ -83,7 +102,1593 @@
 				"annotations": []
 			},
 			"dependsOn": [
-				"[concat(variables('factoryId'), '/linkedServices/bing_news_collctor')]"
+				"[concat(variables('factoryId'), '/dataflows/Flow1 macro join')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Lab2 macro save')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "Data flow1",
+						"type": "ExecuteDataFlow",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"dataflow": {
+								"referenceName": "Flow2 macro save",
+								"type": "DataFlowReference",
+								"parameters": {},
+								"datasetParameters": {
+									"source1": {},
+									"sink1": {}
+								}
+							},
+							"staging": {},
+							"compute": {
+								"coreCount": 8,
+								"computeType": "General"
+							},
+							"traceLevel": "Fine"
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/dataflows/Flow2 macro save')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Lab3 publice data')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "Data flow1",
+						"type": "ExecuteDataFlow",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"dataflow": {
+								"referenceName": "Flow3 macro plus",
+								"type": "DataFlowReference",
+								"parameters": {},
+								"datasetParameters": {
+									"semiconductor": {},
+									"gfinance": {},
+									"sink1": {},
+									"sink2": {}
+								}
+							},
+							"staging": {},
+							"compute": {
+								"coreCount": 8,
+								"computeType": "General"
+							},
+							"traceLevel": "Fine"
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/dataflows/Flow3 macro plus')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Lab4 macro gold push')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "Copy yf-fx-fred",
+						"description": "macro(yf, fx,fred) 송",
+						"type": "Copy",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "ParquetSource",
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "ParquetReadSettings"
+								}
+							},
+							"sink": {
+								"type": "AzurePostgreSqlSink",
+								"writeBatchSize": 1000000,
+								"writeBatchTimeout": "00:30:00",
+								"writeMethod": "Upsert",
+								"upsertSettings": {
+									"keys": [
+										"standard_date"
+									]
+								}
+							},
+							"enableStaging": false,
+							"translator": {
+								"type": "TabularTranslator",
+								"mappings": [
+									{
+										"source": {
+											"name": "기준일자",
+											"type": "DateTime",
+											"physicalType": "DATE"
+										},
+										"sink": {
+											"name": "standard_date",
+											"type": "DateTime",
+											"physicalType": "date"
+										}
+									},
+									{
+										"source": {
+											"name": "요일",
+											"type": "Int32",
+											"physicalType": "INT32"
+										},
+										"sink": {
+											"name": "day_of_week",
+											"type": "Int32",
+											"physicalType": "integer"
+										}
+									},
+									{
+										"source": {
+											"name": "주말여부",
+											"type": "Boolean",
+											"physicalType": "BOOLEAN"
+										},
+										"sink": {
+											"name": "is_weekend",
+											"type": "Boolean",
+											"physicalType": "boolean"
+										}
+									},
+									{
+										"source": {
+											"name": "한국_휴장일_여부",
+											"type": "Boolean",
+											"physicalType": "BOOLEAN"
+										},
+										"sink": {
+											"name": "is_kr_market_holiday",
+											"type": "Boolean",
+											"physicalType": "boolean"
+										}
+									},
+									{
+										"source": {
+											"name": "미국_휴장일_여부",
+											"type": "Boolean",
+											"physicalType": "BOOLEAN"
+										},
+										"sink": {
+											"name": "is_us_market_holiday",
+											"type": "Boolean",
+											"physicalType": "boolean"
+										}
+									},
+									{
+										"source": {
+											"name": "usd_krw_rate",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "usd_krw_rate",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "yfinance_amd_close",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "yfinance_amd_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "yfinance_asml_close",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "yfinance_asml_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "yfinance_intc_close",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "yfinance_intc_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "yfinance_mu_close",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "yfinance_mu_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "yfinance_nvda_close",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "yfinance_nvda_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "yfinance_samsung_close",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "yfinance_samsung_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "yfinance_skhynix_close",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "yfinance_skhynix_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "yfinance_sox_close",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "yfinance_sox_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "yfinance_tsm_close",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "yfinance_tsm_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "yfinance_wdc_close",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "yfinance_wdc_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "fred_bamlh0a0hym2",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "fred_bamlh0a0hym2",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "fred_dff",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "fred_dff",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "fred_dfii10",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "fred_dfii10",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "fred_dgs10",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "fred_dgs10",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "fred_dgs2",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "fred_dgs2",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "fred_t10y2y",
+											"type": "Single",
+											"physicalType": "FLOAT"
+										},
+										"sink": {
+											"name": "fred_t10y2y",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "fx_collected_at_utc",
+											"type": "DateTime",
+											"physicalType": "INT96"
+										},
+										"sink": {
+											"name": "created_at",
+											"type": "DateTime",
+											"physicalType": "timestamp with time zone"
+										}
+									},
+									{
+										"source": {
+											"name": "yfinance_collected_at_utc",
+											"type": "DateTime",
+											"physicalType": "INT96"
+										},
+										"sink": {
+											"name": "updated_at",
+											"type": "DateTime",
+											"physicalType": "timestamp with time zone"
+										}
+									}
+								],
+								"typeConversion": true,
+								"typeConversionSettings": {
+									"allowDataTruncation": true,
+									"treatBooleanAsNumber": false
+								}
+							}
+						},
+						"inputs": [
+							{
+								"referenceName": "gold_yf_fx_fred",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						],
+						"outputs": [
+							{
+								"referenceName": "PG_macro_1y",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						]
+					},
+					{
+						"name": "Copy semiconductor",
+						"type": "Copy",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "ParquetSource",
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "ParquetReadSettings"
+								}
+							},
+							"sink": {
+								"type": "AzurePostgreSqlSink",
+								"writeBatchSize": 1000000,
+								"writeBatchTimeout": "00:30:00",
+								"writeMethod": "Upsert",
+								"upsertSettings": {
+									"keys": [
+										"base_date",
+										"hs_code"
+									]
+								}
+							},
+							"enableStaging": false,
+							"translator": {
+								"type": "TabularTranslator",
+								"mappings": [
+									{
+										"source": {
+											"name": "date",
+											"type": "DateTime",
+											"physicalType": "DATE"
+										},
+										"sink": {
+											"name": "base_date",
+											"type": "DateTime",
+											"physicalType": "date"
+										}
+									},
+									{
+										"source": {
+											"name": "hsCode",
+											"type": "Int64",
+											"physicalType": "INT64"
+										},
+										"sink": {
+											"name": "hs_code",
+											"type": "Int64",
+											"physicalType": "bigint"
+										}
+									},
+									{
+										"source": {
+											"name": "statKor",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "stat_kor",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "expDlr",
+											"type": "Int64",
+											"physicalType": "INT64"
+										},
+										"sink": {
+											"name": "export_dollar",
+											"type": "Int64",
+											"physicalType": "bigint"
+										}
+									},
+									{
+										"source": {
+											"name": "impDlr",
+											"type": "Int64",
+											"physicalType": "INT64"
+										},
+										"sink": {
+											"name": "import_dollar",
+											"type": "Int64",
+											"physicalType": "bigint"
+										}
+									},
+									{
+										"source": {
+											"name": "semiconductor_collected_at_utc",
+											"type": "DateTime",
+											"physicalType": "INT96"
+										},
+										"sink": {
+											"name": "collected_at_utc",
+											"type": "DateTime",
+											"physicalType": "timestamp with time zone"
+										}
+									}
+								],
+								"typeConversion": true,
+								"typeConversionSettings": {
+									"allowDataTruncation": true,
+									"treatBooleanAsNumber": false
+								}
+							}
+						},
+						"inputs": [
+							{
+								"referenceName": "gold_semiconductor",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						],
+						"outputs": [
+							{
+								"referenceName": "PG_macro_semiconductor",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						]
+					},
+					{
+						"name": "Copy kf",
+						"type": "Copy",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "ParquetSource",
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "ParquetReadSettings"
+								}
+							},
+							"sink": {
+								"type": "AzurePostgreSqlSink",
+								"writeBatchSize": 1000000,
+								"writeBatchTimeout": "00:30:00",
+								"writeMethod": "Upsert",
+								"upsertSettings": {
+									"keys": [
+										"base_date",
+										"ticker"
+									]
+								}
+							},
+							"enableStaging": false,
+							"translator": {
+								"type": "TabularTranslator",
+								"mappings": [
+									{
+										"source": {
+											"name": "date",
+											"type": "DateTime",
+											"physicalType": "DATE"
+										},
+										"sink": {
+											"name": "base_date",
+											"type": "DateTime",
+											"physicalType": "date"
+										}
+									},
+									{
+										"source": {
+											"name": "ticker",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "ticker",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "close_price",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "close_price",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "kfinance_collected_at_utc",
+											"type": "DateTime",
+											"physicalType": "INT96"
+										},
+										"sink": {
+											"name": "collected_at_utc",
+											"type": "DateTime",
+											"physicalType": "timestamp with time zone"
+										}
+									}
+								],
+								"typeConversion": true,
+								"typeConversionSettings": {
+									"allowDataTruncation": true,
+									"treatBooleanAsNumber": false
+								}
+							}
+						},
+						"inputs": [
+							{
+								"referenceName": "gold_kfinance",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						],
+						"outputs": [
+							{
+								"referenceName": "PG_macro_kfinance",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						]
+					},
+					{
+						"name": "Copy metadata",
+						"type": "Copy",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "ParquetSource",
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "ParquetReadSettings"
+								}
+							},
+							"sink": {
+								"type": "AzurePostgreSqlSink",
+								"writeBatchSize": 1000000,
+								"writeBatchTimeout": "00:30:00",
+								"writeMethod": "Upsert",
+								"upsertSettings": {
+									"keys": [
+										"unified_id"
+									]
+								}
+							},
+							"enableStaging": false,
+							"translator": {
+								"type": "TabularTranslator",
+								"mappings": [
+									{
+										"source": {
+											"name": "unified_id",
+											"type": "Int32",
+											"physicalType": "INT32"
+										},
+										"sink": {
+											"name": "unified_id",
+											"type": "Int64",
+											"physicalType": "bigint"
+										}
+									},
+									{
+										"source": {
+											"name": "series_key",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "series_key",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "source_table",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "source_table",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "date_column_name",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "date_column_name",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "source_column_name",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "source_column_name",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "series_code",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "series_code",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "display_name",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "display_name",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "category",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "category",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "subcategory",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "subcategory",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "unit",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "unit",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "data_source",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "data_source",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "frequency",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "frequency",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "market_scope",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "market_scope",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "description",
+											"type": "String",
+											"physicalType": "UTF8"
+										},
+										"sink": {
+											"name": "description",
+											"type": "String",
+											"physicalType": "text"
+										}
+									},
+									{
+										"source": {
+											"name": "is_active",
+											"type": "Boolean",
+											"physicalType": "BOOLEAN"
+										},
+										"sink": {
+											"name": "is_active",
+											"type": "Boolean",
+											"physicalType": "boolean"
+										}
+									},
+									{
+										"source": {
+											"name": "created_at_utc",
+											"type": "DateTime",
+											"physicalType": "INT96"
+										},
+										"sink": {
+											"name": "created_at_utc",
+											"type": "DateTime",
+											"physicalType": "timestamp with time zone"
+										}
+									},
+									{
+										"source": {
+											"name": "updated_at_utc",
+											"type": "DateTime",
+											"physicalType": "INT96"
+										},
+										"sink": {
+											"name": "updated_at_utc",
+											"type": "DateTime",
+											"physicalType": "timestamp with time zone"
+										}
+									}
+								],
+								"typeConversion": true,
+								"typeConversionSettings": {
+									"allowDataTruncation": true,
+									"treatBooleanAsNumber": false
+								}
+							}
+						},
+						"inputs": [
+							{
+								"referenceName": "gold_macro_metadata",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						],
+						"outputs": [
+							{
+								"referenceName": "PG_macro_metadata",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						]
+					},
+					{
+						"name": "Copy SENSE-macro",
+						"type": "Copy",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "ParquetSource",
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"wildcardFolderPath": "sense_macro",
+									"wildcardFileName": "*.parquet",
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "ParquetReadSettings"
+								}
+							},
+							"sink": {
+								"type": "AzurePostgreSqlSink",
+								"writeBatchSize": 1000000,
+								"writeBatchTimeout": "00:30:00",
+								"writeMethod": "Upsert",
+								"upsertSettings": {
+									"keys": [
+										"base_date"
+									]
+								}
+							},
+							"enableStaging": false,
+							"translator": {
+								"type": "TabularTranslator",
+								"mappings": [
+									{
+										"source": {
+											"name": "date",
+											"type": "DateTime",
+											"physicalType": "DATE"
+										},
+										"sink": {
+											"name": "base_date",
+											"type": "DateTime",
+											"physicalType": "date"
+										}
+									},
+									{
+										"source": {
+											"name": "NVDA",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "nvda_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "TSM",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "tsm_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "AMD",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "amd_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "INTC",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "intc_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "ASML",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "asml_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "MU",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "mu_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "WDC",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "wdc_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "^SOX",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "sox_index_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "005930.KS",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "samsung_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "000660.KS",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "skhynix_close",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "NVDA_log_return",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "nvda_log_return",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "NVDA_volatility_gk",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "nvda_volatility_gk",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "NVDA_volatility_5d",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "nvda_volatility_5d",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "SOX_log_return",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "sox_log_return",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "SOX_volatility_5d",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "sox_volatility_5d",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "DGS10",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "dgs10",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "DGS2",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "dgs2",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "DFF",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "dff",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "DFII10",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "dfii10",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "T10Y2Y",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "t10y2y",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "BAMLH0A0HYM2",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "bamlh0a0hym2",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "yield_spread",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "yield_spread",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "yield_spread_change",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "yield_spread_change",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "stagnation_pressure",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "stagnation_pressure",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "usd_krw",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "usd_krw",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "usd_krw_change",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "usd_krw_change",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "usd_krw_pct",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "usd_krw_pct",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "risk_off_flag",
+											"type": "Int32",
+											"physicalType": "INT32"
+										},
+										"sink": {
+											"name": "risk_off_flag",
+											"type": "Int32",
+											"physicalType": "integer"
+										}
+									},
+									{
+										"source": {
+											"name": "export_usd",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "export_usd",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "export_change_pct",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "export_change_pct",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "export_momentum",
+											"type": "Int32",
+											"physicalType": "INT32"
+										},
+										"sink": {
+											"name": "export_momentum",
+											"type": "Int32",
+											"physicalType": "integer"
+										}
+									},
+									{
+										"source": {
+											"name": "call_volume",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "call_volume",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "call_oi",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "call_oi",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "avg_iv",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "avg_iv",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "iv_change",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "iv_change",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "vol_change_pct",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "vol_change_pct",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "iv_surge_flag",
+											"type": "Int32",
+											"physicalType": "INT32"
+										},
+										"sink": {
+											"name": "iv_surge_flag",
+											"type": "Int32",
+											"physicalType": "integer"
+										}
+									},
+									{
+										"source": {
+											"name": "risk_off_composite",
+											"type": "Int32",
+											"physicalType": "INT32"
+										},
+										"sink": {
+											"name": "risk_off_composite",
+											"type": "Int32",
+											"physicalType": "integer"
+										}
+									},
+									{
+										"source": {
+											"name": "macro_stress_score",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "macro_stress_score",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "fear_composite",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "fear_composite",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "semi_risk_signal",
+											"type": "Int32",
+											"physicalType": "INT32"
+										},
+										"sink": {
+											"name": "semi_risk_signal",
+											"type": "Int32",
+											"physicalType": "integer"
+										}
+									},
+									{
+										"source": {
+											"name": "korea_sensitivity",
+											"type": "Double",
+											"physicalType": "DOUBLE"
+										},
+										"sink": {
+											"name": "korea_sensitivity",
+											"type": "Double",
+											"physicalType": "double precision"
+										}
+									},
+									{
+										"source": {
+											"name": "global_risk_regime",
+											"type": "Int32",
+											"physicalType": "INT32"
+										},
+										"sink": {
+											"name": "global_risk_regime",
+											"type": "Int32",
+											"physicalType": "integer"
+										}
+									},
+									{
+										"source": {
+											"name": "is_high_risk",
+											"type": "Int32",
+											"physicalType": "INT32"
+										},
+										"sink": {
+											"name": "is_high_risk",
+											"type": "Int32",
+											"physicalType": "integer"
+										}
+									}
+								],
+								"typeConversion": true,
+								"typeConversionSettings": {
+									"allowDataTruncation": true,
+									"treatBooleanAsNumber": false
+								}
+							}
+						},
+						"inputs": [
+							{
+								"referenceName": "gold_macro",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						],
+						"outputs": [
+							{
+								"referenceName": "PG_macro_all",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						]
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/gold_yf_fx_fred')]",
+				"[concat(variables('factoryId'), '/datasets/PG_macro_1y')]",
+				"[concat(variables('factoryId'), '/datasets/gold_semiconductor')]",
+				"[concat(variables('factoryId'), '/datasets/PG_macro_semiconductor')]",
+				"[concat(variables('factoryId'), '/datasets/gold_kfinance')]",
+				"[concat(variables('factoryId'), '/datasets/PG_macro_kfinance')]",
+				"[concat(variables('factoryId'), '/datasets/gold_macro_metadata')]",
+				"[concat(variables('factoryId'), '/datasets/PG_macro_metadata')]",
+				"[concat(variables('factoryId'), '/datasets/gold_macro')]",
+				"[concat(variables('factoryId'), '/datasets/PG_macro_all')]"
 			]
 		},
 		{
@@ -228,6 +1833,33 @@
 							"referenceName": "AzureDatabricks2",
 							"type": "LinkedServiceReference"
 						}
+					},
+					{
+						"name": "silver2gold",
+						"type": "DatabricksNotebook",
+						"dependsOn": [
+							{
+								"activity": "silver_preprocessed",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/Silver2Gold_Pipeline_incremental"
+						},
+						"linkedServiceName": {
+							"referenceName": "AzureDatabricks2",
+							"type": "LinkedServiceReference"
+						}
 					}
 				],
 				"policy": {
@@ -238,6 +1870,756 @@
 			"dependsOn": [
 				"[concat(variables('factoryId'), '/linkedServices/AzureDatabricks2')]",
 				"[concat(variables('factoryId'), '/linkedServices/bing_news_collctor')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PG_macro_1y')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzurePostgreSql1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzurePostgreSqlTable",
+				"schema": [
+					{
+						"name": "series_id",
+						"type": "smallint",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "ticker",
+						"type": "character varying",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "display_name",
+						"type": "character varying",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "category",
+						"type": "character varying",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "unit",
+						"type": "character varying",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "data_source",
+						"type": "character varying",
+						"precision": 0,
+						"scale": 0
+					}
+				],
+				"typeProperties": {
+					"schema": "gold_macro",
+					"table": "fact_yf_fx_fred_1y"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzurePostgreSql1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PG_macro_all')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzurePostgreSql1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzurePostgreSqlTable",
+				"schema": [
+					{
+						"name": "base_date",
+						"type": "date",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "year",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "month",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "nvda_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "tsm_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "amd_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "intc_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "asml_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "mu_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "wdc_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "sox_index_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "samsung_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "skhynix_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "nvda_log_return",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "nvda_volatility_gk",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "nvda_volatility_5d",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "sox_log_return",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "sox_volatility_5d",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "dgs10",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "dgs2",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "dff",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "dfii10",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "t10y2y",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "bamlh0a0hym2",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "yield_spread",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "yield_spread_change",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "stagnation_pressure",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "usd_krw",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "usd_krw_change",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "usd_krw_pct",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "risk_off_flag",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "export_usd",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "export_change_pct",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "export_momentum",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "call_volume",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "call_oi",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "avg_iv",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "iv_change",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "vol_change_pct",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "iv_surge_flag",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "risk_off_composite",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "macro_stress_score",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "fear_composite",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "semi_risk_signal",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "korea_sensitivity",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "global_risk_regime",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "is_high_risk",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "created_at_utc",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					}
+				],
+				"typeProperties": {
+					"schema": "gold_macro",
+					"table": "fact_macro_all"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzurePostgreSql1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PG_macro_kfinance')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzurePostgreSql1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzurePostgreSqlTable",
+				"schema": [
+					{
+						"name": "base_date",
+						"type": "date",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "ticker",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "close_price",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "collected_at_utc",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "created_at",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					}
+				],
+				"typeProperties": {
+					"schema": "gold_macro",
+					"table": "fact_kfinance"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzurePostgreSql1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PG_macro_metadata')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzurePostgreSql1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzurePostgreSqlTable",
+				"schema": [
+					{
+						"name": "unified_id",
+						"type": "bigint",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "series_key",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "source_table",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "date_column_name",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "source_column_name",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "series_code",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "display_name",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "category",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "subcategory",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "unit",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "data_source",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "frequency",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "market_scope",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "description",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "is_active",
+						"type": "boolean",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "created_at_utc",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "updated_at_utc",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					}
+				],
+				"typeProperties": {
+					"schema": "gold_macro",
+					"table": "dim_macro_metadatas"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzurePostgreSql1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PG_macro_semiconductor')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzurePostgreSql1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzurePostgreSqlTable",
+				"schema": [
+					{
+						"name": "base_date",
+						"type": "date",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "hs_code",
+						"type": "bigint",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "stat_kor",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "export_dollar",
+						"type": "bigint",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "import_dollar",
+						"type": "bigint",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "collected_at_utc",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "created_at",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					}
+				],
+				"typeProperties": {
+					"schema": "gold_macro",
+					"table": "fact_semiconductor_trade"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzurePostgreSql1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Parquet2')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "raw-1y/gov_finance"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"folderPath": "public_data/finance/options",
+						"fileSystem": "raw"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "basDt",
+						"type": "UTF8"
+					},
+					{
+						"name": "prdCtg",
+						"type": "UTF8"
+					},
+					{
+						"name": "srtnCd",
+						"type": "UTF8"
+					},
+					{
+						"name": "isinCd",
+						"type": "UTF8"
+					},
+					{
+						"name": "itmsNm",
+						"type": "UTF8"
+					},
+					{
+						"name": "clpr",
+						"type": "UTF8"
+					},
+					{
+						"name": "vs",
+						"type": "UTF8"
+					},
+					{
+						"name": "mkp",
+						"type": "UTF8"
+					},
+					{
+						"name": "hipr",
+						"type": "UTF8"
+					},
+					{
+						"name": "lopr",
+						"type": "UTF8"
+					},
+					{
+						"name": "nxtDdBsPrc",
+						"type": "UTF8"
+					},
+					{
+						"name": "iptVlty",
+						"type": "UTF8"
+					},
+					{
+						"name": "trqu",
+						"type": "UTF8"
+					},
+					{
+						"name": "trPrc",
+						"type": "UTF8"
+					},
+					{
+						"name": "opnint",
+						"type": "UTF8"
+					},
+					{
+						"name": "year_month",
+						"type": "UTF8"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/foreign_exchange')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "raw-1y"
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "usd_krw_250406-260406.csv",
+						"folderPath": "fx/usd_krw",
+						"fileSystem": "raw"
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\\",
+					"firstRowAsHeader": true,
+					"quoteChar": "\""
+				},
+				"schema": [
+					{
+						"name": "date",
+						"type": "String"
+					},
+					{
+						"name": "base",
+						"type": "String"
+					},
+					{
+						"name": "quote",
+						"type": "String"
+					},
+					{
+						"name": "rate",
+						"type": "String"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
 			]
 		},
 		{
@@ -339,6 +2721,612 @@
 			]
 		},
 		{
+			"name": "[concat(parameters('factoryName'), '/gold_kfinance')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "gold"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "silver_kfinance.parquet",
+						"fileSystem": "curated"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "date",
+						"type": "DATE"
+					},
+					{
+						"name": "ticker",
+						"type": "UTF8"
+					},
+					{
+						"name": "close_price",
+						"type": "UTF8"
+					},
+					{
+						"name": "kfinance_collected_at_utc",
+						"type": "INT96"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/gold_macro')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "gold"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"folderPath": "sense_macro",
+						"fileSystem": "feature"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "date",
+						"type": "DATE"
+					},
+					{
+						"name": "NVDA",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "TSM",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "AMD",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "INTC",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "ASML",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "MU",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "WDC",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "^SOX",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "005930.KS",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "000660.KS",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "NVDA_log_return",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "NVDA_volatility_gk",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "NVDA_volatility_5d",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "SOX_log_return",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "SOX_volatility_5d",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "DGS10",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "DGS2",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "DFF",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "DFII10",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "T10Y2Y",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "BAMLH0A0HYM2",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "yield_spread",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "yield_spread_change",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "stagnation_pressure",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "usd_krw",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "usd_krw_change",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "usd_krw_pct",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "risk_off_flag",
+						"type": "INT32"
+					},
+					{
+						"name": "export_usd",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "export_change_pct",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "export_momentum",
+						"type": "INT32"
+					},
+					{
+						"name": "call_volume",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "call_oi",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "avg_iv",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "iv_change",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "vol_change_pct",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "iv_surge_flag",
+						"type": "INT32"
+					},
+					{
+						"name": "risk_off_composite",
+						"type": "INT32"
+					},
+					{
+						"name": "macro_stress_score",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "fear_composite",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "semi_risk_signal",
+						"type": "INT32"
+					},
+					{
+						"name": "korea_sensitivity",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "global_risk_regime",
+						"type": "INT32"
+					},
+					{
+						"name": "is_high_risk",
+						"type": "INT32"
+					},
+					{
+						"name": "year",
+						"type": "UTF8"
+					},
+					{
+						"name": "month",
+						"type": "UTF8"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/gold_macro_metadata')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "gold"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "part-00000-tid-4049927274065567836-e9da4f10-70aa-4e4e-a35a-e120282c4d5a-42-1-c000.snappy.parquet",
+						"folderPath": "dim_macro_metadata",
+						"fileSystem": "feature"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "unified_id",
+						"type": "INT32"
+					},
+					{
+						"name": "series_key",
+						"type": "UTF8"
+					},
+					{
+						"name": "source_table",
+						"type": "UTF8"
+					},
+					{
+						"name": "date_column_name",
+						"type": "UTF8"
+					},
+					{
+						"name": "source_column_name",
+						"type": "UTF8"
+					},
+					{
+						"name": "series_code",
+						"type": "UTF8"
+					},
+					{
+						"name": "display_name",
+						"type": "UTF8"
+					},
+					{
+						"name": "category",
+						"type": "UTF8"
+					},
+					{
+						"name": "subcategory",
+						"type": "UTF8"
+					},
+					{
+						"name": "unit",
+						"type": "UTF8"
+					},
+					{
+						"name": "data_source",
+						"type": "UTF8"
+					},
+					{
+						"name": "frequency",
+						"type": "UTF8"
+					},
+					{
+						"name": "market_scope",
+						"type": "UTF8"
+					},
+					{
+						"name": "description",
+						"type": "UTF8"
+					},
+					{
+						"name": "is_active",
+						"type": "BOOLEAN"
+					},
+					{
+						"name": "created_at_utc",
+						"type": "INT96"
+					},
+					{
+						"name": "updated_at_utc",
+						"type": "INT96"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/gold_semiconductor')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "gold"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "part-00000-tid-5840837349685287444-cd998ce0-6c0d-4e2c-95a6-2de1eecd2b6e-4-1-c000.snappy.parquet",
+						"folderPath": "macro_semiconductor",
+						"fileSystem": "feature"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "date",
+						"type": "DATE"
+					},
+					{
+						"name": "hsCode",
+						"type": "INT64"
+					},
+					{
+						"name": "statKor",
+						"type": "UTF8"
+					},
+					{
+						"name": "expDlr",
+						"type": "INT64"
+					},
+					{
+						"name": "impDlr",
+						"type": "INT64"
+					},
+					{
+						"name": "semiconductor_collected_at_utc",
+						"type": "INT96"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/gold_yf_fx_fred')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "gold"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "part-00000-tid-1681513830616896574-41927a7d-00fa-479b-a9be-932d092d1b1b-25-1-c000.snappy.parquet",
+						"folderPath": "gold_macro_1y",
+						"fileSystem": "feature"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "기준일자",
+						"type": "DATE"
+					},
+					{
+						"name": "요일",
+						"type": "INT32"
+					},
+					{
+						"name": "주말여부",
+						"type": "BOOLEAN"
+					},
+					{
+						"name": "한국_휴장일_여부",
+						"type": "BOOLEAN"
+					},
+					{
+						"name": "미국_휴장일_여부",
+						"type": "BOOLEAN"
+					},
+					{
+						"name": "usd_krw_rate",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_amd_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_asml_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_intc_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_mu_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_nvda_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_samsung_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_skhynix_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_sox_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_tsm_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_wdc_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_bamlh0a0hym2",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_dff",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_dfii10",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_dgs10",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_dgs2",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_t10y2y",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fx_collected_at_utc",
+						"type": "INT96"
+					},
+					{
+						"name": "yfinance_collected_at_utc",
+						"type": "INT96"
+					},
+					{
+						"name": "fred_collected_at_utc",
+						"type": "INT96"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/semiconductor_trade')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "raw-1y"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "semiconductor_trade_2024_to_2026.parquet",
+						"folderPath": "public_data/semiconductor/source=data_go_kr",
+						"fileSystem": "raw"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "balPayments",
+						"type": "INT64"
+					},
+					{
+						"name": "expDlr",
+						"type": "INT64"
+					},
+					{
+						"name": "expWgt",
+						"type": "INT64"
+					},
+					{
+						"name": "hsCode",
+						"type": "INT64"
+					},
+					{
+						"name": "impDlr",
+						"type": "INT64"
+					},
+					{
+						"name": "impWgt",
+						"type": "INT64"
+					},
+					{
+						"name": "statKor",
+						"type": "UTF8"
+					},
+					{
+						"name": "year",
+						"type": "DOUBLE"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
 			"name": "[concat(parameters('factoryName'), '/silver_join')]",
 			"type": "Microsoft.DataFactory/factories/datasets",
 			"apiVersion": "2018-06-01",
@@ -346,6 +3334,9 @@
 				"linkedServiceName": {
 					"referenceName": "3dtteam1adls",
 					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "silver"
 				},
 				"annotations": [],
 				"type": "Parquet",
@@ -357,6 +3348,283 @@
 					"compressionCodec": "snappy"
 				},
 				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/silver_kfinance')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "silver"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileSystem": "curated"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "기준일자",
+						"type": "DATE"
+					},
+					{
+						"name": "요일",
+						"type": "INT32"
+					},
+					{
+						"name": "주말여부",
+						"type": "BOOLEAN"
+					},
+					{
+						"name": "한국_휴장일_여부",
+						"type": "BOOLEAN"
+					},
+					{
+						"name": "미국_휴장일_여부",
+						"type": "BOOLEAN"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/silver_macro')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "silver"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileSystem": "curated"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "date",
+						"type": "DATE"
+					},
+					{
+						"name": "usd_krw_rate",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fx_collected_at_utc",
+						"type": "INT96"
+					},
+					{
+						"name": "yfinance_collected_at_utc",
+						"type": "INT96"
+					},
+					{
+						"name": "yfinance_amd_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_asml_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_intc_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_mu_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_nvda_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_samsung_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_skhynix_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_sox_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_tsm_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_wdc_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_collected_at_utc",
+						"type": "INT96"
+					},
+					{
+						"name": "fred_bamlh0a0hym2",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_dff",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_dfii10",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_dgs10",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_dgs2",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_t10y2y",
+						"type": "FLOAT"
+					},
+					{
+						"name": "final_date",
+						"type": "DATE"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/silver_semiconductor')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "silver"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileSystem": "curated"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "기준일자",
+						"type": "DATE"
+					},
+					{
+						"name": "요일",
+						"type": "INT32"
+					},
+					{
+						"name": "주말여부",
+						"type": "BOOLEAN"
+					},
+					{
+						"name": "한국_휴장일_여부",
+						"type": "BOOLEAN"
+					},
+					{
+						"name": "미국_휴장일_여부",
+						"type": "BOOLEAN"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/yahoo_finance')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "raw-1y"
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "yahoo_finance_raw_20260408.csv",
+						"folderPath": "yfinance/year=2026/month=04/day=08",
+						"fileSystem": "raw"
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\\",
+					"firstRowAsHeader": true,
+					"quoteChar": "\""
+				},
+				"schema": [
+					{
+						"name": "Date",
+						"type": "String"
+					},
+					{
+						"name": "Ticker",
+						"type": "String"
+					},
+					{
+						"name": "Name",
+						"type": "String"
+					},
+					{
+						"name": "Open",
+						"type": "String"
+					},
+					{
+						"name": "High",
+						"type": "String"
+					},
+					{
+						"name": "Low",
+						"type": "String"
+					},
+					{
+						"name": "Close",
+						"type": "String"
+					},
+					{
+						"name": "Volume",
+						"type": "String"
+					}
+				]
 			},
 			"dependsOn": [
 				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
@@ -432,7 +3700,6 @@
 			"type": "Microsoft.DataFactory/factories/linkedServices",
 			"apiVersion": "2018-06-01",
 			"properties": {
-				"description": "2차 프로젝트 1팀 ADLS",
 				"annotations": [],
 				"type": "AzureBlobFS",
 				"typeProperties": {
@@ -494,19 +3761,6 @@
 			]
 		},
 		{
-			"name": "[concat(parameters('factoryName'), '/AzureKeyVault1')]",
-			"type": "Microsoft.DataFactory/factories/linkedServices",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"annotations": [],
-				"type": "AzureKeyVault",
-				"typeProperties": {
-					"baseUrl": "[parameters('AzureKeyVault1_properties_typeProperties_baseUrl')]"
-				}
-			},
-			"dependsOn": []
-		},
-		{
 			"name": "[concat(parameters('factoryName'), '/AzureKeyVault2')]",
 			"type": "Microsoft.DataFactory/factories/linkedServices",
 			"apiVersion": "2018-06-01",
@@ -515,6 +3769,29 @@
 				"type": "AzureKeyVault",
 				"typeProperties": {
 					"baseUrl": "[parameters('AzureKeyVault2_properties_typeProperties_baseUrl')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AzurePostgreSql1')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzurePostgreSql",
+				"version": "2.0",
+				"typeProperties": {
+					"server": "[parameters('AzurePostgreSql1_properties_typeProperties_server')]",
+					"port": "5432",
+					"database": "[parameters('AzurePostgreSql1_properties_typeProperties_database')]",
+					"sslMode": 3,
+					"username": "[parameters('AzurePostgreSql1_properties_typeProperties_username')]",
+					"password": {
+						"type": "SecureString",
+						"value": "[parameters('AzurePostgreSql1_password')]"
+					},
+					"authenticationType": "Basic"
 				}
 			},
 			"dependsOn": []
@@ -575,16 +3852,8 @@
 			"properties": {
 				"description": "1시간 마다 자동 실행",
 				"annotations": [],
-				"runtimeState": "Started",
-				"pipelines": [
-					{
-						"pipelineReference": {
-							"referenceName": "pl_bing_news_ingestion",
-							"type": "PipelineReference"
-						},
-						"parameters": {}
-					}
-				],
+				"runtimeState": "Stopped",
+				"pipelines": [],
 				"type": "ScheduleTrigger",
 				"typeProperties": {
 					"recurrence": {
@@ -596,8 +3865,466 @@
 					}
 				}
 			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Flow1 macro join')]",
+			"type": "Microsoft.DataFactory/factories/dataflows",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"type": "MappingDataFlow",
+				"typeProperties": {
+					"sources": [
+						{
+							"dataset": {
+								"referenceName": "yahoo_finance",
+								"type": "DatasetReference"
+							},
+							"name": "yfinance"
+						},
+						{
+							"dataset": {
+								"referenceName": "foreign_exchange",
+								"type": "DatasetReference"
+							},
+							"name": "fx"
+						},
+						{
+							"dataset": {
+								"referenceName": "fred",
+								"type": "DatasetReference"
+							},
+							"name": "fred"
+						}
+					],
+					"sinks": [
+						{
+							"dataset": {
+								"referenceName": "silver_join",
+								"type": "DatasetReference"
+							},
+							"name": "sink1"
+						}
+					],
+					"transformations": [
+						{
+							"name": "derivedColumn1"
+						},
+						{
+							"name": "derivedColumn2"
+						},
+						{
+							"name": "derivedColumn3"
+						},
+						{
+							"name": "pivot1"
+						},
+						{
+							"name": "pivot2"
+						},
+						{
+							"name": "select1"
+						},
+						{
+							"name": "join1"
+						},
+						{
+							"name": "join2"
+						},
+						{
+							"name": "derivedColumn4"
+						}
+					],
+					"scriptLines": [
+						"source(output(",
+						"          Date as string,",
+						"          Ticker as string,",
+						"          Name as string,",
+						"          Open as string,",
+						"          High as string,",
+						"          Low as string,",
+						"          Close as string,",
+						"          Volume as string",
+						"     ),",
+						"     allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     ignoreNoFilesFound: false) ~> yfinance",
+						"source(output(",
+						"          date as string,",
+						"          base as string,",
+						"          quote as string,",
+						"          rate as string",
+						"     ),",
+						"     allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     ignoreNoFilesFound: false) ~> fx",
+						"source(output(",
+						"          {관측일자} as string,",
+						"          {지표코드} as string,",
+						"          {금리값} as string,",
+						"          {수집일시} as string",
+						"     ),",
+						"     allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     ignoreNoFilesFound: false) ~> fred",
+						"yfinance derive(date = toDate(Date),",
+						"          close_float = toFloat(Close),",
+						"          yfinance_collected_at_utc = currentUTC(),",
+						"          mapped_ticker = case(\r",
+						"    Ticker == 'NVDA', 'nvda',\r",
+						"    Ticker == 'TSM', 'tsm',\r",
+						"    Ticker == 'AMD', 'amd',\r",
+						"    Ticker == 'INTC', 'intc',\r",
+						"    Ticker == 'ASML', 'asml',\r",
+						"    Ticker == 'MU', 'mu',\r",
+						"    Ticker == 'WDC', 'wdc',\r",
+						"    Ticker == '^SOX', 'sox',\r",
+						"    Ticker == '005930.KS', 'samsung',\r",
+						"    Ticker == '000660.KS', 'skhynix',\r",
+						"    lower(replace(Ticker, '.KS', ''))\r",
+						")) ~> derivedColumn1",
+						"fx derive(date = toDate(date),",
+						"          usd_krw_rate = toFloat(rate),",
+						"          fx_collected_at_utc = currentUTC(),",
+						"          provider = 'Frankfurter') ~> derivedColumn2",
+						"fred derive(date = toDate({관측일자}),",
+						"          rate_float = toFloat({금리값}),",
+						"          fred_collected_at_utc = toTimestamp({수집일시},'yyyy-MM-dd HH:mm:ss') - toLong(32400000),",
+						"          indicator_lower = lower({지표코드}),",
+						"          provider = 'FRED') ~> derivedColumn3",
+						"derivedColumn1 pivot(groupBy(derivedColumn1@date,",
+						"          yfinance_collected_at_utc),",
+						"     pivotBy(mapped_ticker),",
+						"     {} = first(close_float),",
+						"     columnNaming: 'yfinance_$N$V_close',",
+						"     lateral: true) ~> pivot1",
+						"derivedColumn3 pivot(groupBy(date,",
+						"          fred_collected_at_utc),",
+						"     pivotBy(indicator_lower),",
+						"     {} = first(rate_float),",
+						"     columnNaming: 'fred_$N$V',",
+						"     lateral: true) ~> pivot2",
+						"derivedColumn2 select(mapColumn(",
+						"          date,",
+						"          usd_krw_rate,",
+						"          fx_collected_at_utc",
+						"     ),",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true) ~> select1",
+						"select1, pivot1 join(select1@date == pivot1@date,",
+						"     joinType:'outer',",
+						"     matchType:'exact',",
+						"     ignoreSpaces: false,",
+						"     broadcast: 'auto')~> join1",
+						"join1, pivot2 join(pivot1@date == pivot2@date,",
+						"     joinType:'outer',",
+						"     matchType:'exact',",
+						"     ignoreSpaces: false,",
+						"     broadcast: 'auto')~> join2",
+						"join2 derive(final_date = coalesce(select1@date, pivot1@date, pivot2@date)) ~> derivedColumn4",
+						"derivedColumn4 sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     format: 'parquet',",
+						"     partitionFileNames:['bronze_macro_join.parquet'],",
+						"     umask: 0022,",
+						"     preCommands: [],",
+						"     postCommands: [],",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true,",
+						"     partitionBy('hash', 1)) ~> sink1"
+					]
+				}
+			},
 			"dependsOn": [
-				"[concat(variables('factoryId'), '/pipelines/pl_bing_news_ingestion')]"
+				"[concat(variables('factoryId'), '/datasets/yahoo_finance')]",
+				"[concat(variables('factoryId'), '/datasets/foreign_exchange')]",
+				"[concat(variables('factoryId'), '/datasets/fred')]",
+				"[concat(variables('factoryId'), '/datasets/silver_join')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Flow2 macro save')]",
+			"type": "Microsoft.DataFactory/factories/dataflows",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"type": "MappingDataFlow",
+				"typeProperties": {
+					"sources": [
+						{
+							"dataset": {
+								"referenceName": "silver_join",
+								"type": "DatasetReference"
+							},
+							"name": "source1"
+						}
+					],
+					"sinks": [
+						{
+							"dataset": {
+								"referenceName": "silver_macro",
+								"type": "DatasetReference"
+							},
+							"name": "sink1"
+						}
+					],
+					"transformations": [
+						{
+							"name": "MapDrifted1",
+							"description": "각 드리프트된 열의 명시적 매핑을 만듭니다."
+						},
+						{
+							"name": "select1"
+						}
+					],
+					"scriptLines": [
+						"source(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     ignoreNoFilesFound: false,",
+						"     format: 'parquet') ~> source1",
+						"source1 derive(date = toDate(byName('date')),",
+						"          usd_krw_rate = toFloat(byName('usd_krw_rate')),",
+						"          fx_collected_at_utc = toTimestamp(byName('fx_collected_at_utc')),",
+						"          yfinance_collected_at_utc = toTimestamp(byName('yfinance_collected_at_utc')),",
+						"          yfinance_amd_close = toFloat(byName('yfinance_amd_close')),",
+						"          yfinance_asml_close = toFloat(byName('yfinance_asml_close')),",
+						"          yfinance_intc_close = toFloat(byName('yfinance_intc_close')),",
+						"          yfinance_mu_close = toFloat(byName('yfinance_mu_close')),",
+						"          yfinance_nvda_close = toFloat(byName('yfinance_nvda_close')),",
+						"          yfinance_samsung_close = toFloat(byName('yfinance_samsung_close')),",
+						"          yfinance_skhynix_close = toFloat(byName('yfinance_skhynix_close')),",
+						"          yfinance_sox_close = toFloat(byName('yfinance_sox_close')),",
+						"          yfinance_tsm_close = toFloat(byName('yfinance_tsm_close')),",
+						"          yfinance_wdc_close = toFloat(byName('yfinance_wdc_close')),",
+						"          fred_collected_at_utc = toTimestamp(byName('fred_collected_at_utc')),",
+						"          fred_bamlh0a0hym2 = toFloat(byName('fred_bamlh0a0hym2')),",
+						"          fred_dff = toFloat(byName('fred_dff')),",
+						"          fred_dfii10 = toFloat(byName('fred_dfii10')),",
+						"          fred_dgs10 = toFloat(byName('fred_dgs10')),",
+						"          fred_dgs2 = toFloat(byName('fred_dgs2')),",
+						"          fred_t10y2y = toFloat(byName('fred_t10y2y')),",
+						"          final_date = toDate(byName('final_date'))) ~> MapDrifted1",
+						"MapDrifted1 select(mapColumn(",
+						"          date = final_date,",
+						"          usd_krw_rate,",
+						"          yfinance_amd_close,",
+						"          yfinance_asml_close,",
+						"          yfinance_intc_close,",
+						"          yfinance_mu_close,",
+						"          yfinance_nvda_close,",
+						"          yfinance_samsung_close,",
+						"          yfinance_skhynix_close,",
+						"          yfinance_sox_close,",
+						"          yfinance_tsm_close,",
+						"          yfinance_wdc_close,",
+						"          fred_bamlh0a0hym2,",
+						"          fred_dff,",
+						"          fred_dfii10,",
+						"          fred_dgs10,",
+						"          fred_dgs2,",
+						"          fred_t10y2y,",
+						"          fx_collected_at_utc,",
+						"          yfinance_collected_at_utc,",
+						"          fred_collected_at_utc",
+						"     ),",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true) ~> select1",
+						"select1 sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     input(",
+						"          date as date,",
+						"          usd_krw_rate as float,",
+						"          fx_collected_at_utc as timestamp,",
+						"          yfinance_collected_at_utc as timestamp,",
+						"          yfinance_amd_close as float,",
+						"          yfinance_asml_close as float,",
+						"          yfinance_intc_close as float,",
+						"          yfinance_mu_close as float,",
+						"          yfinance_nvda_close as float,",
+						"          yfinance_samsung_close as float,",
+						"          yfinance_skhynix_close as float,",
+						"          yfinance_sox_close as float,",
+						"          yfinance_tsm_close as float,",
+						"          yfinance_wdc_close as float,",
+						"          fred_collected_at_utc as timestamp,",
+						"          fred_bamlh0a0hym2 as float,",
+						"          fred_dff as float,",
+						"          fred_dfii10 as float,",
+						"          fred_dgs10 as float,",
+						"          fred_dgs2 as float,",
+						"          fred_t10y2y as float,",
+						"          final_date as date",
+						"     ),",
+						"     format: 'parquet',",
+						"     partitionFileNames:['silver_macro_1y_adf.parquet'],",
+						"     umask: 0022,",
+						"     preCommands: [],",
+						"     postCommands: [],",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true,",
+						"     partitionBy('hash', 1)) ~> sink1"
+					]
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/silver_join')]",
+				"[concat(variables('factoryId'), '/datasets/silver_macro')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Flow3 macro plus')]",
+			"type": "Microsoft.DataFactory/factories/dataflows",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"type": "MappingDataFlow",
+				"typeProperties": {
+					"sources": [
+						{
+							"dataset": {
+								"referenceName": "semiconductor_trade",
+								"type": "DatasetReference"
+							},
+							"name": "semiconductor"
+						},
+						{
+							"dataset": {
+								"referenceName": "Parquet2",
+								"type": "DatasetReference"
+							},
+							"name": "gfinance"
+						}
+					],
+					"sinks": [
+						{
+							"dataset": {
+								"referenceName": "silver_semiconductor",
+								"type": "DatasetReference"
+							},
+							"name": "sink1"
+						},
+						{
+							"dataset": {
+								"referenceName": "silver_kfinance",
+								"type": "DatasetReference"
+							},
+							"name": "sink2"
+						}
+					],
+					"transformations": [
+						{
+							"name": "derivedColumn1"
+						},
+						{
+							"name": "select1"
+						},
+						{
+							"name": "derivedColumn2"
+						},
+						{
+							"name": "select2"
+						}
+					],
+					"scriptLines": [
+						"source(output(",
+						"          balPayments as long,",
+						"          expDlr as long,",
+						"          expWgt as long,",
+						"          hsCode as long,",
+						"          impDlr as long,",
+						"          impWgt as long,",
+						"          statKor as string,",
+						"          year as string",
+						"     ),",
+						"     allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     ignoreNoFilesFound: false,",
+						"     format: 'parquet') ~> semiconductor",
+						"source(output(",
+						"          basDt as string,",
+						"          prdCtg as string,",
+						"          srtnCd as string,",
+						"          isinCd as string,",
+						"          itmsNm as string,",
+						"          clpr as string,",
+						"          vs as string,",
+						"          mkp as string,",
+						"          hipr as string,",
+						"          lopr as string,",
+						"          nxtDdBsPrc as string,",
+						"          iptVlty as string,",
+						"          trqu as string,",
+						"          trPrc as string,",
+						"          opnint as string,",
+						"          year_month as string",
+						"     ),",
+						"     allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     ignoreNoFilesFound: false,",
+						"     format: 'parquet') ~> gfinance",
+						"semiconductor derive(date = toDate(toString(year) + '.01', 'yyyy.MM.dd'),",
+						"          semiconductor_collected_at_utc = currentUTC()) ~> derivedColumn1",
+						"derivedColumn1 select(mapColumn(",
+						"          date,",
+						"          hsCode,",
+						"          statKor,",
+						"          expDlr,",
+						"          impDlr,",
+						"          semiconductor_collected_at_utc",
+						"     ),",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true) ~> select1",
+						"gfinance derive(date = toDate(basDt,'yyyyMMdd'),",
+						"          kfinance_collected_at_utc = currentUTC(),",
+						"          ticker = 'kfinance_' + srtnCd) ~> derivedColumn2",
+						"derivedColumn2 select(mapColumn(",
+						"          date,",
+						"          ticker,",
+						"          close_price = clpr,",
+						"          kfinance_collected_at_utc",
+						"     ),",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true) ~> select2",
+						"select1 sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     input(",
+						"          {기준일자} as date,",
+						"          {요일} as integer,",
+						"          {주말여부} as boolean,",
+						"          {한국_휴장일_여부} as boolean,",
+						"          {미국_휴장일_여부} as boolean",
+						"     ),",
+						"     format: 'parquet',",
+						"     partitionFileNames:['silver_semiconductor.parquet'],",
+						"     umask: 0022,",
+						"     preCommands: [],",
+						"     postCommands: [],",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true,",
+						"     partitionBy('hash', 1)) ~> sink1",
+						"select2 sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     input(",
+						"          {기준일자} as date,",
+						"          {요일} as integer,",
+						"          {주말여부} as boolean,",
+						"          {한국_휴장일_여부} as boolean,",
+						"          {미국_휴장일_여부} as boolean",
+						"     ),",
+						"     format: 'parquet',",
+						"     partitionFileNames:['silver_kfinance.parquet'],",
+						"     umask: 0022,",
+						"     preCommands: [],",
+						"     postCommands: [],",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true,",
+						"     partitionBy('hash', 1)) ~> sink2"
+					]
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/semiconductor_trade')]",
+				"[concat(variables('factoryId'), '/datasets/Parquet2')]",
+				"[concat(variables('factoryId'), '/datasets/silver_semiconductor')]",
+				"[concat(variables('factoryId'), '/datasets/silver_kfinance')]"
 			]
 		}
 	]

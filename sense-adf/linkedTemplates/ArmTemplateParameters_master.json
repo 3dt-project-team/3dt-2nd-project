@@ -8,6 +8,9 @@
 		"3dtteam1adls_accountKey": {
 			"value": ""
 		},
+		"AzurePostgreSql1_password": {
+			"value": ""
+		},
 		"bing_news_collctor_functionKey": {
 			"value": ""
 		},
@@ -20,11 +23,17 @@
 		"AzureDatabricks2_3_properties_typeProperties_existingClusterId": {
 			"value": "0409-064605-dkvq8aed"
 		},
-		"AzureKeyVault1_properties_typeProperties_baseUrl": {
-			"value": "https://kv-3dt-team1.vault.azure.net/"
-		},
 		"AzureKeyVault2_properties_typeProperties_baseUrl": {
 			"value": "https://kv-3dt-team1.vault.azure.net/"
+		},
+		"AzurePostgreSql1_properties_typeProperties_server": {
+			"value": "sense-pg-server.postgres.database.azure.com"
+		},
+		"AzurePostgreSql1_properties_typeProperties_database": {
+			"value": "postgres"
+		},
+		"AzurePostgreSql1_properties_typeProperties_username": {
+			"value": "senseadmin"
 		},
 		"bing_news_collctor_properties_typeProperties_functionAppUrl": {
 			"value": "https://e-news-collector-c2hmf3cpeefzateh.koreacentral-01.azurewebsites.net"

@@ -11,6 +11,10 @@
 			"type": "secureString",
 			"metadata": "'3dtteam1adls'의 'accountKey'에 대한 보안 문자열"
 		},
+		"AzurePostgreSql1_password": {
+			"type": "secureString",
+			"metadata": "'AzurePostgreSql1'의 'password'에 대한 보안 문자열"
+		},
 		"bing_news_collctor_functionKey": {
 			"type": "secureString",
 			"metadata": "'bing_news_collctor'의 'functionKey'에 대한 보안 문자열"
@@ -19,25 +23,25 @@
 			"type": "string",
 			"defaultValue": "https://3dtteam1adls.dfs.core.windows.net/"
 		},
-		"AzureKeyVault1_properties_typeProperties_baseUrl": {
-			"type": "string",
-			"defaultValue": "https://kv-3dt-team1.vault.azure.net/"
-		},
 		"AzureKeyVault2_properties_typeProperties_baseUrl": {
 			"type": "string",
 			"defaultValue": "https://kv-3dt-team1.vault.azure.net/"
 		},
+		"AzurePostgreSql1_properties_typeProperties_server": {
+			"type": "string",
+			"defaultValue": "sense-pg-server.postgres.database.azure.com"
+		},
+		"AzurePostgreSql1_properties_typeProperties_database": {
+			"type": "string",
+			"defaultValue": "postgres"
+		},
+		"AzurePostgreSql1_properties_typeProperties_username": {
+			"type": "string",
+			"defaultValue": "senseadmin"
+		},
 		"bing_news_collctor_properties_typeProperties_functionAppUrl": {
 			"type": "string",
 			"defaultValue": "https://e-news-collector-c2hmf3cpeefzateh.koreacentral-01.azurewebsites.net"
-		},
-		"AzureDatabricks2_properties_typeProperties_existingClusterId": {
-			"type": "string",
-			"defaultValue": "0409-063427-sodu1olk"
-		},
-		"AzureDatabricks2_3_properties_typeProperties_existingClusterId": {
-			"type": "string",
-			"defaultValue": "0409-064605-dkvq8aed"
 		}
 	},
 	"variables": {
@@ -49,7 +53,6 @@
 			"type": "Microsoft.DataFactory/factories/linkedServices",
 			"apiVersion": "2018-06-01",
 			"properties": {
-				"description": "2차 프로젝트 1팀 ADLS",
 				"annotations": [],
 				"type": "AzureBlobFS",
 				"typeProperties": {
@@ -63,19 +66,6 @@
 			"dependsOn": []
 		},
 		{
-			"name": "[concat(parameters('factoryName'), '/AzureKeyVault1')]",
-			"type": "Microsoft.DataFactory/factories/linkedServices",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"annotations": [],
-				"type": "AzureKeyVault",
-				"typeProperties": {
-					"baseUrl": "[parameters('AzureKeyVault1_properties_typeProperties_baseUrl')]"
-				}
-			},
-			"dependsOn": []
-		},
-		{
 			"name": "[concat(parameters('factoryName'), '/AzureKeyVault2')]",
 			"type": "Microsoft.DataFactory/factories/linkedServices",
 			"apiVersion": "2018-06-01",
@@ -84,6 +74,29 @@
 				"type": "AzureKeyVault",
 				"typeProperties": {
 					"baseUrl": "[parameters('AzureKeyVault2_properties_typeProperties_baseUrl')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AzurePostgreSql1')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzurePostgreSql",
+				"version": "2.0",
+				"typeProperties": {
+					"server": "[parameters('AzurePostgreSql1_properties_typeProperties_server')]",
+					"port": "5432",
+					"database": "[parameters('AzurePostgreSql1_properties_typeProperties_database')]",
+					"sslMode": 3,
+					"username": "[parameters('AzurePostgreSql1_properties_typeProperties_username')]",
+					"password": {
+						"type": "SecureString",
+						"value": "[parameters('AzurePostgreSql1_password')]"
+					},
+					"authenticationType": "Basic"
 				}
 			},
 			"dependsOn": []
@@ -107,45 +120,775 @@
 			"dependsOn": []
 		},
 		{
-			"name": "[concat(parameters('factoryName'), '/pl_bing_news_ingestion')]",
-			"type": "Microsoft.DataFactory/factories/pipelines",
+			"name": "[concat(parameters('factoryName'), '/tr_every_1hour_bing_news')]",
+			"type": "Microsoft.DataFactory/factories/triggers",
 			"apiVersion": "2018-06-01",
 			"properties": {
-				"activities": [
+				"description": "1시간 마다 자동 실행",
+				"annotations": [],
+				"runtimeState": "Stopped",
+				"pipelines": [],
+				"type": "ScheduleTrigger",
+				"typeProperties": {
+					"recurrence": {
+						"frequency": "Hour",
+						"interval": 1,
+						"startTime": "2026-04-11T07:50:00",
+						"endTime": "2026-04-25T07:50:00",
+						"timeZone": "Korea Standard Time"
+					}
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PG_macro_1y')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzurePostgreSql1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzurePostgreSqlTable",
+				"schema": [
 					{
-						"name": "Get_Bing_News",
-						"type": "AzureFunctionActivity",
-						"dependsOn": [],
-						"policy": {
-							"timeout": "0.12:00:00",
-							"retry": 0,
-							"retryIntervalInSeconds": 30,
-							"secureOutput": false,
-							"secureInput": false
-						},
-						"userProperties": [],
-						"typeProperties": {
-							"functionName": "collect",
-							"body": {
-								"value": "{}",
-								"type": "Expression"
-							},
-							"headers": {},
-							"method": "POST"
-						},
-						"linkedServiceName": {
-							"referenceName": "bing_news_collctor",
-							"type": "LinkedServiceReference"
-						}
+						"name": "series_id",
+						"type": "smallint",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "ticker",
+						"type": "character varying",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "display_name",
+						"type": "character varying",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "category",
+						"type": "character varying",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "unit",
+						"type": "character varying",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "data_source",
+						"type": "character varying",
+						"precision": 0,
+						"scale": 0
 					}
 				],
-				"policy": {
-					"elapsedTimeMetric": {}
-				},
-				"annotations": []
+				"typeProperties": {
+					"schema": "gold_macro",
+					"table": "fact_yf_fx_fred_1y"
+				}
 			},
 			"dependsOn": [
-				"[concat(variables('factoryId'), '/linkedServices/bing_news_collctor')]"
+				"[concat(variables('factoryId'), '/linkedServices/AzurePostgreSql1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PG_macro_all')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzurePostgreSql1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzurePostgreSqlTable",
+				"schema": [
+					{
+						"name": "base_date",
+						"type": "date",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "year",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "month",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "nvda_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "tsm_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "amd_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "intc_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "asml_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "mu_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "wdc_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "sox_index_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "samsung_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "skhynix_close",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "nvda_log_return",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "nvda_volatility_gk",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "nvda_volatility_5d",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "sox_log_return",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "sox_volatility_5d",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "dgs10",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "dgs2",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "dff",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "dfii10",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "t10y2y",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "bamlh0a0hym2",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "yield_spread",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "yield_spread_change",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "stagnation_pressure",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "usd_krw",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "usd_krw_change",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "usd_krw_pct",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "risk_off_flag",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "export_usd",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "export_change_pct",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "export_momentum",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "call_volume",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "call_oi",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "avg_iv",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "iv_change",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "vol_change_pct",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "iv_surge_flag",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "risk_off_composite",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "macro_stress_score",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "fear_composite",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "semi_risk_signal",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "korea_sensitivity",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "global_risk_regime",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "is_high_risk",
+						"type": "integer",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "created_at_utc",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					}
+				],
+				"typeProperties": {
+					"schema": "gold_macro",
+					"table": "fact_macro_all"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzurePostgreSql1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PG_macro_kfinance')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzurePostgreSql1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzurePostgreSqlTable",
+				"schema": [
+					{
+						"name": "base_date",
+						"type": "date",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "ticker",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "close_price",
+						"type": "double precision",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "collected_at_utc",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "created_at",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					}
+				],
+				"typeProperties": {
+					"schema": "gold_macro",
+					"table": "fact_kfinance"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzurePostgreSql1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PG_macro_metadata')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzurePostgreSql1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzurePostgreSqlTable",
+				"schema": [
+					{
+						"name": "unified_id",
+						"type": "bigint",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "series_key",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "source_table",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "date_column_name",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "source_column_name",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "series_code",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "display_name",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "category",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "subcategory",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "unit",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "data_source",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "frequency",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "market_scope",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "description",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "is_active",
+						"type": "boolean",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "created_at_utc",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "updated_at_utc",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					}
+				],
+				"typeProperties": {
+					"schema": "gold_macro",
+					"table": "dim_macro_metadatas"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzurePostgreSql1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PG_macro_semiconductor')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzurePostgreSql1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzurePostgreSqlTable",
+				"schema": [
+					{
+						"name": "base_date",
+						"type": "date",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "hs_code",
+						"type": "bigint",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "stat_kor",
+						"type": "text",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "export_dollar",
+						"type": "bigint",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "import_dollar",
+						"type": "bigint",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "collected_at_utc",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					},
+					{
+						"name": "created_at",
+						"type": "timestamp with time zone",
+						"precision": 0,
+						"scale": 0
+					}
+				],
+				"typeProperties": {
+					"schema": "gold_macro",
+					"table": "fact_semiconductor_trade"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzurePostgreSql1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Parquet2')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "raw-1y/gov_finance"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"folderPath": "public_data/finance/options",
+						"fileSystem": "raw"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "basDt",
+						"type": "UTF8"
+					},
+					{
+						"name": "prdCtg",
+						"type": "UTF8"
+					},
+					{
+						"name": "srtnCd",
+						"type": "UTF8"
+					},
+					{
+						"name": "isinCd",
+						"type": "UTF8"
+					},
+					{
+						"name": "itmsNm",
+						"type": "UTF8"
+					},
+					{
+						"name": "clpr",
+						"type": "UTF8"
+					},
+					{
+						"name": "vs",
+						"type": "UTF8"
+					},
+					{
+						"name": "mkp",
+						"type": "UTF8"
+					},
+					{
+						"name": "hipr",
+						"type": "UTF8"
+					},
+					{
+						"name": "lopr",
+						"type": "UTF8"
+					},
+					{
+						"name": "nxtDdBsPrc",
+						"type": "UTF8"
+					},
+					{
+						"name": "iptVlty",
+						"type": "UTF8"
+					},
+					{
+						"name": "trqu",
+						"type": "UTF8"
+					},
+					{
+						"name": "trPrc",
+						"type": "UTF8"
+					},
+					{
+						"name": "opnint",
+						"type": "UTF8"
+					},
+					{
+						"name": "year_month",
+						"type": "UTF8"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/foreign_exchange')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "raw-1y"
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "usd_krw_250406-260406.csv",
+						"folderPath": "fx/usd_krw",
+						"fileSystem": "raw"
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\\",
+					"firstRowAsHeader": true,
+					"quoteChar": "\""
+				},
+				"schema": [
+					{
+						"name": "date",
+						"type": "String"
+					},
+					{
+						"name": "base",
+						"type": "String"
+					},
+					{
+						"name": "quote",
+						"type": "String"
+					},
+					{
+						"name": "rate",
+						"type": "String"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
 			]
 		},
 		{
@@ -247,7 +990,7 @@
 			]
 		},
 		{
-			"name": "[concat(parameters('factoryName'), '/silver_join')]",
+			"name": "[concat(parameters('factoryName'), '/gold_kfinance')]",
 			"type": "Microsoft.DataFactory/factories/datasets",
 			"apiVersion": "2018-06-01",
 			"properties": {
@@ -255,23 +998,543 @@
 					"referenceName": "3dtteam1adls",
 					"type": "LinkedServiceReference"
 				},
+				"folder": {
+					"name": "gold"
+				},
 				"annotations": [],
 				"type": "Parquet",
 				"typeProperties": {
 					"location": {
 						"type": "AzureBlobFSLocation",
+						"fileName": "silver_kfinance.parquet",
 						"fileSystem": "curated"
 					},
 					"compressionCodec": "snappy"
 				},
-				"schema": []
+				"schema": [
+					{
+						"name": "date",
+						"type": "DATE"
+					},
+					{
+						"name": "ticker",
+						"type": "UTF8"
+					},
+					{
+						"name": "close_price",
+						"type": "UTF8"
+					},
+					{
+						"name": "kfinance_collected_at_utc",
+						"type": "INT96"
+					}
+				]
 			},
 			"dependsOn": [
 				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
 			]
 		},
 		{
-			"name": "[concat(parameters('factoryName'), '/yfinance')]",
+			"name": "[concat(parameters('factoryName'), '/gold_macro')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "gold"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"folderPath": "sense_macro",
+						"fileSystem": "feature"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "date",
+						"type": "DATE"
+					},
+					{
+						"name": "NVDA",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "TSM",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "AMD",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "INTC",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "ASML",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "MU",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "WDC",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "^SOX",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "005930.KS",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "000660.KS",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "NVDA_log_return",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "NVDA_volatility_gk",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "NVDA_volatility_5d",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "SOX_log_return",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "SOX_volatility_5d",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "DGS10",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "DGS2",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "DFF",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "DFII10",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "T10Y2Y",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "BAMLH0A0HYM2",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "yield_spread",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "yield_spread_change",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "stagnation_pressure",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "usd_krw",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "usd_krw_change",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "usd_krw_pct",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "risk_off_flag",
+						"type": "INT32"
+					},
+					{
+						"name": "export_usd",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "export_change_pct",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "export_momentum",
+						"type": "INT32"
+					},
+					{
+						"name": "call_volume",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "call_oi",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "avg_iv",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "iv_change",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "vol_change_pct",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "iv_surge_flag",
+						"type": "INT32"
+					},
+					{
+						"name": "risk_off_composite",
+						"type": "INT32"
+					},
+					{
+						"name": "macro_stress_score",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "fear_composite",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "semi_risk_signal",
+						"type": "INT32"
+					},
+					{
+						"name": "korea_sensitivity",
+						"type": "DOUBLE"
+					},
+					{
+						"name": "global_risk_regime",
+						"type": "INT32"
+					},
+					{
+						"name": "is_high_risk",
+						"type": "INT32"
+					},
+					{
+						"name": "year",
+						"type": "UTF8"
+					},
+					{
+						"name": "month",
+						"type": "UTF8"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/gold_macro_metadata')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "gold"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "part-00000-tid-4049927274065567836-e9da4f10-70aa-4e4e-a35a-e120282c4d5a-42-1-c000.snappy.parquet",
+						"folderPath": "dim_macro_metadata",
+						"fileSystem": "feature"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "unified_id",
+						"type": "INT32"
+					},
+					{
+						"name": "series_key",
+						"type": "UTF8"
+					},
+					{
+						"name": "source_table",
+						"type": "UTF8"
+					},
+					{
+						"name": "date_column_name",
+						"type": "UTF8"
+					},
+					{
+						"name": "source_column_name",
+						"type": "UTF8"
+					},
+					{
+						"name": "series_code",
+						"type": "UTF8"
+					},
+					{
+						"name": "display_name",
+						"type": "UTF8"
+					},
+					{
+						"name": "category",
+						"type": "UTF8"
+					},
+					{
+						"name": "subcategory",
+						"type": "UTF8"
+					},
+					{
+						"name": "unit",
+						"type": "UTF8"
+					},
+					{
+						"name": "data_source",
+						"type": "UTF8"
+					},
+					{
+						"name": "frequency",
+						"type": "UTF8"
+					},
+					{
+						"name": "market_scope",
+						"type": "UTF8"
+					},
+					{
+						"name": "description",
+						"type": "UTF8"
+					},
+					{
+						"name": "is_active",
+						"type": "BOOLEAN"
+					},
+					{
+						"name": "created_at_utc",
+						"type": "INT96"
+					},
+					{
+						"name": "updated_at_utc",
+						"type": "INT96"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/gold_semiconductor')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "gold"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "part-00000-tid-5840837349685287444-cd998ce0-6c0d-4e2c-95a6-2de1eecd2b6e-4-1-c000.snappy.parquet",
+						"folderPath": "macro_semiconductor",
+						"fileSystem": "feature"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "date",
+						"type": "DATE"
+					},
+					{
+						"name": "hsCode",
+						"type": "INT64"
+					},
+					{
+						"name": "statKor",
+						"type": "UTF8"
+					},
+					{
+						"name": "expDlr",
+						"type": "INT64"
+					},
+					{
+						"name": "impDlr",
+						"type": "INT64"
+					},
+					{
+						"name": "semiconductor_collected_at_utc",
+						"type": "INT96"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/gold_yf_fx_fred')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "3dtteam1adls",
+					"type": "LinkedServiceReference"
+				},
+				"folder": {
+					"name": "gold"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "part-00000-tid-1681513830616896574-41927a7d-00fa-479b-a9be-932d092d1b1b-25-1-c000.snappy.parquet",
+						"folderPath": "gold_macro_1y",
+						"fileSystem": "feature"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": [
+					{
+						"name": "기준일자",
+						"type": "DATE"
+					},
+					{
+						"name": "요일",
+						"type": "INT32"
+					},
+					{
+						"name": "주말여부",
+						"type": "BOOLEAN"
+					},
+					{
+						"name": "한국_휴장일_여부",
+						"type": "BOOLEAN"
+					},
+					{
+						"name": "미국_휴장일_여부",
+						"type": "BOOLEAN"
+					},
+					{
+						"name": "usd_krw_rate",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_amd_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_asml_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_intc_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_mu_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_nvda_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_samsung_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_skhynix_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_sox_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_tsm_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "yfinance_wdc_close",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_bamlh0a0hym2",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_dff",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_dfii10",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_dgs10",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_dgs2",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fred_t10y2y",
+						"type": "FLOAT"
+					},
+					{
+						"name": "fx_collected_at_utc",
+						"type": "INT96"
+					},
+					{
+						"name": "yfinance_collected_at_utc",
+						"type": "INT96"
+					},
+					{
+						"name": "fred_collected_at_utc",
+						"type": "INT96"
+					}
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/semiconductor_trade')]",
 			"type": "Microsoft.DataFactory/factories/datasets",
 			"apiVersion": "2018-06-01",
 			"properties": {
@@ -283,321 +1546,53 @@
 					"name": "raw-1y"
 				},
 				"annotations": [],
-				"type": "DelimitedText",
+				"type": "Parquet",
 				"typeProperties": {
 					"location": {
 						"type": "AzureBlobFSLocation",
-						"fileName": "yahoo_finance_raw_20260408.csv",
-						"folderPath": "yfinance/year=2026/month=04/day=08",
+						"fileName": "semiconductor_trade_2024_to_2026.parquet",
+						"folderPath": "public_data/semiconductor/source=data_go_kr",
 						"fileSystem": "raw"
 					},
-					"columnDelimiter": ",",
-					"escapeChar": "\\",
-					"firstRowAsHeader": true,
-					"quoteChar": "\""
+					"compressionCodec": "snappy"
 				},
 				"schema": [
 					{
-						"name": "Date",
-						"type": "String"
+						"name": "balPayments",
+						"type": "INT64"
 					},
 					{
-						"name": "Ticker",
-						"type": "String"
+						"name": "expDlr",
+						"type": "INT64"
 					},
 					{
-						"name": "Name",
-						"type": "String"
+						"name": "expWgt",
+						"type": "INT64"
 					},
 					{
-						"name": "Open",
-						"type": "String"
+						"name": "hsCode",
+						"type": "INT64"
 					},
 					{
-						"name": "High",
-						"type": "String"
+						"name": "impDlr",
+						"type": "INT64"
 					},
 					{
-						"name": "Low",
-						"type": "String"
+						"name": "impWgt",
+						"type": "INT64"
 					},
 					{
-						"name": "Close",
-						"type": "String"
+						"name": "statKor",
+						"type": "UTF8"
 					},
 					{
-						"name": "Volume",
-						"type": "String"
+						"name": "year",
+						"type": "DOUBLE"
 					}
 				]
 			},
 			"dependsOn": [
 				"[concat(variables('factoryId'), '/linkedServices/3dtteam1adls')]"
-			]
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/AzureDatabricks2')]",
-			"type": "Microsoft.DataFactory/factories/linkedServices",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"annotations": [],
-				"type": "AzureDatabricks",
-				"typeProperties": {
-					"domain": "https://adb-7405616899208386.6.azuredatabricks.net",
-					"accessToken": {
-						"type": "AzureKeyVaultSecret",
-						"store": {
-							"referenceName": "AzureKeyVault2",
-							"type": "LinkedServiceReference"
-						},
-						"secretName": "databricks-pat-token"
-					},
-					"existingClusterId": "[parameters('AzureDatabricks2_properties_typeProperties_existingClusterId')]"
-				}
-			},
-			"dependsOn": [
-				"[concat(variables('factoryId'), '/linkedServices/AzureKeyVault2')]"
-			]
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/AzureDatabricks2_3')]",
-			"type": "Microsoft.DataFactory/factories/linkedServices",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"annotations": [],
-				"type": "AzureDatabricks",
-				"typeProperties": {
-					"domain": "https://adb-7405616899208386.6.azuredatabricks.net",
-					"accessToken": {
-						"type": "AzureKeyVaultSecret",
-						"store": {
-							"referenceName": "AzureKeyVault2",
-							"type": "LinkedServiceReference"
-						},
-						"secretName": "databricks-pat-token"
-					},
-					"existingClusterId": "[parameters('AzureDatabricks2_3_properties_typeProperties_existingClusterId')]"
-				}
-			},
-			"dependsOn": [
-				"[concat(variables('factoryId'), '/linkedServices/AzureKeyVault2')]"
-			]
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/pl_naver_news_preprocessing')]",
-			"type": "Microsoft.DataFactory/factories/pipelines",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"activities": [
-					{
-						"name": "naver_preprocessed",
-						"type": "DatabricksNotebook",
-						"dependsOn": [
-							{
-								"activity": "act_crawl_naver_news",
-								"dependencyConditions": [
-									"Succeeded"
-								]
-							}
-						],
-						"policy": {
-							"timeout": "0.12:00:00",
-							"retry": 0,
-							"retryIntervalInSeconds": 30,
-							"secureOutput": false,
-							"secureInput": false
-						},
-						"userProperties": [],
-						"typeProperties": {
-							"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/naver_news_preprocessing_incremental"
-						},
-						"linkedServiceName": {
-							"referenceName": "AzureDatabricks2",
-							"type": "LinkedServiceReference"
-						}
-					},
-					{
-						"name": "act_crawl_naver_news",
-						"type": "WebActivity",
-						"dependsOn": [],
-						"policy": {
-							"timeout": "0.12:00:00",
-							"retry": 0,
-							"retryIntervalInSeconds": 30,
-							"secureOutput": false,
-							"secureInput": false
-						},
-						"userProperties": [],
-						"typeProperties": {
-							"method": "POST",
-							"headers": {
-								"Content-Type": "application/json"
-							},
-							"url": "https://navernews-collector.azurewebsites.net/api/crawl",
-							"body": {
-								"value": "{}",
-								"type": "Expression"
-							}
-						}
-					},
-					{
-						"name": "Get_Bing_News",
-						"type": "AzureFunctionActivity",
-						"dependsOn": [],
-						"policy": {
-							"timeout": "0.12:00:00",
-							"retry": 0,
-							"retryIntervalInSeconds": 30,
-							"secureOutput": false,
-							"secureInput": false
-						},
-						"userProperties": [],
-						"typeProperties": {
-							"functionName": "collect",
-							"body": {
-								"value": "{}",
-								"type": "Expression"
-							},
-							"headers": {},
-							"method": "POST"
-						},
-						"linkedServiceName": {
-							"referenceName": "bing_news_collctor",
-							"type": "LinkedServiceReference"
-						}
-					},
-					{
-						"name": "bing_google_preprocessed",
-						"type": "DatabricksNotebook",
-						"dependsOn": [
-							{
-								"activity": "Get_Bing_News",
-								"dependencyConditions": [
-									"Succeeded"
-								]
-							}
-						],
-						"policy": {
-							"timeout": "0.12:00:00",
-							"retry": 0,
-							"retryIntervalInSeconds": 30,
-							"secureOutput": false,
-							"secureInput": false
-						},
-						"userProperties": [],
-						"typeProperties": {
-							"notebookPath": "/Repos/3dt020@msacademy.msai.kr/3dt-2nd-project/notebooks/bing&google_integration_silver"
-						},
-						"linkedServiceName": {
-							"referenceName": "AzureDatabricks2",
-							"type": "LinkedServiceReference"
-						}
-					},
-					{
-						"name": "silver_preprocessed",
-						"type": "DatabricksNotebook",
-						"dependsOn": [
-							{
-								"activity": "naver_preprocessed",
-								"dependencyConditions": [
-									"Succeeded"
-								]
-							},
-							{
-								"activity": "bing_google_preprocessed",
-								"dependencyConditions": [
-									"Succeeded"
-								]
-							}
-						],
-						"policy": {
-							"timeout": "0.12:00:00",
-							"retry": 0,
-							"retryIntervalInSeconds": 30,
-							"secureOutput": false,
-							"secureInput": false
-						},
-						"userProperties": [],
-						"typeProperties": {
-							"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/silver_preprocessed_incremental"
-						},
-						"linkedServiceName": {
-							"referenceName": "AzureDatabricks2",
-							"type": "LinkedServiceReference"
-						}
-					}
-				],
-				"policy": {
-					"elapsedTimeMetric": {}
-				},
-				"annotations": []
-			},
-			"dependsOn": [
-				"[concat(variables('factoryId'), '/linkedServices/AzureDatabricks2')]",
-				"[concat(variables('factoryId'), '/linkedServices/bing_news_collctor')]"
-			]
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/tr_every_1hour_bing_news')]",
-			"type": "Microsoft.DataFactory/factories/triggers",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"description": "1시간 마다 자동 실행",
-				"annotations": [],
-				"runtimeState": "Started",
-				"pipelines": [
-					{
-						"pipelineReference": {
-							"referenceName": "pl_bing_news_ingestion",
-							"type": "PipelineReference"
-						},
-						"parameters": {}
-					}
-				],
-				"type": "ScheduleTrigger",
-				"typeProperties": {
-					"recurrence": {
-						"frequency": "Hour",
-						"interval": 1,
-						"startTime": "2026-04-11T07:50:00",
-						"endTime": "2026-04-25T07:50:00",
-						"timeZone": "Korea Standard Time"
-					}
-				}
-			},
-			"dependsOn": [
-				"[concat(variables('factoryId'), '/pipelines/pl_bing_news_ingestion')]"
-			]
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/hour_trigger')]",
-			"type": "Microsoft.DataFactory/factories/triggers",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"annotations": [],
-				"runtimeState": "Started",
-				"pipelines": [
-					{
-						"pipelineReference": {
-							"referenceName": "pl_naver_news_preprocessing",
-							"type": "PipelineReference"
-						},
-						"parameters": {}
-					}
-				],
-				"type": "ScheduleTrigger",
-				"typeProperties": {
-					"recurrence": {
-						"frequency": "Hour",
-						"interval": 1,
-						"startTime": "2026-04-10T00:55:00",
-						"endTime": "2026-04-25T23:55:00",
-						"timeZone": "Korea Standard Time"
-					}
-				}
-			},
-			"dependsOn": [
-				"[concat(variables('factoryId'), '/pipelines/pl_naver_news_preprocessing')]"
 			]
 		}
 	]
