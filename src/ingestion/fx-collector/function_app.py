@@ -7,129 +7,81 @@ import urllib.request
 from zoneinfo import ZoneInfo
 
 import azure.functions as func
-import pyarrow as pa
-import pyarrow.parquet as pq
-from azure.core.exceptions import ResourceExistsError
-from azure.storage.blob import BlobServiceClient, ContentSettings
+from azure.storage.blob import ContentSettings
 
-app = func.FunctionApp()
+app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)  # 인증 레벨 설정
 
 OXR_APP_ID = os.environ["OXR_APP_ID"]
-RAW_CONTAINER = os.getenv("RAW_CONTAINER", "raw")
+# 수정 코드 (직접 할당)
+RAW_CONTAINER = "raw"
 OXR_BASE_URL = "https://openexchangerates.org/api/latest.json"
 
 BASE_CURRENCY = "USD"
 QUOTE_CURRENCY = "KRW"
 
-
-def fetch_json(url: str) -> dict:
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/json",
-            "User-Agent": "fx-collector/1.0",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+# ... (기존 fetch_json, get_blob_service_client, ensure_container, build_parquet_bytes 함수는 동일) ...
 
 
-def get_blob_service_client() -> BlobServiceClient:
-    conn_str = os.getenv("TARGET_STORAGE_CONNECTION_STRING") or os.environ["AzureWebJobsStorage"]
-    return BlobServiceClient.from_connection_string(conn_str)
+@app.route(route="collect/fx")  # 호출 경로 설정 (예: /api/collect/fx)
+def collect_usd_krw_manual(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("Python HTTP trigger function processed a request.")
 
-
-def ensure_container(container_client) -> None:
     try:
-        container_client.create_container()
-    except ResourceExistsError:
-        pass
+        now_utc = dt.datetime.now(dt.timezone.utc)
+        now_kst = now_utc.astimezone(ZoneInfo("Asia/Seoul"))
 
+        # API 호출 및 데이터 가공 로직 (기존과 동일)
+        query = urllib.parse.urlencode(
+            {
+                "app_id": OXR_APP_ID,
+                "symbols": QUOTE_CURRENCY,
+                "prettyprint": "false",
+            }
+        )
+        url = f"{OXR_BASE_URL}?{query}"
+        payload = fetch_json(url)
 
-def build_parquet_bytes(row: dict) -> bytes:
-    schema = pa.schema(
-        [
-            pa.field("provider", pa.string()),
-            pa.field("base_currency", pa.string()),
-            pa.field("quote_currency", pa.string()),
-            pa.field("rate", pa.float64()),
-            pa.field("provider_timestamp_utc", pa.timestamp("us", tz="UTC")),
-            pa.field("collected_at_utc", pa.timestamp("us", tz="UTC")),
-            pa.field("collected_at_kst", pa.timestamp("us", tz="Asia/Seoul")),
-            pa.field("provider_timestamp_unix", pa.int64()),
-            pa.field("raw_payload_json", pa.string()),
-        ]
-    )
+        rate = payload.get("rates", {}).get(QUOTE_CURRENCY)
+        provider_ts_unix = payload.get("timestamp")
 
-    table = pa.Table.from_pylist([row], schema=schema)
-    sink = pa.BufferOutputStream()
-    pq.write_table(table, sink, compression="snappy")
-    return sink.getvalue().to_pybytes()
+        if rate is None or provider_ts_unix is None:
+            return func.HttpResponse("Unexpected API response", status_code=500)
 
+        provider_dt_utc = dt.datetime.fromtimestamp(provider_ts_unix, tz=dt.timezone.utc)
 
-@app.function_name(name="krw-collector")
-@app.timer_trigger(
-    schedule="0 3 * * * *",  # 매시 03분
-    arg_name="mytimer",
-    run_on_startup=False,
-    use_monitor=True,
-)
-def collect_usd_krw_hourly(mytimer: func.TimerRequest) -> None:
-    if mytimer.past_due:
-        logging.warning("Timer trigger is running late.")
-
-    now_utc = dt.datetime.now(dt.timezone.utc)
-    now_kst = now_utc.astimezone(ZoneInfo("Asia/Seoul"))
-
-    query = urllib.parse.urlencode(
-        {
-            "app_id": OXR_APP_ID,
-            "symbols": QUOTE_CURRENCY,
-            "prettyprint": "false",
+        row = {
+            "provider": "openexchangerates",
+            "base_currency": BASE_CURRENCY,
+            "quote_currency": QUOTE_CURRENCY,
+            "rate": float(rate),
+            "provider_timestamp_utc": provider_dt_utc,
+            "collected_at_utc": now_utc,
+            "collected_at_kst": now_kst,
+            "provider_timestamp_unix": int(provider_ts_unix),
+            "raw_payload_json": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         }
-    )
-    url = f"{OXR_BASE_URL}?{query}"
-    payload = fetch_json(url)
 
-    rate = payload.get("rates", {}).get(QUOTE_CURRENCY)
-    provider_ts_unix = payload.get("timestamp")
-    if rate is None or provider_ts_unix is None:
-        raise ValueError(f"Unexpected response: {payload}")
+        # Blob Storage 저장 로직
+        blob_service = get_blob_service_client()
+        container_client = blob_service.get_container_client(RAW_CONTAINER)
+        ensure_container(container_client)
 
-    provider_dt_utc = dt.datetime.fromtimestamp(provider_ts_unix, tz=dt.timezone.utc)
+        blob_name = (
+            "fx/usd_krw/source=openexchangerates/"
+            f"dt={now_kst:%Y-%m-%d}/hour={now_kst:%H}/"
+            f"part-{now_kst:%Y%m%dT%H%M%S%z}.parquet"
+        )
 
-    row = {
-        "provider": "openexchangerates",
-        "base_currency": BASE_CURRENCY,
-        "quote_currency": QUOTE_CURRENCY,
-        "rate": float(rate),
-        "provider_timestamp_utc": provider_dt_utc,
-        "collected_at_utc": now_utc,
-        "collected_at_kst": now_kst,
-        "provider_timestamp_unix": int(provider_ts_unix),
-        "raw_payload_json": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-    }
+        parquet_bytes = build_parquet_bytes(row)
+        container_client.upload_blob(
+            name=blob_name,
+            data=parquet_bytes,
+            overwrite=False,
+            content_settings=ContentSettings(content_type="application/octet-stream"),
+        )
 
-    blob_service = get_blob_service_client()
-    container_client = blob_service.get_container_client(RAW_CONTAINER)
-    ensure_container(container_client)
+        return func.HttpResponse(f"Successfully saved to {blob_name}", status_code=200)
 
-    blob_name = (
-        "fx/"
-        "usd_krw/"
-        "source=openexchangerates/"
-        f"dt={now_kst:%Y-%m-%d}/"
-        f"hour={now_kst:%H}/"
-        f"part-{now_kst:%Y%m%dT%H%M%S%z}.parquet"
-    )
-
-    parquet_bytes = build_parquet_bytes(row)
-
-    container_client.upload_blob(
-        name=blob_name,
-        data=parquet_bytes,
-        overwrite=False,
-        content_settings=ContentSettings(content_type="application/octet-stream"),
-    )
-
-    logging.info("Saved parquet to raw/%s", blob_name)
+    except Exception as e:
+        logging.error(f"Error occurred: {str(e)}")
+        return func.HttpResponse(f"Internal Error: {str(e)}", status_code=500)

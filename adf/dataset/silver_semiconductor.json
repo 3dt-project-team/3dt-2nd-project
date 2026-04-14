@@ -1,0 +1,43 @@
+{
+	"name": "silver_semiconductor",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "3dtteam1adls",
+			"type": "LinkedServiceReference"
+		},
+		"folder": {
+			"name": "silver"
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileSystem": "curated"
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": [
+			{
+				"name": "기준일자",
+				"type": "DATE"
+			},
+			{
+				"name": "요일",
+				"type": "INT32"
+			},
+			{
+				"name": "주말여부",
+				"type": "BOOLEAN"
+			},
+			{
+				"name": "한국_휴장일_여부",
+				"type": "BOOLEAN"
+			},
+			{
+				"name": "미국_휴장일_여부",
+				"type": "BOOLEAN"
+			}
+		]
+	}
+}
