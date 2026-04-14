@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>반도체 인사이트 대시보드</title>
+    <link rel="stylesheet" href="{{ url_for('web.static', filename='css/style.css') }}">
+</head>
+<body>
+    {% if fc %}
+    <h1>{{ fc.ticker }} 분석 결과</h1>
+    <p>예측 가격: {{ fc.final_pred }}</p>
+    <p>신뢰도 점수: {{ fc.confidence_score }}</p>
+{% else %}
+    <h1>데이터를 불러오는 중입니다...</h1>
+    <p>현재 표시할 예측 데이터가 데이터베이스에 없습니다.</p>
+{% endif %}
+</body>
+</html>
