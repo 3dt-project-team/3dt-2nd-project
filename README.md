@@ -20,7 +20,7 @@
 ├── notebooks/
 │   ├── 01_raw_to_curated.py      # Databricks: 뉴스 원문 클렌징
 │   ├── 02_curated_to_feature.py  # Databricks: 피처 엔지니어링
-│   ├── ensemble_strategy.py      # Databricks: Soft Switching 동적 가중치 앙상블 (v0414)
+│   ├── ensemble_strategy.py      # Databricks: Soft Switching 동적 가중치 앙상블 + 뉴스 감성 (v0415)
 │   ├── databricks_uv_example.py  # uv + vault_manager 연동 예시
 │   └── init_script_install_uv.sh # 클러스터 Init Script
 ├── tests/

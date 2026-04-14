@@ -283,6 +283,11 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] Alpha 범위 축소 — 자동(40~189)→0.001~1.0 (과잉 정규화 방지) (v0414)
 - [x] Time-Decay 강화 — half_life 60→30 거래일 (최근 랠리 가중치 강화) (v0414)
 - [x] Interaction Term — RSI×vol_ratio 복합 신호 중첩 3가지 규칙 (v0414)
+- [x] 뉴스 감성 통합 — PostgreSQL Gold Layer (`v_news_sentiment_trend`) 연동 (v0415)
+- [x] 감성 파생 피처 — sentiment_momentum, news_vol_surge, sent_price_decouple 등 5개 (v0415)
+- [x] Soft Switching 감성 가중치 — `_sentiment_weight_adjustment()` ±0.15 클리핑 (v0415)
+- [x] Interaction Term 감성 규칙 — 호재×RSI과매수, 악재×RSI과매도 2개 규칙 추가 (v0415)
+- [x] GPT 프롬프트 감성 주입 — AI 슈퍼사이클 스토리라인 + 뉴스 감성 섹션 (v0415)
 
 > ⚠️ **v0413 실행 결과 발견 이슈 → v0414 대응:**
 > - SK하이닉스 ElasticNet R²=−0.33 → **v0414: 로그수익률 타겟으로 스케일 차이 해소**
@@ -296,7 +301,7 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 > - `timesfm_inference_lite.py` — TimesFM 간소화 아카이브
 > - `statistical_baseline_analysis.py` — 전통 모델 메인 (Full Feature)
 > - `statistical_baseline_analysis_lite.py` — 전통 모델 간소화 아카이브
-> - `ensemble_strategy.py` — 동적 가중치 앙상블 (v0413 신규)
+> - `ensemble_strategy.py` — 동적 가중치 앙상블 (v0413 신규, v0415 감성 통합)
 > - `correlation_analysis.py` — 원본 상관분석 (복원)
 
 #### XGBoost/LightGBM 분류 (ML Studio)
@@ -340,3 +345,4 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - 협업 규칙: [../docs/git_guide/](git_guide/)
 - MS 아키텍처 베스트 프랙티스: [architecture.md #MS 아키텍처 베스트 프랙티스 참조](architecture.md#ms-아키텍처-베스트-프랙티스-참조)
 - **TimesFM 앙상블 모델 분석 기록**: [TimesFM_앙상블_튜닝_트러블슈팅.md](TimesFM_앙상블_튜닝_트러블슈팅.md) — v0412~v0414 개발 히스토리, 6가지 이슈 트러블슈팅, 파라미터 튜닝
+- **v0415 뉴스 감성 통합**: Gold Layer `v_news_sentiment_trend` 뷰 활용, 5개 감성 파생 피처, Soft Switching 감성 가중치, Interaction 규칙 확장, GPT 프롬프트 AI 슈퍼사이클 스토리라인
