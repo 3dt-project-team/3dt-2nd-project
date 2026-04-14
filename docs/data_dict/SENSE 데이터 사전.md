@@ -245,64 +245,119 @@
 | `rate_value` | 금리값 | Float | 해당 일자의 금리 수치 값임 | Not Null |
 | `is_filled` | 보간 여부 | Boolean | Forward Fill 보간으로 채워진 값인지 여부를 나타내는 플래그임 | Not Null, Default: false |
 
-## 🥇 Gold — PostgreSQL
+## 🥇 Gold — PostgreSQL (`gold_macro` 스키마)
 
-### `dim_macro_series` (지표 메타데이터)
+> ⚠️ **실제 테이블 구조 주의**: 팀원이 별도 설계한 테이블로, 데이터사전 설계와 테이블명 및 컬럼 구조가 다름 (2026-04-14 실제 확인)
 
-| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
-| --- | --- | --- | --- | --- |
-| `series_id` | 지표 ID | Smallint | 매크로 지표를 고유하게 식별하는 ID임 | PK |
-| `ticker` | 티커 코드 | Varchar(20) | 원본 티커 코드임 (`CL=F`, `GC=F` 등) | Not Null, Unique |
-| `display_name` | 표시명 | Varchar(50) | 대시보드와 보고서에 표시되는 한글 지표명임 | Not Null |
-| `category` | 카테고리 | Varchar(20) | 지표 분류임 (commodity, bond, currency, index) | Not Null |
-| `unit` | 단위 | Varchar(20) | 지표 단위임 (USD/bbl, USD/oz, %, index) | Not Null |
-| `data_source` | 데이터 출처 | Varchar(30) | 원천 데이터 소스명임 (yahoo_finance, open_exchange_rates, fred) | Not Null |
+### `gold_macro.dim_macro_metadatas` (지표 메타데이터 레지스트리)
 
-### `fact_macro_daily` (일별 시계열)
+> 설계 원본: `dim_macro_series` (6컬럼) → 실제: `dim_macro_metadatas` (17컬럼, PK: `unified_id`)
+>
+> Gold 테이블 내 모든 매크로 시계열 컬럼의 메타 정보를 등록하는 중앙 레지스트리.
 
 | 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
 | --- | --- | --- | --- | --- |
-| `id` | PK | Bigserial | 자동 증가하는 기본키임 | PK |
-| `series_id` | 지표 ID | Smallint | `dim_macro_series.series_id`를 참조하는 외래키임 | FK, Not Null |
-| `trade_date` | 거래일 | Date | 거래가 발생한 날짜임 | Not Null |
-| `open` | 시가 | Float | 시가임 (일부 지표는 NULL) | - |
-| `high` | 고가 | Float | 고가임 | - |
-| `low` | 저가 | Float | 저가임 | - |
-| `close` | 종가 | Float | 종가이며 모든 지표의 기본값임 | Not Null |
-| `volume` | 거래량 | Bigint | 거래량임 (선물에만 존재) | - |
-| `is_filled` | 보간 여부 | Boolean | Forward Fill 보간 여부를 나타내는 플래그임 | Not Null, Default: false |
+| `unified_id` | 통합 ID | Bigint | 메타데이터 행 고유 식별자 | PK, Not Null |
+| `series_key` | 시계열 키 | Text | 소스 테이블+컬럼 조합 고유 키임 | Not Null, Unique |
+| `source_table` | 소스 테이블 | Text | 원천 Gold 테이블명임 (예: fact_macro_all) | Not Null |
+| `date_column_name` | 날짜 컬럼명 | Text | 소스 테이블의 기준 날짜 컬럼명임 | Not Null |
+| `source_column_name` | 소스 컬럼명 | Text | 소스 테이블의 값 컬럼명임 | Not Null |
+| `series_code` | 지표 코드 | Text | 외부 원천 지표 코드임 (예: DGS10, NVDA) | - |
+| `display_name` | 표시명 | Text | 대시보드·보고서용 표시명임 | Not Null |
+| `category` | 카테고리 | Text | 지표 분류임 (equity, rate, fx, macro 등) | Not Null |
+| `subcategory` | 서브카테고리 | Text | 세부 분류임 | - |
+| `unit` | 단위 | Text | 지표 단위임 (USD, %, index 등) | - |
+| `data_source` | 데이터 출처 | Text | 원천 소스명임 (yahoo_finance, fred, openexchange 등) | Not Null |
+| `frequency` | 수집 주기 | Text | 수집 주기임 (daily, monthly 등) | - |
+| `market_scope` | 시장 범위 | Text | 적용 시장 범위임 (us, kr, global 등) | - |
+| `description` | 설명 | Text | 지표 상세 설명임 | - |
+| `is_active` | 활성 여부 | Boolean | 현재 수집·사용 중인 지표 여부임 | Not Null, Default: true |
+| `created_at_utc` | 생성 시각 | Timestamptz | 메타데이터 등록 시각 (UTC)임 | Not Null |
+| `updated_at_utc` | 수정 시각 | Timestamptz | 메타데이터 최종 수정 시각 (UTC)임 | Not Null |
 
-> **UNIQUE:** `(series_id, trade_date)`
-> 
+### `gold_macro.fact_macro_all` (매크로 통합 Wide 테이블)
 
-### `fact_macro_derived` (파생 기술 지표)
+> 설계 원본: Narrow FK 구조 `fact_macro_daily` → 실제: Wide Pivot 구조 (PK: `base_date`, 45컬럼)
+>
+> 일별 1행에 모든 매크로 지표(미국 반도체 종가, FRED 금리, FX, 수출, 옵션)를 Pivot하여 저장하는 핵심 적재 테이블.
+
+| 컬럼 그룹 | 필드명(물리) | 데이터 타입 | 설명 |
+| --- | --- | --- | --- |
+| 기준일 | `base_date` | Date | **PK**. 기준 날짜 (한국 영업일 기준) |
+| 반도체 종가 | `nvda_close`, `tsm_close`, `amd_close`, `intc_close`, `asml_close`, `mu_close`, `wdc_close` | Float8 | 미국 반도체 종목 종가 |
+| 반도체 종가 | `sox_index_close`, `samsung_close`, `skhynix_close` | Float8 | SOX 인덱스, 삼성전자, SK하이닉스 종가 |
+| 주가 파생 | `nvda_log_return`, `nvda_volatility_gk`, `nvda_volatility_5d` | Float8 | NVDA 로그수익률, GK 변동성, 5일 실현변동성 |
+| 주가 파생 | `sox_log_return`, `sox_volatility_5d` | Float8 | SOX 로그수익률, 5일 실현변동성 |
+| FRED 금리 | `dgs10`, `dgs2`, `dff`, `dfii10`, `t10y2y`, `bamlh0a0hym2` | Float8 | 10년물/2년물 국채금리, 연방기금금리, 실질금리, 장단기 금리차, 하이일드 스프레드 |
+| 금리 파생 | `yield_spread`, `yield_spread_change`, `stagnation_pressure` | Float8 | 금리차, 금리차 변화량, 스태그플레이션 압력 |
+| FX | `usd_krw`, `usd_krw_change`, `usd_krw_pct` | Float8 | USD/KRW 환율 및 전일 대비 변화 |
+| FX 시그널 | `risk_off_flag` | Integer | 달러 급등 경보 (≥1% 상승 시 1) |
+| 수출 | `export_usd`, `export_change_pct` | Float8 | 반도체 수출액(USD), 전월 대비 변화율 |
+| 수출 시그널 | `export_momentum` | Integer | 수출 급감 경보 (≤-10% 시 1) |
+| 옵션 | `call_volume`, `call_oi`, `avg_iv`, `iv_change`, `vol_change_pct` | Float8 | 콜 거래량, 미결제약정, 내재변동성 및 파생 |
+| 옵션 시그널 | `iv_surge_flag` | Integer | IV 급등 신호 (전월비 +5 이상 시 1) |
+| 복합 시그널 | `risk_off_composite`, `macro_stress_score`, `fear_composite` | Float8 | 리스크오프 복합 지수, 매크로 스트레스 점수, 공포 복합 지수 |
+| 복합 시그널 | `semi_risk_signal`, `korea_sensitivity`, `global_risk_regime`, `is_high_risk` | Float8/Integer | 반도체 리스크 시그널, 한국 민감도, 글로벌 리스크 레짐, 고위험 여부 |
+| 메타 | `created_at_utc` | Timestamptz | 행 생성 시각 |
+
+> **PK:** `base_date`
+
+### `gold_macro.fact_yf_fx_fred_1y` (Yahoo Finance + FX + FRED 1년 와이드 테이블)
+
+> 최근 1년 캘린더 날짜별 (주말 포함) 종가·환율·금리를 단일 행에 통합. 뷰 `v_macro_latest`의 소스 테이블.
 
 | 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
 | --- | --- | --- | --- | --- |
-| `id` | PK | Bigserial | 자동 증가하는 기본키임 | PK |
-| `series_id` | 지표 ID | Smallint | `dim_macro_series.series_id`를 참조하는 외래키임 | FK, Not Null |
-| `trade_date` | 기준일 | Date | 파생 지표 연산 기준 날짜임 | Not Null |
-| `indicator_name` | 지표명 | Varchar(30) | 파생 지표 이름임 (ma_5, ma_20, rsi_14, return_1d, return_5d, z_score_20d) | Not Null |
-| `indicator_value` | 지표값 | Float | 파생 지표 연산 결과값임 | Not Null |
+| `standard_date` | 기준일 | Date | **PK**. 캘린더 날짜 (주말·휴장일 포함) | PK, Not Null |
+| `day_of_week` | 요일 | Integer | 요일 코드 (0=월요일, 6=일요일) | - |
+| `is_weekend` | 주말 여부 | Boolean | 주말 날짜 여부 | - |
+| `is_kr_market_holiday` | 한국 휴장 | Boolean | 한국 주식시장 휴장일 여부 | - |
+| `is_us_market_holiday` | 미국 휴장 | Boolean | 미국 주식시장 휴장일 여부 | - |
+| `usd_krw_rate` | USD/KRW 환율 | Float8 | 당일 USD/KRW 환율임 | - |
+| `yfinance_nvda_close` | NVDA 종가 | Float8 | NVIDIA 종가 | - |
+| `yfinance_tsm_close` | TSM 종가 | Float8 | Taiwan Semiconductor 종가 | - |
+| `yfinance_amd_close` | AMD 종가 | Float8 | AMD 종가 | - |
+| `yfinance_intc_close` | INTC 종가 | Float8 | Intel 종가 | - |
+| `yfinance_asml_close` | ASML 종가 | Float8 | ASML 종가 | - |
+| `yfinance_mu_close` | MU 종가 | Float8 | Micron 종가 | - |
+| `yfinance_wdc_close` | WDC 종가 | Float8 | Western Digital 종가 | - |
+| `yfinance_sox_close` | SOX 종가 | Float8 | SOX 반도체 지수 종가 | - |
+| `yfinance_samsung_close` | 삼성전자 종가 | Float8 | 삼성전자 (005930.KS) 종가 | - |
+| `yfinance_skhynix_close` | SK하이닉스 종가 | Float8 | SK하이닉스 (000660.KS) 종가 | - |
+| `fred_dgs10` | 10년물 국채금리 | Float8 | FRED DGS10 | - |
+| `fred_dgs2` | 2년물 국채금리 | Float8 | FRED DGS2 | - |
+| `fred_dff` | 연방기금금리 | Float8 | FRED DFF | - |
+| `fred_dfii10` | 10년물 실질금리 | Float8 | FRED DFII10 | - |
+| `fred_t10y2y` | 장단기 금리차 | Float8 | FRED T10Y2Y | - |
+| `fred_bamlh0a0hym2` | 하이일드 스프레드 | Float8 | FRED BAMLH0A0HYM2 | - |
+| `created_at` | 생성 시각 | Timestamptz | 행 생성 시각 | - |
+| `updated_at` | 수정 시각 | Timestamptz | 행 최종 수정 시각 | - |
 
-> **UNIQUE:** `(series_id, trade_date, indicator_name)`
-> 
+### `gold_macro.fact_kfinance` (한국 금융 파생상품)
 
-### `fact_macro_fred` (FRED 금리 시계열)
+> 설계에 없던 신규 테이블. kfinance 수집 결과 (코스피200 옵션 등) 적재용.
 
 | 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
 | --- | --- | --- | --- | --- |
-| `id` | PK | Bigserial | 자동 증가하는 기본키임 | PK |
-| `series_code` | 지표코드 | Varchar(20) | FRED 시계열 식별 코드임 (DGS10, DGS2, T10Y2Y, BAMLH0A0HYM2, DFF, DFII10) | Not Null |
-| `observed_date` | 관측일자 | Date | 금리 값이 관측된 기준 날짜임 | Not Null |
-| `rate_value` | 금리값 | Float | 관측일자 기준 금리 수치(%)임 | Not Null |
-| `is_filled` | 보간 여부 | Boolean | Forward Fill 보간으로 채워진 값인지 여부를 나타내는 플래그임 | Not Null, Default: false |
+| `base_date` | 기준일 | Date | 기준 날짜 | PK(부분), Not Null |
+| `ticker` | 티커 코드 | Text | 종목 코드 | PK(부분), Not Null |
+| `close_price` | 종가 | Float8 | 당일 종가 | - |
+| `collected_at_utc` | 수집 시각 | Timestamptz | 수집 시각 (UTC) | - |
+| `created_at` | 생성 시각 | Timestamptz | 행 생성 시각 | - |
 
-> **UNIQUE:** `(series_code, observed_date)`
-> 
-> 
-> 대상 시계열: `DGS10` (10년물 국채금리), `DGS2` (2년물 국채금리), `T10Y2Y` (장단기 금리차), `BAMLH0A0HYM2` (하이일드 스프레드), `DFF` (실효 연방기금금리), `DFII10` (10년물 실질금리)
-> 
+### `gold_macro.fact_semiconductor_trade` (반도체 수출입 통계)
+
+> 관세청 반도체 수출입 실적 적재 테이블.
+
+| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
+| --- | --- | --- | --- | --- |
+| `base_date` | 기준일 | Date | 기준 날짜 (통계 연월) | PK(부분), Not Null |
+| `hs_code` | HS 코드 | Bigint | 반도체 품목 HS 코드 (예: 8542) | PK(부분), Not Null |
+| `stat_kor` | 품목 국문명 | Text | 해당 HS코드의 국문 품목명 | - |
+| `export_dollar` | 수출 금액 (USD) | Bigint | 수출 금액 (USD) | - |
+| `import_dollar` | 수입 금액 (USD) | Bigint | 수입 금액 (USD) | - |
+| `collected_at_utc` | 수집 시각 | Timestamptz | 수집 시각 (UTC) | - |
+| `created_at` | 생성 시각 | Timestamptz | 행 생성 시각 | - |
 
 ---
 
@@ -553,78 +608,164 @@
 | `memory_ma5` | 심리 지수 MA5 | Float | `memory_sentiment_index`의 5일 이동평균임 | - |
 | `memory_trend_flag` | 메모리 추세 | Varchar(10) | 추세 판정 라벨임 (bearish: MA5 하향 3일 연속, neutral, bullish: MA5 상향 3일 연속) | Not Null |
 
-### `fact_quant_customs` (관세청 10일 수출 통계)
+### `gold_ml.gold_customs_semiconductor` (관세청 반도체 수출입)
+
+> 설계 원본: `fact_quant_customs` → 실제 테이블명: `gold_ml.gold_customs_semiconductor`
 
 | 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
 | --- | --- | --- | --- | --- |
-| `id` | PK | Bigserial | 자동 증가하는 기본키임 | PK |
-| `stat_year` | 통계 연도 | Smallint | 수출 통계 연도임 | Not Null |
-| `stat_month` | 통계 월 | Smallint | 수출 통계 월임 | Not Null |
-| `hs_code` | HS CODE | Varchar(10) | 관세 품목 코드임 (8542 = 반도체) | Not Null |
-| `export_usd_amt` | 수출 금액 (USD) | Float | 반도체 수출 금액(USD)임 | Not Null |
-| `export_qty` | 수출 수량 | Float | 반도체 수출 수량임 | - |
-| `yoy_change_pct` | 전년 동월 대비 | Float | 전년 동월 대비 증감률(%)임 | - |
-| `mom_change_pct` | 전월 대비 | Float | 전월 대비 증감률(%)임 | - |
-| `export_trend_flag` | 수출 추세 | Varchar(10) | 추세 판정 라벨임 (declining: 3개월 연속 감소, stable, growing: 3개월 연속 증가) | - |
+| `stat_year` | 통계 연도 | Smallint | 수출 통계 기준 연도임 | PK(부분), Not Null |
+| `stat_month` | 통계 월 | Smallint | 수출 통계 기준 월임 | PK(부분), Not Null |
+| `hs_code` | HS CODE | Varchar | 관세 품목 코드임 (8542 = 반도체) | PK(부분), Not Null |
+| `export_usd_amt` | 수출 금액 (USD) | Numeric | 반도체 수출 금액(USD)임 | Not Null |
+| `import_usd_amt` | 수입 금액 (USD) | Numeric | 반도체 수입 금액(USD)임 | - |
+| `trade_balance` | 무역수지 | Numeric | 수출 - 수입 (USD)임 | - |
+| `yoy_change_pct` | 전년 동월 대비 | Float8 | 전년 동월 대비 증감률(%)임 | - |
+| `export_trend` | 수출 추세 | Varchar | 추세 판정 라벨임 (declining, stable, growing) | - |
+| `updated_at` | 수정 시각 | Timestamp | 행 최종 수정 시각임 | - |
 
-> **UNIQUE:** `(stat_year, stat_month, hs_code)`
+> **PK:** `(stat_year, stat_month, hs_code)`
 > 
 
-### `fact_quant_pcr` (Put/Call Ratio — ⚠️ 구현 보류)
+### `gold_ml.gold_quant_pcr_signals` (Put/Call Ratio 퀀트 시그널)
 
-> **[2026-04 회의록 확인]** kfinance 데이터로 코스피200 PCR 계산 불가 판정. 수집된 kfinance 데이터는 코스피200 풋옵션이 없고 월별 스냅샷(일별 아님)이므로, 일별 코스피200 콜/풋 거래량을 포함한 별도 데이터 소스 확보 전까지 구현 보류.
+> 설계 원본: `fact_quant_pcr` (구현 보류) → 실제: `gold_ml.gold_quant_pcr_signals` **생성됨** (2026-04-14 확인)
 
 | 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
 | --- | --- | --- | --- | --- |
-| `id` | PK | Bigserial | 자동 증가하는 기본키임 | PK |
-| `trade_date` | 거래일 | Date | KOSPI 200 옵션 거래일임 | Not Null, Unique |
+| `trade_date` | 거래일 | Date | KOSPI 200 옵션 거래일임 | PK, Not Null |
 | `put_volume` | 풋 거래량 | Bigint | 풋옵션 일간 총 거래량임 | Not Null |
 | `call_volume` | 콜 거래량 | Bigint | 콜옵션 일간 총 거래량임 | Not Null |
-| `pcr_ratio` | PCR 비율 | Float | `put_volume / call_volume`으로 산출한 풋콜 비율임 | Not Null |
-| `pcr_ma5` | PCR MA5 | Float | PCR 5일 이동평균임 | - |
-| `pcr_ma20` | PCR MA20 | Float | PCR 20일 이동평균임 | - |
+| `pcr_ratio` | PCR 비율 | Float8 | `put_volume / call_volume`으로 산출한 풋콜 비율임 | Not Null |
+| `pcr_ma5` | PCR MA5 | Float8 | PCR 5일 이동평균임 | - |
+| `pcr_ma20` | PCR MA20 | Float8 | PCR 20일 이동평균임 | - |
+| `fear_greed_idx` | 공포-탐욕 지수 | Varchar | 공포-탐욕 판정 레이블임 | - |
+| `is_downside_warning` | 하방 경보 | Boolean | PCR 기반 하방 경보 시 TRUE임 | - |
 | `pcr_breakout_flag` | 하방 돌파 플래그 | Boolean | PCR MA5 > MA20 상향 돌파 시 TRUE이며, 하방 리스크 경고 시그널임 | Not Null |
-| `pcr_bullish_flag` | 상승 돌파 플래그 | Boolean | PCR MA5 < MA20 하향 돌파 시 TRUE이며, 상승 모멘텀(콜 매집 증가) 시그널임 | Not Null |
+| `pcr_bullish_flag` | 상승 돌파 플래그 | Boolean | PCR MA5 < MA20 하향 돌파 시 TRUE이며, 상승 모멘텀 시그널임 | Not Null |
+| `updated_at` | 수정 시각 | Timestamp | 행 최종 수정 시각임 | - |
+
+> **PK:** `trade_date`
+
+### `gold_ml.gold_ml_feature_set` (ML 통합 피처 세트)
+
+> 설계에 없던 신규 테이블. ML 모델 학습 및 운영 추론용 핵심 피처 통합 테이블.
+
+| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
+| --- | --- | --- | --- | --- |
+| `base_date` | 기준일 | Date | 피처 기준 날짜임 | PK, Not Null |
+| `semi_export_yoy` | 반도체 수출 YoY | Float8 | 반도체 수출 전년 동월 대비 증감률(%)임 | - |
+| `pcr_val` | PCR 값 | Float8 | 당일 Put/Call Ratio 값임 | - |
+| `usd_krw_rate` | USD/KRW 환율 | Float8 | 당일 USD/KRW 환율임 | - |
+| `us_10y_yield` | 미국 10년물 금리 | Float8 | FRED DGS10 값임 | - |
+| `avg_absa_score` | 평균 감성 점수 | Float8 | 당일 뉴스 ABSA 평균 점수임 | - |
+| `target_return_5d` | 5일 수익률 (타겟) | Float8 | ML 예측 타겟 변수 — 5일 수익률(%)임 | - |
+| `regime_label` | 시장 국면 | Varchar | 시장 국면 레이블임 (risk, opportunity, neutral 등) | - |
+
+> **PK:** `base_date`
 
 ---
 
 # 5. 보고서 연동 뷰
 
-## `v_quant_daily_signals` (퀀트 통합 시그널)
+> 2026-04-14 기준 6개 뷰 모두 생성됨. 스키마 위치 주의 (`public`, `gold_news`, `gold_macro`, `gold_ml`).
 
-4개 퀀트 팩트를 일자 기준 LEFT JOIN하여 정기 보고서의 **퀀트 시그널 요약** 섹션에 사용하는 통합 뷰임.
+## `public.v_forecast_latest` (티커별 최신 앙상블 예측)
 
-| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
-| --- | --- | --- | --- | --- |
-| `trade_date` | 기준일 | Date | 보고서 기준 날짜임 | - |
-| `spillover_flag` | SOX 하방 전이 | Boolean | SOX 급락 시 한국 하방 전이 시그널임 | - |
-| `upside_surge_flag` | SOX 상승 전이 | Boolean | SOX 급등 시 한국 상승 전이 시그널임 | - |
-| `sox_return_1d` | SOX 일간 수익률 | Float | ^SOX 전일 대비 수익률(%)임 | - |
-| `correlation_30d` | 30일 롤링 상관 | Float | SOX↔SK하이닉스 상관계수임 | - |
-| `memory_sentiment_index` | 메모리 심리 지수 | Float | MU/WDC 시총가중 복합 지수값임 | - |
-| `memory_trend_flag` | 메모리 추세 | Varchar(10) | bearish, neutral, bullish 추세 판정임 | - |
-| `pcr_ratio` | PCR 비율 | Float | 당일 풋콜 비율임 | - |
-| `pcr_breakout_flag` | PCR 하방 돌파 | Boolean | 풋옵션 과매집 시그널임 | - |
-| `pcr_bullish_flag` | PCR 상승 돌파 | Boolean | 콜옵션 과매집 시그널임 | - |
-| `customs_yoy` | 관세청 YoY | Float | 반도체 수출 전년 동월 대비 증감률(%)임 | - |
-| `customs_trend` | 관세청 추세 | Varchar(10) | 수출 추세 판정 라벨임 | - |
-| `composite_signal` | 복합 시그널 | Varchar(20) | triple_risk, triple_opportunity, caution, promising, neutral 중 하나의 종합 판정임 | - |
+`fact_ensemble_forecast`에서 티커·예측 기간별 가장 최신 run 기준 결과를 추출하는 뷰임.
 
-## `v_daily_report_summary` (일간 보고서 통합 뷰 — 설계 제안)
+| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 |
+| --- | --- | --- | --- |
+| `ticker` | 종목 코드 | Text | 예측 대상 종목 코드임 |
+| `base_date` | 예측 기준일 | Date | 모델이 학습 기준으로 삼은 날짜임 |
+| `forecast_date` | 예측 목표일 | Date | 예측 대상 날짜임 |
+| `horizon_day` | 예측 기간 | Bigint | 기준일 기준 예측 일수임 |
+| `final_pred` | 앙상블 예측값 | Float8 | 최종 앙상블 예측 수익률(%)임 |
+| `pi_lower` | 예측 구간 하단 | Float8 | 신뢰 구간 하단임 |
+| `pi_upper` | 예측 구간 상단 | Float8 | 신뢰 구간 상단임 |
+| `confidence_score` | 신뢰도 점수 | Float8 | 모델 신뢰도 점수임 |
+| `regime_label` | 시장 국면 | Text | 시장 국면 레이블임 |
+| `run_timestamp` | 실행 시각 | Timestamp | 모델 실행 시각임 |
 
-정기 보고서 자동 생성 시 참조하는 **일별 종합 뷰**임. 모든 데이터셋의 핵심 지표를 일자 기준으로 통합함.
+## `public.v_daily_report_summary` (일간 보고서 통합 뷰)
 
-| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
-| --- | --- | --- | --- | --- |
-| `report_date` | 보고서 기준일 | Date | 보고서 발행 기준 날짜임 | - |
-| `regime` | 시장 국면 | Varchar(10) | risk, opportunity, neutral, high_vol 중 하나의 시장 국면 판정값임 | - |
-| `composite_signal` | 퀀트 복합 시그널 | Varchar(20) | v_quant_daily_signals에서 산출한 종합 판정값임 | - |
-| `avg_absa_score` | 평균 뉴스 감성 | Float | 당일 전체 뉴스 ABSA 점수의 평균값임 | - |
-| `top_keyword` | 최다 언급 키워드 | Varchar(100) | 당일 keyword_momentum 최고인 동적 키워드임 | - |
-| `sox_return_1d` | SOX 일간 수익률 | Float | 미국 반도체지수 전일 대비 수익률(%)임 | - |
-| `dxy_return_1d` | DXY 일간 변동 | Float | 달러 인덱스 전일 대비 변동률(%)임 | - |
-| `usd_krw_rate` | 원달러 환율 | Float | 당일 USD/KRW 환율임 | - |
-| `memory_trend_flag` | 메모리 추세 | Varchar(10) | MU/WDC 기반 메모리 시장 추세 판정임 | - |
+예측(`v_forecast_latest`) + 감성(`agg_market_sentiment_daily`) + 매크로(`fact_yf_fx_fred_1y`)를 일자·종목 기준으로 통합하는 일간 보고서 소스 뷰임.
+
+| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 |
+| --- | --- | --- | --- |
+| `base_date` | 기준일 | Timestamp | 보고서 기준 날짜임 |
+| `ticker` | 종목 코드 | Text | 종목 코드임 (삼성전자·SK하이닉스) |
+| `final_pred` | 앙상블 예측값 | Float8 | 최종 앙상블 예측 수익률(%)임 |
+| `confidence_score` | 신뢰도 점수 | Float8 | 모델 신뢰도 점수임 |
+| `regime_label` | 시장 국면 | Text | 시장 국면 레이블임 |
+| `avg_sentiment` | 평균 감성 점수 | Float8 | 당일 뉴스 ABSA 평균 점수임 |
+| `news_vol` | 뉴스 건수 | Integer | 당일 뉴스 건수임 |
+| `usd_krw_rate` | USD/KRW 환율 | Float8 | 당일 환율임 |
+| `fred_dgs10` | 10년물 금리 | Float8 | FRED DGS10 값임 |
+| `fred_t10y2y` | 장단기 금리차 | Float8 | FRED T10Y2Y 값임 |
+| `fred_bamlh0a0hym2` | 하이일드 스프레드 | Float8 | FRED BAMLH0A0HYM2 값임 |
+
+## `public.v_model_comparison_latest` (앙상블 vs 통계 기준선 비교)
+
+앙상블 예측(`v_forecast_latest`)과 통계 기준선 예측(`fact_stat_forecast`)을 종목·기간·기준일 기준으로 비교하는 뷰임.
+
+| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 |
+| --- | --- | --- | --- |
+| `ticker` | 종목 코드 | Text | 종목 코드임 |
+| `base_date` | 예측 기준일 | Date | 모델 기준일임 |
+| `horizon` | 예측 기간 | Bigint | 예측 일수임 |
+| `ensemble_pred` | 앙상블 예측값 | Float8 | TimesFM 앙상블 예측 수익률(%)임 |
+| `confidence_score` | 신뢰도 점수 | Float8 | 앙상블 모델 신뢰도임 |
+| `regime_label` | 시장 국면 | Text | 시장 국면 레이블임 |
+| `model` | 통계 모델명 | Text | 비교 대상 통계 모델명임 |
+| `stat_pred` | 통계 예측값 | Float8 | 통계 기준선 예측 수익률(%)임 |
+| `change_pct` | 통계 변화율 | Float8 | 통계 모델 예측 변화율(%)임 |
+| `model_gap` | 모델 차이 | Float8 | `ensemble_pred - stat_pred`임 |
+
+## `gold_news.v_news_sentiment_trend` (뉴스 감성 추이)
+
+`agg_market_sentiment_daily`에 7일 이동평균(윈도우 함수)을 추가한 뷰임.
+
+| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 |
+| --- | --- | --- | --- |
+| `base_date` | 기준일 | Date | 뉴스 집계 기준 날짜임 |
+| `stock_code` | 종목 코드 | Text | 종목 구분 코드임 (SAMSUNG, SKHYNIX) |
+| `avg_sentiment` | 평균 감성 점수 | Float8 | 당일 ABSA 평균 점수임 |
+| `news_vol` | 뉴스 건수 | Integer | 당일 뉴스 건수임 |
+| `main_aspect` | 주요 리스크 요인 | Text | 당일 최빈 속성 카테고리임 |
+| `sentiment_ma7` | 감성 7일 이동평균 | Float8 | 종목별 감성 7일 이동평균임 |
+
+## `gold_macro.v_macro_latest` (최신 매크로 스냅샷)
+
+`fact_yf_fx_fred_1y`에서 `standard_date` 기준 최신 1행을 조회하는 뷰임.
+
+| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 |
+| --- | --- | --- | --- |
+| `trade_date` | 기준일 | Date | 최신 매크로 기준 날짜임 (`standard_date` 별칭) |
+| `usd_krw_rate` | USD/KRW 환율 | Float8 | 최신 환율임 |
+| `fred_dgs10` | 10년물 금리 | Float8 | 최신 FRED DGS10 값임 |
+| `fred_dgs2` | 2년물 금리 | Float8 | 최신 FRED DGS2 값임 |
+| `fred_t10y2y` | 장단기 금리차 | Float8 | 최신 FRED T10Y2Y 값임 |
+| `fred_dff` | 연방기금금리 | Float8 | 최신 FRED DFF 값임 |
+| `fred_bamlh0a0hym2` | 하이일드 스프레드 | Float8 | 최신 FRED BAMLH0A0HYM2 값임 |
+
+## `gold_ml.v_quant_daily_signals` (퀀트 통합 시그널)
+
+SOX 동조화(`fact_quant_sox_sync`) + 메모리 심리(`fact_quant_memory_proxy`) + PCR 시그널(`gold_quant_pcr_signals`)을 `signal_date` 기준으로 LEFT JOIN한 퀀트 통합 뷰임.
+
+| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 |
+| --- | --- | --- | --- |
+| `signal_date` | 기준일 | Date | SOX 미국 거래일 기준 (`us_trade_date` 별칭)임 |
+| `sox_return_1d` | SOX 일간 수익률 | Float8 | ^SOX 전일 대비 수익률(%)임 |
+| `sox_downside_flag` | SOX 하방 전이 | Boolean | SOX 급락 시 한국 하방 전이 시그널임 (`spillover_flag` 별칭) |
+| `sox_upside_flag` | SOX 상승 전이 | Boolean | SOX 급등 시 한국 상승 전이 시그널임 (`upside_surge_flag` 별칭) |
+| `memory_sentiment_index` | 메모리 심리 지수 | Float8 | MU/WDC 시총가중 복합 지수값임 |
+| `memory_trend_flag` | 메모리 추세 | Varchar | bearish, neutral, bullish 추세 판정임 |
+| `pcr_ratio` | PCR 비율 | Float8 | 당일 풋콜 비율임 |
+| `pcr_ma5` | PCR MA5 | Float8 | PCR 5일 이동평균임 |
+| `fear_greed_idx` | 공포-탐욕 지수 | Varchar | 공포-탐욕 판정 레이블임 |
+| `pcr_warning_flag` | PCR 하방 경보 | Boolean | PCR 기반 하방 경보 시그널임 (`is_downside_warning` 별칭) |
+| `pcr_bullish_flag` | PCR 상승 돌파 | Boolean | 콜옵션 과매집 시그널임 |
 
 ---
 
