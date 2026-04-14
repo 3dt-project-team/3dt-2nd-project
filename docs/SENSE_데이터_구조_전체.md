@@ -328,6 +328,7 @@ Gold JOIN 기준: `date` (한국 영업일 기준으로 3개 Silver 통합)
 | `original_url` | Text | `url` | - |
 | `stock_keyword` | Text | `stock_keyword` | 삼성/SK하이닉스 구분 |
 | `pub_date` | Date | `pub_date` | - |
+| `is_surge` | BOOLEAN | `dynamic_keywords` | 급증 여부 |
 
 #### `agg_market_sentiment_daily`
 
