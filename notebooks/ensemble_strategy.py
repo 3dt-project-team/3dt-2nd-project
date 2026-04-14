@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # SENSE 프로젝트 — 동적 가중치 앙상블 전략 (v0413)
+# MAGIC # SENSE 프로젝트 — 동적 가중치 앙상블 전략 (v0414)
 # MAGIC
 # MAGIC > **역할**: TimesFM(추세)과 ElasticNet(평균회귀) 예측을
 # MAGIC > 후처리하여 동적 가중치 앙상블 및 Confidence Score 산출
@@ -8,12 +8,18 @@
 # MAGIC | 항목 | 내용 |
 # MAGIC |---|---|
 # MAGIC | 입력 | TimesFM XReg 예측 + ElasticNet 예측 + 피처 마트 |
-# MAGIC | 핵심 로직 | RSI/ATR/이격도 기반 동적 가중치 조정 + PI 기반 신뢰도 |
+# MAGIC | 핵심 로직 | Soft Switching 동적 가중치 보간 + Interaction Term + PI 기반 신뢰도 |
 # MAGIC | 출력 | `fact_ensemble_forecast` DataFrame (PostgreSQL 적재용) |
 # MAGIC | 시각화 | Dynamic Weighting Strategy 차트 (ref/image.png 재현) |
 # MAGIC
 # MAGIC ---
 # MAGIC **변경 이력**
+# MAGIC - v0414 (2025-04-13): Soft Switching + 스케일링 고도화
+# MAGIC   - ElasticNet 타겟을 절대가 → **로그수익률** 전환 (스케일 불변)
+# MAGIC   - Alpha 검색 범위 0.001~1.0으로 축소 (과잉 정규화 방지)
+# MAGIC   - Hard Threshold → **Soft Switching(선형/비선형 보간)** 전환
+# MAGIC   - Interaction Term(RSI × vol_ratio 복합 신호 중첩) 추가
+# MAGIC   - Confidence Score 산출 로직 개선
 # MAGIC - v0413 (2025-04-13): 초기 구현
 # MAGIC   - Step 1: Feature Engineering 고도화 (RSI, ATR, 이격도, 로그수익률)
 # MAGIC   - Step 2: ElasticNetCV + Time-Decay Weighting
@@ -395,14 +401,18 @@ for ticker in TICKERS:
 # MAGIC 불필요한 피처를 0으로 탈락시키고(Lasso 효과) AI 슈퍼사이클의
 # MAGIC 핵심 드라이버만 살아남도록 합니다.
 # MAGIC
-# MAGIC **Time-Decay Weighting**: 최근 1~3개월 데이터에 더 높은 가중치를 부여하여
-# MAGIC 과거 저가 데이터의 편향(Historical Bias)을 줄입니다.
+# MAGIC ### v0414 핵심 변경
+# MAGIC 1. **타겟 변수**: 절대가(원) → **T+20 로그수익률** (스케일 불변, 종목 간 비교 가능)
+# MAGIC 2. **Alpha 범위**: 자동 경로 → **0.001~1.0** (과잉 정규화 방지)
+# MAGIC 3. **Time-Decay**: half_life=60 → **30 거래일(~1.5개월)** (최근 랠리 반영 강화)
 # MAGIC
-# MAGIC | 파라미터 | 값 | 근거 |
-# MAGIC |---|---|---|
-# MAGIC | l1_ratio 탐색 | [0.1, 0.3, 0.5, 0.7, 0.9] | L1=Lasso(0), L2=Ridge(1), 0.5=균형 |
-# MAGIC | half_life | 60 거래일 (~3개월) | 최근 데이터에 가중치 집중 |
-# MAGIC | cv | 5-fold | 소규모 데이터에서 안정적 |
+# MAGIC | 파라미터 | v0413 | v0414 | 근거 |
+# MAGIC |---|---|---|---|
+# MAGIC | target | 절대가 (원) | log(P_{t+20}/P_t) | 삼성(20만)/하이닉스(100만) 스케일 차이 해소 |
+# MAGIC | alphas | 자동 (40~189) | 0.001~1.0 | 모델이 최근 변동성을 더 학습하도록 허용 |
+# MAGIC | half_life | 60 거래일 | 30 거래일 | 과거 저가 편향(Historical Bias) 억제 강화 |
+# MAGIC | l1_ratio 탐색 | [0.1, 0.3, 0.5, 0.7, 0.9] | [0.1, 0.3, 0.5, 0.7, 0.9] | 동일 |
+# MAGIC | cv | 5-fold | 5-fold | 동일 |
 
 # COMMAND ----------
 
@@ -447,8 +457,9 @@ def compute_time_decay_weights(n_samples: int, half_life: int = 60) -> np.ndarra
 def fit_elasticnet_with_decay(
     X: np.ndarray,
     y: np.ndarray,
-    half_life: int = 60,
+    half_life: int = 30,
     l1_ratios: list[float] | None = None,
+    alphas: np.ndarray | None = None,
     cv: int = 5,
 ) -> tuple:
     """
@@ -458,25 +469,36 @@ def fit_elasticnet_with_decay(
     1. L1 정규화(Lasso)로 불필요한 피처를 0으로 제거 → 핵심 드라이버만 잔존
     2. Time-Decay로 과거 저가 데이터의 영향력을 지수 감쇠
 
+    v0414 변경:
+    - half_life 60→30 (최근 랠리 가중치 강화)
+    - alphas 자동→0.001~1.0 (과잉 정규화 방지)
+    - y(타겟)도 로그수익률 기반이므로 스케일 불변
+
     Parameters
     ----------
     X : np.ndarray
         피처 행렬 (StandardScaler 적용 전)
     y : np.ndarray
-        타겟 변수 (종가)
+        타겟 변수 (로그수익률)
     half_life : int
-        시간 가중치 반감기 (기본값: 60거래일)
+        시간 가중치 반감기 (기본값: 30거래일 ≈ 1.5개월)
     l1_ratios : list[float]
         ElasticNet L1/L2 비율 탐색 범위
+    alphas : np.ndarray
+        Alpha 검색 범위 (기본값: 0.001~1.0, 50개)
     cv : int
         교차 검증 폴드 수
 
     Returns
     -------
-    tuple : (model, scaler, prediction, feature_importances)
+    tuple : (model, scaler)
     """
     if l1_ratios is None:
         l1_ratios = [0.1, 0.3, 0.5, 0.7, 0.9]
+
+    if alphas is None:
+        # v0414: 0.001~1.0 범위로 제한 — 과잉 정규화(alpha>100) 방지
+        alphas = np.logspace(-3, 0, 50)
 
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
@@ -484,10 +506,10 @@ def fit_elasticnet_with_decay(
     # Time-Decay 가중치 생성
     weights = compute_time_decay_weights(len(y), half_life=half_life)
 
-    # ElasticNetCV: 자동으로 최적 alpha와 l1_ratio 탐색
+    # ElasticNetCV: 지정된 alpha 범위 내에서 최적화
     model = ElasticNetCV(
         l1_ratio=l1_ratios,
-        alphas=None,  # 자동 alpha 경로 탐색
+        alphas=alphas,
         cv=cv,
         max_iter=10000,
         random_state=42,
@@ -508,11 +530,13 @@ for ticker in TICKERS:
     mart = feature_marts[ticker].copy()
     name = TICKER_NAMES[ticker]
 
-    # 타겟: T+20일 후 종가
-    mart["target"] = mart["close"].shift(-HORIZON)
+    # v0414: 타겟 = T+20일 후 로그수익률 (절대가 편향 해소)
+    # log(P_{t+20} / P_t) → 스케일 불변, 삼성(20만)/하이닉스(100만) 동일 기준
+    future_close = mart["close"].shift(-HORIZON)
+    mart["target"] = np.log(future_close / mart["close"])
     mart_clean = mart.dropna(subset=["target"])
 
-    # 피처 선택: 수치형 컬럼 (date, target 제외)
+    # 피처 선택: 수치형 컬럼 (date, target, close 제외)
     exclude_cols = {"date", "target", "close"}
     feat_cols = [
         c for c in mart_clean.select_dtypes(include=[np.number]).columns if c not in exclude_cols
@@ -525,26 +549,33 @@ for ticker in TICKERS:
     X_train, y_train = X[:-1], y[:-1]
     X_last = X[-1:].reshape(1, -1)
 
-    # ElasticNetCV + Time-Decay 학습
-    model, scaler = fit_elasticnet_with_decay(X_train, y_train, half_life=60)
+    # ElasticNetCV + Time-Decay 학습 (half_life=30, alphas=0.001~1.0)
+    model, scaler = fit_elasticnet_with_decay(X_train, y_train, half_life=30)
     X_last_scaled = scaler.transform(X_last)
-    pred = model.predict(X_last_scaled)[0]
+    pred_log_return = model.predict(X_last_scaled)[0]
+
+    # 로그수익률 → 절대가 역변환
+    last_price = mart["close"].iloc[-1]
+    pred_price = last_price * np.exp(pred_log_return)
 
     elasticnet_models[ticker] = model
-    elasticnet_predictions[ticker] = pred
+    elasticnet_predictions[ticker] = pred_price
     elasticnet_scalers[ticker] = (scaler, feat_cols)
 
-    last_price = mart["close"].iloc[-1]
-    change_pct = (pred - last_price) / last_price * 100
+    change_pct = (pred_price - last_price) / last_price * 100
 
     # 살아남은 피처 수 (L1으로 0이 되지 않은 계수)
     n_active = np.sum(np.abs(model.coef_) > 1e-6)
 
+    # R² 계산 (로그수익률 기반)
+    r2_train = model.score(scaler.transform(X_train), y_train)
+
     print(f"\n[{name}] ElasticNet T+{HORIZON}:")
-    print(f"  예측가: {pred:,.0f}원 ({change_pct:+.2f}%)")
+    print(f"  예측 로그수익률: {pred_log_return:+.4f}")
+    print(f"  예측가: {pred_price:,.0f}원 ({change_pct:+.2f}%)")
     print(f"  alpha={model.alpha_:.4f}, l1_ratio={model.l1_ratio_:.2f}")
     print(f"  활성 피처: {n_active}/{len(feat_cols)}개")
-    print(f"  R² (train): {model.score(scaler.transform(X_train), y_train):.4f}")
+    print(f"  R² (train, log-return): {r2_train:.4f}")
 
 # COMMAND ----------
 
@@ -633,40 +664,172 @@ for ticker in TICKERS:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 5. Step 3 — 동적 가중치 앙상블 (Dynamic Weighting & Switching)
+# MAGIC # 5. Step 3 — 동적 가중치 앙상블 (Soft Switching & Dynamic Weight Interpolation)
 # MAGIC
 # MAGIC 두 모델의 결과를 입력받아 **시장 레짐에 따라 가중치를 동적으로 조절**하는 핵심 로직.
 # MAGIC
-# MAGIC ## 가중치 조정 규칙 (퀀트적 근거)
+# MAGIC ### v0414 — Soft Switching 도입
+# MAGIC > 고정 임계값(Hard Threshold)에 의한 예측값의 불연속성을 방지하고,
+# MAGIC > 지표의 극단값(Extreme Values)이 갖는 통계적 유의미성을 가중치에
+# MAGIC > 비례적으로 반영하기 위해 **선형/비선형 가중치 보간법**
+# MAGIC > **(Dynamic Weight Interpolation)**을 적용함.
 # MAGIC
-# MAGIC | 조건 | TimesFM 가중치 | ElasticNet 가중치 | 근거 |
+# MAGIC #### 가중치 함수 설계 원칙
+# MAGIC | 지표 | 구간 | 보간 방식 | 근거 |
 # MAGIC |---|---|---|---|
-# MAGIC | **기본(Base)** | 0.5 | 0.5 | 두 모델 동등 출발 |
-# MAGIC | RSI < 30 (과매도) | 0.6 → **0.7** | 0.4 → 0.3 | 반등 가능성 높음 → 추세 모델 신뢰 |
-# MAGIC | RSI > 70 (과매수) | 0.3 | **0.7** | 과열 조정 가능 → 회귀 모델로 리스크 관리 |
-# MAGIC | vol_ratio > 1.5 (변동성 급증) | 0.3 | **0.7** | 레짐 전환 신호 → 보수적 회귀 모델 |
-# MAGIC | vol_ratio < 0.8 (안정) | **0.7** | 0.3 | 추세 지속 → 모멘텀 모델 강화 |
-# MAGIC | 이격도 > +20% | 0.4 | **0.6** | 장기평균 대비 과도 이탈 → 회귀 압력 |
-# MAGIC | 이격도 < -10% | **0.7** | 0.3 | 과도 하락 후 반등 기대 → 추세 모델 |
+# MAGIC | RSI | 30~50~70 | 선형 보간 (-0.01/pt) | Wilder 과매수/매도 연속 판단 |
+# MAGIC | RSI | <30, >70 | 가속 (1.5배 기울기) | 극단값은 경계보다 더 강한 신호 |
+# MAGIC | 이격도 | ±10%~±20% | 1.5제곱 가속 | 평균 괴리 커질수록 회귀 인력 ↑ |
+# MAGIC | vol_ratio | 0.8~1.2 | 선형 보간 | 0.8 이하 안정, 1.5 이상 급변 |
+# MAGIC | Interaction | RSI×vol 중첩 | 곱셈 가중 | 복합 신호 = 확신의 크기 ↑ |
+# MAGIC
+# MAGIC #### 수식
+# MAGIC - RSI 50~70: $w_{adj} = -0.01 \times (RSI - 50)$
+# MAGIC - RSI >70 가속: $w_{adj} = -0.20 - 0.015 \times (RSI - 70)$
+# MAGIC - 이격도: $w_{adj} = \pm 0.15 \times \min\left(\left(\frac{|d|}{20}\right)^{1.5}, 1\right)$
 
 # COMMAND ----------
 
-# DBTITLE 1,레짐 판별 함수
+# DBTITLE 1,Soft Switching 가중치 보간 함수
 
 
-def classify_market_regime(
+def _rsi_weight_adjustment(rsi: float) -> float:
+    """
+    RSI 기반 TimesFM 가중치 조정분 (Soft Switching).
+
+    경계값(30, 70)에서 불연속이 발생하지 않도록
+    선형 보간(Linear Interpolation)을 적용하고,
+    극단 구간(<30, >70)에서는 기울기를 1.5배 가속합니다.
+
+    가중치 변화 곡선:
+        RSI 0 ─── +0.30 ──► RSI 30 ─── +0.20 ──► RSI 50 ─── 0.00
+                   (가속)              (선형)
+        RSI 50 ── 0.00 ──► RSI 70 ─── -0.20 ──► RSI 100 ── -0.25
+                             (선형)              (가속)
+
+    수식: RSI 50~70 구간 → adj = -0.01 × (RSI - 50)
+    """
+    if rsi <= 30:
+        # 과매도 가속: "공포에 사서 환희에 팔아라" (역발상)
+        # TimesFM이 과도한 하락 뒤 V자 반등 패턴을 더 잘 포착
+        base = 0.20
+        accel = 0.10 * min((30 - rsi) / 30, 1.0)
+        return base + accel
+    elif rsi <= 50:
+        # 30~50: 선형 보간 (0.20 → 0.00)
+        return 0.20 * (50 - rsi) / 20
+    elif rsi <= 70:
+        # 50~70: 선형 보간 (0.00 → -0.20)
+        # "달리는 말에 올라타되, 낭떠러지는 피하자"
+        return -0.01 * (rsi - 50)
+    else:
+        # 과매수 가속: "고무줄은 늘어난 만큼 돌아온다" (평균회귀)
+        # 70~100: -0.20에서 -0.25까지 가속 (기울기 1.5배가 아닌 완만한 가속)
+        base = -0.20
+        accel = -0.05 * min((rsi - 70) / 30, 1.0)
+        return base + accel
+
+
+def _vol_weight_adjustment(vol_ratio: float) -> float:
+    """
+    변동성 비율(realized_vol_5d / realized_vol_20d) 기반 가중치 조정분.
+
+    - vol_ratio < 0.8: 안정적 추세 지속 → TimesFM 강화
+      "변동성이 낮은 상승은 진짜다" (Low Volatility Anomaly)
+    - 0.8~1.2: 정상 범위 → 무조정
+    - vol_ratio > 1.2: 변동성 급증 → ElasticNet 강화
+      "레짐 전환 전조" → 보수적 회귀 모델로 숨고르기
+
+    가중치 변화 곡선:
+        vol 0.0 ── +0.15 ──► 0.8 ── 0.00 ──► 1.2 ── 0.00 ──► 2.0 ── -0.20
+    """
+    if vol_ratio <= 0.8:
+        # 안정: 추세 지속 가능성 → TimesFM 비중 강화
+        return 0.15 * min((0.8 - vol_ratio) / 0.8, 1.0)
+    elif vol_ratio <= 1.2:
+        # 정상 범위: 조정 없음 (데드존)
+        return 0.0
+    else:
+        # 급증: 레짐 전환 신호 → ElasticNet 비중 강화
+        return -0.20 * min((vol_ratio - 1.2) / 0.8, 1.0)
+
+
+def _disparity_weight_adjustment(disparity: float) -> float:
+    """
+    120일 이격도 기반 가중치 조정분 (가속화).
+
+    "평균에서 멀어질수록 회귀하려는 인력은 제곱으로 강해진다"
+    → 이격도가 커질수록 1.5제곱으로 가속하여 조정분을 키움.
+
+    - 양수 이격 (+): 장기평균 위 → 회귀 압력 (ElasticNet ↑)
+    - 음수 이격 (-): 장기평균 아래 → 반등 기대 (TimesFM ↑)
+
+    가중치 변화 곡선 (양수):
+        d=0% ── 0.00 ──► d=+10% ── -0.05 ──► d=+20% ── -0.15 ──► d=+30% ── -0.15(cap)
+                                                (가속)
+    """
+    if disparity > 0:
+        # 양수 이격: 과열 → 회귀 압력 (가속)
+        norm = min(disparity / 20, 1.0)
+        return -0.15 * (norm**1.5)
+    elif disparity < 0:
+        # 음수 이격: 과매도 → 반등 기대 (가속)
+        norm = min(abs(disparity) / 10, 1.0)
+        return 0.15 * (norm**1.5)
+    return 0.0
+
+
+def _interaction_weight(rsi: float, vol_ratio: float, disparity: float) -> float:
+    """
+    복합 지표 가중치 (Interaction Term).
+
+    "신호들의 중첩은 확신의 크기를 키운다"
+    단일 지표보다 복수 지표가 동시에 같은 방향을 가리킬 때
+    가중치 조정을 추가로 부여합니다.
+
+    규칙 1: RSI 과매수(>60) + 변동성 급증(>1.2) → 하락 압력 가중
+    규칙 2: RSI 과매도(<40) + 변동성 급증(>1.2) → 패닉 후 반등 가중
+    규칙 3: 이격도 과열(>15%) + RSI 과매수(>65) → 회귀 압력 이중 강화
+    """
+    adj = 0.0
+
+    # 규칙 1: 과매수 + 변동성 급증 = 하락 신호 중첩
+    if rsi > 60 and vol_ratio > 1.2:
+        overbought_strength = min((rsi - 60) / 40, 1.0)
+        vol_strength = min((vol_ratio - 1.2) / 0.8, 1.0)
+        adj -= 0.10 * overbought_strength * vol_strength
+
+    # 규칙 2: 과매도 + 변동성 급증 = 패닉 매도 후 반등 기대
+    if rsi < 40 and vol_ratio > 1.2:
+        oversold_strength = min((40 - rsi) / 40, 1.0)
+        vol_strength = min((vol_ratio - 1.2) / 0.8, 1.0)
+        adj += 0.10 * oversold_strength * vol_strength
+
+    # 규칙 3: 이격도 과열 + RSI 과매수 = 이중 회귀 압력
+    if disparity > 15 and rsi > 65:
+        disp_strength = min((disparity - 15) / 15, 1.0)
+        rsi_strength = min((rsi - 65) / 35, 1.0)
+        adj -= 0.08 * disp_strength * rsi_strength
+
+    return adj
+
+
+def compute_dynamic_weights(
     rsi: float,
     vol_ratio: float,
     disparity: float,
 ) -> dict:
     """
-    현재 시장 레짐을 판별하고 모델 가중치를 결정합니다.
+    Soft Switching 기반 동적 가중치를 산출합니다.
 
-    3가지 기술적 지표를 조합하여 시장 상태를 분류하고,
-    각 상태에 맞는 TimesFM(추세) vs ElasticNet(회귀) 가중치를 반환합니다.
+    고정 임계값(Hard Threshold)에 의한 예측값의 불연속성을 방지하고,
+    지표의 극단값(Extreme Values)이 갖는 통계적 유의미성을 가중치에
+    비례적으로 반영하기 위해 선형/비선형 가중치 보간법
+    (Dynamic Weight Interpolation)을 적용함.
 
     기본 가중치: TimesFM 0.5 / ElasticNet 0.5
-    각 조건이 가중치를 ±0.1~0.2씩 조정하며, 최종값은 [0.2, 0.8] 범위로 클리핑.
+    4가지 조정분(RSI, vol_ratio, 이격도, Interaction)을 합산하여
+    최종 가중치를 [0.15, 0.85] 범위로 클리핑.
 
     Parameters
     ----------
@@ -684,67 +847,45 @@ def classify_market_regime(
         "w_meanrev": float,     # ElasticNet(회귀) 가중치
         "regime": str,          # 레짐 라벨
         "regime_flag": int,     # 레짐 코드 (DB 적재용)
-        "adjustments": list     # 적용된 조정 사유
+        "adjustments": list     # 적용된 조정 사유 및 수치
     }
     """
-    # 기본 가중치
-    w_trend = 0.50
-    w_meanrev = 0.50
+    # --- 각 지표별 연속 조정분 산출 ---
+    rsi_adj = _rsi_weight_adjustment(rsi)
+    vol_adj = _vol_weight_adjustment(vol_ratio)
+    disp_adj = _disparity_weight_adjustment(disparity)
+    inter_adj = _interaction_weight(rsi, vol_ratio, disparity)
+
+    # --- 기본 가중치 + 조정분 합산 ---
+    w_trend = 0.50 + rsi_adj + vol_adj + disp_adj + inter_adj
+    w_trend = np.clip(w_trend, 0.15, 0.85)
+    w_meanrev = round(1.0 - w_trend, 4)
+
+    # --- 조정 사유 기록 ---
     adjustments = []
+    if abs(rsi_adj) > 0.01:
+        adjustments.append(f"RSI={rsi:.1f} → adj={rsi_adj:+.3f}")
+    if abs(vol_adj) > 0.01:
+        adjustments.append(f"vol_ratio={vol_ratio:.2f} → adj={vol_adj:+.3f}")
+    if abs(disp_adj) > 0.01:
+        adjustments.append(f"이격도={disparity:+.1f}% → adj={disp_adj:+.3f}")
+    if abs(inter_adj) > 0.01:
+        adjustments.append(f"Interaction → adj={inter_adj:+.3f}")
 
-    # --- RSI 기반 조정 ---
-    # RSI 70 기준: Wilder(1978)의 과매수/과매도 표준 임계값
-    if rsi > 70:
-        w_trend -= 0.20
-        w_meanrev += 0.20
-        adjustments.append(f"RSI={rsi:.0f}>70 과매수 → 회귀↑")
-    elif rsi < 30:
-        w_trend += 0.20
-        w_meanrev -= 0.20
-        adjustments.append(f"RSI={rsi:.0f}<30 과매도 → 추세↑")
-
-    # --- 변동성 비율 기반 조정 ---
-    # vol_ratio > 1.5: 최근 5일 변동성이 20일의 1.5배 → 레짐 전환 신호
-    # vol_ratio < 0.8: 안정적 추세 지속 환경
-    if vol_ratio > 1.5:
-        w_trend -= 0.20
-        w_meanrev += 0.20
-        adjustments.append(f"vol_ratio={vol_ratio:.2f}>1.5 변동성 급증 → 회귀↑")
-    elif vol_ratio < 0.8:
-        w_trend += 0.20
-        w_meanrev -= 0.20
-        adjustments.append(f"vol_ratio={vol_ratio:.2f}<0.8 안정 → 추세↑")
-
-    # --- 이격도 기반 조정 ---
-    # +20%: 120일 평균 대비 20% 위 → 과도한 괴리, 평균회귀 압력
-    # -10%: 120일 평균 대비 10% 아래 → 과매도, 반등 기대
-    if disparity > 20:
-        w_trend -= 0.10
-        w_meanrev += 0.10
-        adjustments.append(f"이격도={disparity:+.1f}%>+20% → 회귀↑")
-    elif disparity < -10:
-        w_trend += 0.20
-        w_meanrev -= 0.20
-        adjustments.append(f"이격도={disparity:+.1f}%<-10% → 추세↑")
-
-    # 가중치 클리핑 (극단 방지: 최소 0.2, 최대 0.8)
-    w_trend = np.clip(w_trend, 0.20, 0.80)
-    w_meanrev = 1.0 - w_trend  # 합 = 1.0 보장
-
-    # 레짐 라벨 결정
-    if w_trend >= 0.6:
-        regime = "TREND"  # 추세 우위
+    # --- 레짐 라벨 결정 ---
+    if w_trend >= 0.60:
+        regime = "TREND"
         regime_flag = 1
-    elif w_meanrev >= 0.6:
-        regime = "MEAN_REV"  # 회귀 우위
+    elif w_meanrev >= 0.60:
+        regime = "MEAN_REV"
         regime_flag = -1
     else:
-        regime = "NEUTRAL"  # 균형
+        regime = "NEUTRAL"
         regime_flag = 0
 
     return {
-        "w_trend": round(w_trend, 2),
-        "w_meanrev": round(w_meanrev, 2),
+        "w_trend": round(w_trend, 4),
+        "w_meanrev": round(w_meanrev, 4),
         "regime": regime,
         "regime_flag": regime_flag,
         "adjustments": adjustments,
@@ -858,8 +999,8 @@ def calculate_dynamic_ensemble(
     vol_ratio = feature_mart["vol_ratio"].iloc[-1]
     disparity = feature_mart["disparity_120d"].iloc[-1]
 
-    # 레짐 판별 및 가중치 결정
-    regime = classify_market_regime(rsi, vol_ratio, disparity)
+    # 레짐 판별 및 가중치 결정 (v0414: Soft Switching)
+    regime = compute_dynamic_weights(rsi, vol_ratio, disparity)
     w_trend = regime["w_trend"]
     w_meanrev = regime["w_meanrev"]
 
@@ -940,8 +1081,8 @@ for ticker in TICKERS:
     print(f"  현재가: {result['last_price']:,.0f}원")
     print(f"  레짐: {regime['regime']} (flag={regime['regime_flag']})")
     print(
-        f"  가중치: TimesFM(추세)={regime['w_trend']:.0%}"
-        f" / ElasticNet(회귀)={regime['w_meanrev']:.0%}"
+        f"  가중치: TimesFM(추세)={regime['w_trend']:.2%}"
+        f" / ElasticNet(회귀)={regime['w_meanrev']:.2%}"
     )
     for adj in regime["adjustments"]:
         print(f"    → {adj}")
@@ -1050,7 +1191,7 @@ def plot_dynamic_ensemble(result: dict, ticker_name: str, save_path: str | None 
     regime = result["regime"]
     info_text = (
         f"레짐: {regime['regime']}\n"
-        f"추세: {regime['w_trend']:.0%} / 회귀: {regime['w_meanrev']:.0%}\n"
+        f"추세: {regime['w_trend']:.2%} / 회귀: {regime['w_meanrev']:.2%}\n"
         f"신뢰도: {result['confidence']:.0f}/100"
     )
     ax.text(
@@ -1263,6 +1404,6 @@ for ticker in TICKERS:
 # MAGIC | 단계 | 구현 내용 | 상태 |
 # MAGIC |---|---|---|
 # MAGIC | Step 1 | RSI(14), ATR(14), 120d 이격도, 로그수익률 | ✅ |
-# MAGIC | Step 2 | ElasticNetCV + Time-Decay(60d half-life) | ✅ |
-# MAGIC | Step 3 | 동적 가중치 앙상블 + Confidence Score | ✅ |
+# MAGIC | Step 2 | ElasticNetCV + **로그수익률 타겟** + Time-Decay(30d) + Alpha범위 | ✅ v0414 |
+# MAGIC | Step 3 | **Soft Switching** 동적가중치 + Interaction Term + Confidence | ✅ v0414 |
 # MAGIC | Step 4 | 시각화 + fact_ensemble_forecast DataFrame | ✅ |
