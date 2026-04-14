@@ -535,7 +535,8 @@ for ticker in TICKERS:
     plt.colorbar(im, ax=axes, shrink=0.8, label="Correlation")
     plt.tight_layout()
     plt.savefig(f"/tmp/stat_corr_heatmap_{ticker}.png", dpi=150)
-    plt.show()
+    display(fig)  # noqa: F821
+    plt.close(fig)
 
     spear_vs_close = spearman["close"].drop("close").sort_values(ascending=False)
     print(f"\n{TICKER_NAMES[ticker]} — Spearman 순위 상관 (vs close) Top 10:")
@@ -718,7 +719,8 @@ for idx, ticker in enumerate(TICKERS):
 plt.suptitle(f"VAR Baseline vs Ridge Covariate (T+{HORIZON})", fontsize=14, y=1.02)
 plt.tight_layout()
 plt.savefig("/tmp/stat_impact_comparison.png", dpi=150)
-plt.show()
+display(fig)  # noqa: F821
+plt.close(fig)
 
 # COMMAND ----------
 
@@ -996,7 +998,8 @@ for idx, ticker in enumerate(TICKERS):
     ax.grid(True, alpha=0.3, axis="x")
 plt.tight_layout()
 plt.savefig("/tmp/stat_attribution_per_ticker.png", dpi=150)
-plt.show()
+display(fig)  # noqa: F821
+plt.close(fig)
 
 # COMMAND ----------
 
@@ -1259,7 +1262,8 @@ for ticker in TICKERS:
 
     plt.tight_layout()
     plt.savefig(f"/tmp/stat_residual_{ticker}.png", dpi=150)
-    plt.show()
+    display(fig)  # noqa: F821
+    plt.close(fig)
 
 # COMMAND ----------
 

@@ -288,6 +288,11 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] Soft Switching 감성 가중치 — `_sentiment_weight_adjustment()` ±0.15 클리핑 (v0415)
 - [x] Interaction Term 감성 규칙 — 호재×RSI과매수, 악재×RSI과매도 2개 규칙 추가 (v0415)
 - [x] GPT 프롬프트 감성 주입 — AI 슈퍼사이클 스토리라인 + 뉴스 감성 섹션 (v0415)
+- [x] 키워드 파생변수 — `daily_keywords` JSONB → diversity, delta, concentration 등 6종 + 교호작용 4종 (v0416)
+- [x] 상관관계 분석 — Spearman/Pearson 교차검증 키워드 파생변수 상관 셀 (v0416)
+- [x] AI 중간 해석 셀 — 키워드 상관, ElasticNet 결과, 앙상블 레짐 3개 셀 (v0416)
+- [x] 멀티모델 비교 — GPT-5.4 계열 Responses API 4개 모델 비교 (v0416)
+- [x] `plt.show()` → `display(fig)` — 3개 노트북 전체 Databricks 호환 전환 (v0416)
 
 > ⚠️ **v0413 실행 결과 발견 이슈 → v0414 대응:**
 > - SK하이닉스 ElasticNet R²=−0.33 → **v0414: 로그수익률 타겟으로 스케일 차이 해소**
@@ -301,7 +306,7 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 > - `timesfm_inference_lite.py` — TimesFM 간소화 아카이브
 > - `statistical_baseline_analysis.py` — 전통 모델 메인 (Full Feature)
 > - `statistical_baseline_analysis_lite.py` — 전통 모델 간소화 아카이브
-> - `ensemble_strategy.py` — 동적 가중치 앙상블 (v0413 신규, v0415 감성 통합)
+> - `ensemble_strategy.py` — 동적 가중치 앙상블 (v0413 신규, v0415 감성 통합, v0416 키워드 파생변수·멀티모델)
 > - `correlation_analysis.py` — 원본 상관분석 (복원)
 
 #### XGBoost/LightGBM 분류 (ML Studio)
@@ -346,3 +351,4 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - MS 아키텍처 베스트 프랙티스: [architecture.md #MS 아키텍처 베스트 프랙티스 참조](architecture.md#ms-아키텍처-베스트-프랙티스-참조)
 - **TimesFM 앙상블 모델 분석 기록**: [TimesFM_앙상블_튜닝_트러블슈팅.md](TimesFM_앙상블_튜닝_트러블슈팅.md) — v0412~v0414 개발 히스토리, 6가지 이슈 트러블슈팅, 파라미터 튜닝
 - **v0415 뉴스 감성 통합**: Gold Layer `v_news_sentiment_trend` 뷰 활용, 5개 감성 파생 피처, Soft Switching 감성 가중치, Interaction 규칙 확장, GPT 프롬프트 AI 슈퍼사이클 스토리라인
+- **v0416 키워드 파생변수 + 멀티모델**: `daily_keywords` JSONB 6종 파생변수, 교호작용 4종, Spearman/Pearson 교차검증 상관분석, AI 중간 해석 3셀, GPT-5.4 계열 Responses API 멀티모델 비교, `display(fig)` 전환
