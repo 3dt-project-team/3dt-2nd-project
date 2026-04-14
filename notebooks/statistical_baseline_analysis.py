@@ -729,49 +729,90 @@ plt.show()
 
 # COMMAND ----------
 
+# 현재 최신 값 가져오기 (시나리오 절댓값 기준; timesfm_inference.py §8 동일 방식)
+mart = feature_marts[TICKERS[0]]
+current_vals = {col: mart[col].iloc[-1] for col in mart.columns}
+
 SCENARIOS = {
-    "금리 인하 (-50bp)": {"fred_dgs10": 0.875, "fred_dgs2": 0.875},
-    "금리 인상 (+50bp)": {"fred_dgs10": 1.125, "fred_dgs2": 1.125},
-    "DRAM 수출 급증 (+30%)": {"semi_dram_exp": 1.30},
-    "DRAM 수출 급감 (-30%)": {"semi_dram_exp": 0.70},
-    "원/달러 급등 (+10%)": {"usd_krw_rate": 1.10},
-    "원/달러 급락 (-10%)": {"usd_krw_rate": 0.90},
-    "수출 전면 호조 (+20%)": {"semi_total_exp": 1.20, "semi_dram_exp": 1.20},
-    "수출 전면 부진 (-20%)": {"semi_total_exp": 0.80, "semi_dram_exp": 0.80},
-    "미중 기술 전쟁 심화": {
-        "usd_krw_rate": 1.05,
-        "semi_total_exp": 0.85,
-        "yfinance_sox_close": 0.85,
+    # ── 기준 ──
+    "현상 유지": {},
+    # ── 통화정책 시나리오 ──
+    "금리 인하 (-50bp)": {
+        "fred_dgs10": current_vals.get("fred_dgs10", 4.0) - 0.5,
+        "fred_dgs2": current_vals.get("fred_dgs2", 4.0) - 0.5,
+        "fred_t10y2y": current_vals.get("fred_t10y2y", 0.0) + 0.3,
     },
-    "글로벌 AI 투자 급증": {
-        "yfinance_nvda_close": 1.20,
-        "yfinance_tsm_close": 1.15,
-        "semi_dram_exp": 1.15,
+    "금리 인상 (+50bp)": {
+        "fred_dgs10": current_vals.get("fred_dgs10", 4.0) + 0.5,
+        "fred_dgs2": current_vals.get("fred_dgs2", 4.0) + 0.5,
+        "fred_t10y2y": current_vals.get("fred_t10y2y", 0.0) - 0.3,
     },
-    "복합 위기 (금리↑+수출↓+환율↑)": {
-        "fred_dgs10": 1.125,
-        "semi_total_exp": 0.80,
-        "usd_krw_rate": 1.08,
+    "스프레드 급등 (+100bp)": {
+        "fred_bamlh0a0hym2": current_vals.get("fred_bamlh0a0hym2", 3.5) + 1.0,
+        "fred_dfii10": current_vals.get("fred_dfii10", 2.0) + 0.5,
     },
-    "복합 호재 (금리↓+수출↑+AI↑)": {
-        "fred_dgs10": 0.875,
-        "semi_dram_exp": 1.25,
-        "yfinance_nvda_close": 1.15,
+    # ── 환율·무역 시나리오 ──
+    "원화 약세 (+5%)": {
+        "usd_krw_rate": current_vals.get("usd_krw_rate", 1400.0) * 1.05,
+    },
+    "원화 강세 (-5%)": {
+        "usd_krw_rate": current_vals.get("usd_krw_rate", 1400.0) * 0.95,
+    },
+    # ── 산업·수급 시나리오 ──
+    "반도체 수출 급증 (+20%)": {
+        "semi_total_exp": current_vals.get("semi_total_exp", 300.0) * 1.20,
+        "semi_dram_exp": current_vals.get("semi_dram_exp", 80.0) * 1.20,
+        "semi_exp_mom": 0.20,
+    },
+    "반도체 수출 급감 (-20%)": {
+        "semi_total_exp": current_vals.get("semi_total_exp", 300.0) * 0.80,
+        "semi_dram_exp": current_vals.get("semi_dram_exp", 80.0) * 0.80,
+        "semi_exp_mom": -0.20,
+    },
+    "AI 수요 폭증 (NVDA +15%)": {
+        "yfinance_nvda_close": current_vals.get("yfinance_nvda_close", 120.0) * 1.15,
+        "yfinance_tsm_close": current_vals.get("yfinance_tsm_close", 170.0) * 1.10,
+        "yfinance_mu_close": current_vals.get("yfinance_mu_close", 90.0) * 1.10,
+    },
+    "글로벌 반도체 약세 (SOX -10%)": {
+        "yfinance_sox_close": current_vals.get("yfinance_sox_close", 4500.0) * 0.90,
+        "yfinance_nvda_close": current_vals.get("yfinance_nvda_close", 120.0) * 0.90,
+        "yfinance_tsm_close": current_vals.get("yfinance_tsm_close", 170.0) * 0.90,
+    },
+    # ── 복합 시나리오 (스트레스 테스트) ──
+    "복합 호재: 금리인하 + 수출급증": {
+        "fred_dgs10": current_vals.get("fred_dgs10", 4.0) - 0.5,
+        "fred_t10y2y": current_vals.get("fred_t10y2y", 0.0) + 0.3,
+        "semi_total_exp": current_vals.get("semi_total_exp", 300.0) * 1.20,
+        "semi_dram_exp": current_vals.get("semi_dram_exp", 80.0) * 1.20,
+        "yfinance_nvda_close": current_vals.get("yfinance_nvda_close", 120.0) * 1.10,
+    },
+    "복합 악재: 금리인상 + 원화약세 + 수출감소": {
+        "fred_dgs10": current_vals.get("fred_dgs10", 4.0) + 0.5,
+        "usd_krw_rate": current_vals.get("usd_krw_rate", 1400.0) * 1.08,
+        "semi_total_exp": current_vals.get("semi_total_exp", 300.0) * 0.85,
+        "semi_dram_exp": current_vals.get("semi_dram_exp", 80.0) * 0.85,
+        "yfinance_sox_close": current_vals.get("yfinance_sox_close", 4500.0) * 0.90,
     },
 }
 
 SCENARIO_GROUPS = {
-    "금리 정책": ["금리 인하 (-50bp)", "금리 인상 (+50bp)"],
-    "반도체 수출": ["DRAM 수출 급증 (+30%)", "DRAM 수출 급감 (-30%)"],
-    "환율 변동": ["원/달러 급등 (+10%)", "원/달러 급락 (-10%)"],
-    "글로벌 이벤트": ["미중 기술 전쟁 심화", "글로벌 AI 투자 급증"],
-    "복합 시나리오": [
-        "복합 위기 (금리↑+수출↓+환율↑)",
-        "복합 호재 (금리↓+수출↑+AI↑)",
+    "기준": ["현상 유지"],
+    "통화정책": ["금리 인하 (-50bp)", "금리 인상 (+50bp)", "스프레드 급등 (+100bp)"],
+    "환율·무역": ["원화 약세 (+5%)", "원화 강세 (-5%)"],
+    "산업·수급": [
+        "반도체 수출 급증 (+20%)",
+        "반도체 수출 급감 (-20%)",
+        "AI 수요 폭증 (NVDA +15%)",
+        "글로벌 반도체 약세 (SOX -10%)",
+    ],
+    "복합 스트레스": [
+        "복합 호재: 금리인하 + 수출급증",
+        "복합 악재: 금리인상 + 원화약세 + 수출감소",
     ],
 }
 
-# Ridge 계수 기반 시나리오 분석
+# Ridge 계수 기반 시나리오 분석 (절댓값 직접 오버라이드 방식 — timesfm_inference.py §8 동일)
 scenario_results_stat = {}
 for sc_name, overrides in SCENARIOS.items():
     sc_preds = {}
@@ -779,12 +820,9 @@ for sc_name, overrides in SCENARIOS.items():
         scaler, feat_cols = ridge_scalers[ticker]
         ridge = ridge_models[ticker]
         last_row = feature_marts[ticker][feat_cols].iloc[-1:].copy()
-        for col, factor in overrides.items():
+        for col, override_val in overrides.items():
             if col in last_row.columns:
-                if abs(factor) < 10:  # multiplicative
-                    last_row[col] = last_row[col] * factor
-                else:  # additive
-                    last_row[col] = last_row[col] + factor
+                last_row[col] = override_val
         X_sc = scaler.transform(last_row.fillna(0).values)
         sc_preds[ticker] = ridge.predict(X_sc)[0]
     scenario_results_stat[sc_name] = sc_preds
@@ -816,34 +854,50 @@ for group, members in SCENARIO_GROUPS.items():
 # COMMAND ----------
 
 _sanity_stat = []
+_base_result_stat = scenario_results_stat.get("현상 유지", {})
 for sc_name, preds in scenario_results_stat.items():
+    if sc_name == "현상 유지":
+        continue
     for ticker in TICKERS:
         last_p = feature_marts[ticker]["close"].iloc[-1]
-        delta_pct = (preds[ticker] - last_p) / last_p * 100
+        base_p = _base_result_stat.get(ticker, last_p)
+        delta_pct = (preds[ticker] - base_p) / abs(base_p) * 100
         _sanity_stat.append(
             {
                 "시나리오": sc_name,
                 "종목": TICKER_NAMES[ticker],
-                "예측 변동(%)": round(delta_pct, 2),
+                "기준 대비 변동(%)": round(delta_pct, 2),
             }
         )
 
 df_sanity_stat = pd.DataFrame(_sanity_stat)
-print("시나리오 일관성 검증:")
+print("시나리오 일관성 검증 (현상 유지 대비 변동):")
 print(df_sanity_stat.to_string(index=False))
 
 print("\n⚠️ 직관 검증 필요 시나리오:")
+_counterintuitive_stat = []
 for _, row in df_sanity_stat.iterrows():
-    name, delta = row["시나리오"], row["예측 변동(%)"]
+    name, delta = row["시나리오"], row["기준 대비 변동(%)"]
+    flag = None
     if "금리 인하" in name and delta < -5:
-        print(f"  ⚠ {name} ({row['종목']}): 금리 인하인데 {delta:+.2f}% 하락")
+        flag = f"금리 인하인데 {delta:+.2f}% 하락"
     elif "금리 인상" in name and delta > 5:
-        print(f"  ⚠ {name} ({row['종목']}): 금리 인상인데 {delta:+.2f}% 상승")
+        flag = f"금리 인상인데 {delta:+.2f}% 상승"
+    elif "수출 급증" in name and delta < -5:
+        flag = f"수출 급증인데 {delta:+.2f}% 하락"
+    elif "수출 급감" in name and delta > 5:
+        flag = f"수출 급감인데 {delta:+.2f}% 상승"
+    if flag:
+        print(f"  ⚠ {name} ({row['종목']}): {flag}")
+        _counterintuitive_stat.append(f"{name}({row['종목']}): {flag}")
 
-print(
-    "\n참고: Ridge Regression은 학습 기간 내 선형 상관관계를 학습하므로,\n"
-    "     경제적 인과와 다를 수 있습니다."
-)
+if not _counterintuitive_stat:
+    print("  ✅ 모든 시나리오가 경제적 직관과 부합합니다.")
+else:
+    print(
+        "\n참고: Ridge Regression은 학습 기간 내 선형 상관관계를 학습하므로,\n"
+        "     경제적 인과와 다를 수 있습니다."
+    )
 
 # COMMAND ----------
 
@@ -1419,11 +1473,17 @@ for ticker in TICKERS:
 print(f"\n{'─' * 50}")
 print(f"📋 시나리오 분석 결과 ({len(SCENARIOS)}개):")
 _sc_avg = {}
+_base_preds_stat = scenario_results_stat.get("현상 유지", {})
 for name in SCENARIOS:
+    if name == "현상 유지":
+        continue
     _sc_avg[name] = np.mean(
         [
-            (scenario_results_stat[name][t] - feature_marts[t]["close"].iloc[-1])
-            / feature_marts[t]["close"].iloc[-1]
+            (
+                scenario_results_stat[name][t]
+                - _base_preds_stat.get(t, feature_marts[t]["close"].iloc[-1])
+            )
+            / abs(_base_preds_stat.get(t, feature_marts[t]["close"].iloc[-1]))
             * 100
             for t in TICKERS
         ]
@@ -1439,11 +1499,8 @@ for group, members in SCENARIO_GROUPS.items():
         parts = []
         for ticker in TICKERS:
             pred = scenario_results_stat[name][ticker]
-            chg = (
-                (pred - feature_marts[ticker]["close"].iloc[-1])
-                / feature_marts[ticker]["close"].iloc[-1]
-                * 100
-            )
+            base_p = _base_preds_stat.get(ticker, feature_marts[ticker]["close"].iloc[-1])
+            chg = (pred - base_p) / abs(base_p) * 100
             parts.append(f"{TICKER_NAMES[ticker]}: {chg:+.2f}%")
         tag = " ← 최선" if name == _best_name else (" ← 최악" if name == _worst_name else "")
         print(f"    [{name}] {' | '.join(parts)}{tag}")
