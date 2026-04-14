@@ -1,5 +1,5 @@
 {
-	"name": "gold_semiconductor",
+	"name": "gold_kfinance",
 	"properties": {
 		"linkedServiceName": {
 			"referenceName": "3dtteam1adls",
@@ -13,7 +13,7 @@
 		"typeProperties": {
 			"location": {
 				"type": "AzureBlobFSLocation",
-				"fileName": "silver_semiconductor.parquet",
+				"fileName": "silver_kfinance.parquet",
 				"fileSystem": "curated"
 			},
 			"compressionCodec": "snappy"
@@ -24,23 +24,15 @@
 				"type": "DATE"
 			},
 			{
-				"name": "hsCode",
-				"type": "INT64"
-			},
-			{
-				"name": "statKor",
+				"name": "ticker",
 				"type": "UTF8"
 			},
 			{
-				"name": "expDlr",
-				"type": "INT64"
+				"name": "close_price",
+				"type": "UTF8"
 			},
 			{
-				"name": "impDlr",
-				"type": "INT64"
-			},
-			{
-				"name": "semiconductor_collected_at_utc",
+				"name": "kfinance_collected_at_utc",
 				"type": "INT96"
 			}
 		]
