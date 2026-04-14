@@ -1,5 +1,5 @@
 {
-	"name": "SENSE_macro",
+	"name": "gold_macro",
 	"properties": {
 		"linkedServiceName": {
 			"referenceName": "3dtteam1adls",
