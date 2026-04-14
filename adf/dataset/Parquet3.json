@@ -1,0 +1,45 @@
+{
+	"name": "Parquet3",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "3dtteam1adls",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": "silver_semiconductor.parquet",
+				"fileSystem": "curated"
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": [
+			{
+				"name": "date",
+				"type": "DATE"
+			},
+			{
+				"name": "hsCode",
+				"type": "INT64"
+			},
+			{
+				"name": "statKor",
+				"type": "UTF8"
+			},
+			{
+				"name": "expDlr",
+				"type": "INT64"
+			},
+			{
+				"name": "impDlr",
+				"type": "INT64"
+			},
+			{
+				"name": "semiconductor_collected_at_utc",
+				"type": "INT96"
+			}
+		]
+	}
+}
