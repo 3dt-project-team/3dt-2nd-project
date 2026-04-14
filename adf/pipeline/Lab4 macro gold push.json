@@ -875,6 +875,8 @@
 						"storeSettings": {
 							"type": "AzureBlobFSReadSettings",
 							"recursive": true,
+							"wildcardFolderPath": "sense_macro",
+							"wildcardFileName": "*.parquet",
 							"enablePartitionDiscovery": false
 						},
 						"formatSettings": {
@@ -885,7 +887,12 @@
 						"type": "AzurePostgreSqlSink",
 						"writeBatchSize": 1000000,
 						"writeBatchTimeout": "00:30:00",
-						"writeMethod": "CopyCommand"
+						"writeMethod": "Upsert",
+						"upsertSettings": {
+							"keys": [
+								"base_date"
+							]
+						}
 					},
 					"enableStaging": false,
 					"translator": {
