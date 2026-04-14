@@ -1835,12 +1835,17 @@ for i, ticker in enumerate(TICKERS):
 print(f"\n{'─' * 50}")
 print(f"📋 시나리오 분석 결과 ({len(SCENARIOS)}개):")
 
-# 최선/최악 시나리오 계산
+# 최선/최악 시나리오 계산 (현상 유지 대비)
 _sc_avg = {}
+_base_preds = scenario_results.get("현상 유지", {})
 for name in SCENARIOS:
+    if name == "현상 유지":
+        continue
     _sc_avg[name] = np.mean(
         [
-            (scenario_results[name]["point"][i, -1] - inputs[i][-1]) / inputs[i][-1] * 100
+            (scenario_results[name]["point"][i, -1] - _base_preds["point"][i, -1])
+            / abs(_base_preds["point"][i, -1])
+            * 100
             for i in range(len(TICKERS))
         ]
     )
@@ -1855,7 +1860,8 @@ for group, members in SCENARIO_GROUPS.items():
         parts = []
         for i, ticker in enumerate(TICKERS):
             pred = scenario_results[name]["point"][i, -1]
-            change = (pred - inputs[i][-1]) / inputs[i][-1] * 100
+            base_p = _base_preds["point"][i, -1]
+            change = (pred - base_p) / abs(base_p) * 100
             parts.append(f"{TICKER_NAMES[ticker]}: {change:+.2f}%")
         tag = ""
         if name == _best_name:
@@ -1901,12 +1907,17 @@ for i, ticker in enumerate(TICKERS):
 # Attribution Top 3
 _final_lines.append(f"\n핵심 영향 변수 Top 3: {', '.join([a[0] for a in sorted_attr[:3]])}")
 
-# 시나리오 요약 (최선/최악)
+# 시나리오 요약 (최선/최악, 현상 유지 대비)
 _sc_changes = {}
+_base_preds_fin = scenario_results.get("현상 유지", {})
 for name in SCENARIOS:
+    if name == "현상 유지":
+        continue
     avg_chg = np.mean(
         [
-            (scenario_results[name]["point"][i, -1] - inputs[i][-1]) / inputs[i][-1] * 100
+            (scenario_results[name]["point"][i, -1] - _base_preds_fin["point"][i, -1])
+            / abs(_base_preds_fin["point"][i, -1])
+            * 100
             for i in range(len(TICKERS))
         ]
     )

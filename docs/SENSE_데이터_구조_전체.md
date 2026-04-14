@@ -367,44 +367,52 @@ Gold JOIN 기준: `date` (한국 영업일 기준으로 3개 Silver 통합)
 | `aspect_tag` | Text | `absa_aspect` | 리스크 가중치용 |
 | `keyword_momentum` | JSONB | `keyword_momentum` | `{"키워드": 급증률%}` |
 
-### 4-2. 매크로 Gold
+### 4-2. 매크로 Gold (`gold_macro` 스키마)
+
+> ⚠️ 실제 테이블명이 데이터사전 설계와 다름 — `gold_macro` 스키마 사용
 
 | 테이블 | PK | 설명 |
 |---|---|---|
-| `dim_macro_series` | `series_id` | 지표 메타데이터 (ticker, display_name, category, unit) |
-| `fact_macro_daily` | `(series_id, trade_date)` | 일별 OHLCV |
-| `fact_macro_derived` | `(series_id, trade_date, indicator_name)` | 파생 기술 지표 (ma_5, ma_20, rsi_14, return_1d 등) |
-| `fact_macro_fred` | `(series_code, observed_date)` | FRED 금리 시계열 (6개 시리즈) |
+| `gold_macro.dim_macro_metadatas` | `series_id` | 지표 메타데이터 (설계: `dim_macro_series`) |
+| `gold_macro.fact_macro_all` | `(series_id, trade_date)` | 매크로 통합 일별 (설계: `fact_macro_daily`) |
+| `gold_macro.fact_yf_fx_fred_1y` | `trade_date` | Yahoo Finance + FX + FRED 1년 통합 |
+| `gold_macro.fact_kfinance` | `trade_date` | 한국 금융 파생상품 (설계에 없던 신규 테이블) |
+| `gold_macro.fact_semiconductor_trade` | `(stat_year, stat_month, hs_code)` | 반도체 수출입 (설계: `fact_quant_customs`) |
 
-### 4-3. 주가 Gold
+### 4-3. 주가 Gold (`gold_equity` 스키마)
 
-| 테이블 | PK | 설명 |
-|---|---|---|
-| `dim_equity` | `equity_id` | 종목 메타데이터 (ticker, name_kr/en, market, asset_type, role) |
-| `fact_equity_ohlcv` | `(equity_id, trade_date)` | 일별 OHLCV |
-| `fact_equity_target` | `(equity_id, trade_date)` | ML 타겟 변수 (downside_flag, upside_flag, regime) |
-| `fact_equity_signals` | `(equity_id, trade_date, signal_name)` | 파생 기술 지표 |
-
-`fact_equity_target` 주요 컬럼:
-- `downside_flag`: `max_drawdown_5d < -3%` 시 TRUE (하방 ML 타겟)
-- `upside_flag`: `max_gain_5d > +3%` 시 TRUE (상승 ML 타겟)
-- `regime`: risk / opportunity / neutral / high_vol
-
-### 4-4. 퀀트 선행 지표 Gold
+> ⚠️ 스키마는 생성되었으나 테이블 미생성
 
 | 테이블 | PK | 설명 |
 |---|---|---|
-| `fact_quant_sox_sync` | `us_trade_date` | SOX ↔ SK하이닉스 동조화 (spillover_flag, upside_surge_flag) |
-| `fact_quant_memory_proxy` | `trade_date` | MU/WDC 기반 메모리 심리 지수 (0.6×MU + 0.4×WDC) |
-| `fact_quant_customs` | `(stat_year, stat_month, hs_code)` | 관세청 수출 추세 (export_trend_flag) |
-| `fact_quant_pcr` | `trade_date` | **⚠️ 구현 보류** — kfinance 데이터로 PCR 계산 불가 |
+| `gold_equity.*` | - | **스키마만 존재, 테이블 미생성** |
 
-### 4-5. 보고서 연동 뷰
+설계된 테이블 (미생성):
+- `dim_equity` — 종목 메타데이터
+- `fact_equity_ohlcv` — 일별 OHLCV
+- `fact_equity_target` — ML 타겟 변수 (downside_flag, upside_flag, regime)
+- `fact_equity_signals` — 파생 기술 지표
+
+### 4-4. 퀀트 / ML Gold (`gold_ml` 스키마)
+
+> ⚠️ PCR 보류 처리했으나 실제로는 `gold_quant_pcr_signals` 생성됨
+
+| 테이블 | PK | 설명 |
+|---|---|---|
+| `gold_ml.fact_quant_sox_sync` | `us_trade_date` | SOX ↔ SK하이닉스 동조화 |
+| `gold_ml.fact_quant_memory_proxy` | `trade_date` | MU/WDC 기반 메모리 심리 지수 |
+| `gold_ml.gold_customs_semiconductor` | `(stat_year, stat_month, hs_code)` | 관세청 반도체 수출 (중복 테이블 주의) |
+| `gold_ml.gold_ml_feature_set` | `trade_date` | ML 통합 피처 세트 (설계에 없던 신규 테이블) |
+| `gold_ml.gold_quant_pcr_signals` | `trade_date` | PCR 퀀트 시그널 (설계: 보류 → 실제 생성) |
+
+### 4-5. 보고서 연동 뷰 (미생성)
+
+> 설계된 뷰는 아직 미생성 상태
 
 | 뷰 | 소스 | 설명 |
 |---|---|---|
-| `v_quant_daily_signals` | fact_quant_* 4개 LEFT JOIN | 퀀트 통합 시그널 (composite_signal: triple_risk / triple_opportunity 등) |
-| `v_daily_report_summary` | 전 데이터셋 일자 기준 통합 | 일간 정기 보고서 자동 생성용 |
+| `v_quant_daily_signals` | gold_ml.* 테이블 LEFT JOIN | 퀀트 통합 시그널 (미생성) |
+| `v_daily_report_summary` | 전 데이터셋 일자 기준 통합 | 일간 정기 보고서 자동 생성용 (미생성) |
 
 ---
 
@@ -424,21 +432,47 @@ Gold JOIN 기준: `date` (한국 영업일 기준으로 3개 Silver 통합)
 | 8 | `curated/quant/` | 문서에 있음 | 미존재 | ❌ 미생성 |
 | 9 | `curated/news/` | 문서에 있음 | 미존재 — `silver/` 컨테이너 사용 | ❌ |
 
-### 5-2. PostgreSQL 실제 vs 데이터사전 차이 (2026-04-14 확인)
+### 5-2. PostgreSQL 실제 스키마 구조 (2026-04-14 확인)
 
-> **현재 `sense_db` public 스키마**: **테이블 2개만 존재** — ML 예측 결과용
+> **확인 방법**: pgAdmin / PostgreSQL MCP 직접 조회
+> **실제 스키마 4개**: `gold_equity`, `gold_macro`, `gold_ml`, `gold_news`  
+> ※ 데이터사전에는 스키마 분리 없이 단일 `public` 스키마로 설계되어 있었으나,  
+> 실제 구현 시 스키마를 분리하여 생성됨
 
-| 항목 | 데이터사전 | 실제 PostgreSQL | 상태 |
+#### 실제 PostgreSQL 스키마·테이블 목록
+
+| 스키마 | 테이블 | 상태 | 비고 |
 |---|---|---|---|
-| 뉴스 Gold | `dim_news_display`, `agg_market_sentiment_daily`, `fact_feature_vector_store` | **없음** | ❌ 미생성 |
-| 매크로 Gold | `dim_macro_series`, `fact_macro_daily`, `fact_macro_derived`, `fact_macro_fred` | **없음** | ❌ 미생성 |
-| 주가 Gold | `dim_equity`, `fact_equity_ohlcv`, `fact_equity_target`, `fact_equity_signals` | **없음** | ❌ 미생성 |
-| 퀀트 Gold | `fact_quant_sox_sync`, `fact_quant_memory_proxy`, `fact_quant_customs` | **없음** | ❌ 미생성 |
-| 보고서 뷰 | `v_quant_daily_signals`, `v_daily_report_summary` | **없음** | ❌ 미생성 |
-| ML 예측 | **없음** | `fact_ensemble_forecast` (15컬럼, 160행) | ❌ 데이터사전 누락 |
-| ML 예측 | **없음** | `fact_stat_forecast` (9컬럼) | ❌ 데이터사전 누락 |
+| `gold_equity` | (테이블 없음) | ⬜ 스키마만 생성 | 주가 Gold 미생성 |
+| `gold_macro` | `dim_macro_metadatas` | ✅ 생성됨 | 지표 메타 |
+| `gold_macro` | `fact_kfinance` | ✅ 생성됨 | 금융 파생상품 |
+| `gold_macro` | `fact_macro_all` | ✅ 생성됨 | 매크로 통합 |
+| `gold_macro` | `fact_semiconductor_trade` | ✅ 생성됨 | 반도체 수출입 |
+| `gold_macro` | `fact_yf_fx_fred_1y` | ✅ 생성됨 | Yahoo Finance + FX + FRED 1년 |
+| `gold_ml` | `fact_quant_memory_proxy` | ✅ 생성됨 | MU/WDC 기반 메모리 프록시 |
+| `gold_ml` | `fact_quant_sox_sync` | ✅ 생성됨 | SOX ↔ SK하이닉스 동조화 |
+| `gold_ml` | `gold_customs_semiconductor` | ✅ 생성됨 | 관세청 반도체 수출 |
+| `gold_ml` | `gold_ml_feature_set` | ✅ 생성됨 | ML 통합 피처 세트 |
+| `gold_ml` | `gold_quant_pcr_signals` | ✅ 생성됨 | PCR 퀀트 시그널 |
+| `gold_news` | `agg_market_sentiment_daily` | ✅ 생성됨 | 일별 감성 집계 |
+| `gold_news` | `dim_news_display` | ✅ 생성됨 | 뉴스 서빙용 |
+| `gold_news` | `fact_feature_vector_store` | ✅ 생성됨 | pgvector RAG/ML용 |
 
-#### 실제 존재하는 테이블 스키마
+#### 데이터사전 vs 실제 차이 비교
+
+| 항목 | 데이터사전 설계 | 실제 PostgreSQL | 상태 |
+|---|---|---|---|
+| 스키마 구조 | `public` 단일 스키마 | `gold_equity`, `gold_macro`, `gold_ml`, `gold_news` 4개 | ❌ 설계 불일치 |
+| 뉴스 Gold | `dim_news_display`, `agg_market_sentiment_daily`, `fact_feature_vector_store` | `gold_news` 스키마에 동일하게 존재 | ✅ 테이블명 일치 |
+| 매크로 Gold | `dim_macro_series`, `fact_macro_daily`, `fact_macro_derived`, `fact_macro_fred` | `gold_macro.dim_macro_metadatas`, `fact_macro_all`, `fact_yf_fx_fred_1y` | ⚠️ 테이블명 불일치 |
+| kfinance Gold | `fact_kfinance` (미기재) | `gold_macro.fact_kfinance` | ❌ 데이터사전 누락 |
+| 반도체 Gold | `fact_quant_customs` | `gold_macro.fact_semiconductor_trade`, `gold_ml.gold_customs_semiconductor` | ⚠️ 이름·스키마 다름 |
+| 주가 Gold | `dim_equity`, `fact_equity_ohlcv` 등 | `gold_equity` 스키마 있으나 테이블 **미생성** | ❌ 미생성 |
+| 퀀트 Gold | `fact_quant_sox_sync`, `fact_quant_memory_proxy`, `fact_quant_pcr` | `gold_ml`에 모두 존재 + `gold_quant_pcr_signals` 생성됨 | ✅ (PCR 보류 → 실제 생성) |
+| ML 피처 | 미기재 | `gold_ml.gold_ml_feature_set` | ❌ 데이터사전 누락 |
+| ML 예측 (public) | 미기재 | `fact_ensemble_forecast` (15컬럼, 160행), `fact_stat_forecast` (9컬럼) | ❌ 데이터사전 누락 |
+
+#### 실제 존재하는 주요 테이블 스키마
 
 **`fact_ensemble_forecast`** (TimesFM 앙상블 예측 결과, 160행)
 
