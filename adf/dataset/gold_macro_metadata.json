@@ -1,0 +1,90 @@
+{
+	"name": "gold_macro_metadata",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "3dtteam1adls",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": "part-00000-tid-4049927274065567836-e9da4f10-70aa-4e4e-a35a-e120282c4d5a-42-1-c000.snappy.parquet",
+				"folderPath": "dim_macro_metadata",
+				"fileSystem": "feature"
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": [
+			{
+				"name": "unified_id",
+				"type": "INT32"
+			},
+			{
+				"name": "series_key",
+				"type": "UTF8"
+			},
+			{
+				"name": "source_table",
+				"type": "UTF8"
+			},
+			{
+				"name": "date_column_name",
+				"type": "UTF8"
+			},
+			{
+				"name": "source_column_name",
+				"type": "UTF8"
+			},
+			{
+				"name": "series_code",
+				"type": "UTF8"
+			},
+			{
+				"name": "display_name",
+				"type": "UTF8"
+			},
+			{
+				"name": "category",
+				"type": "UTF8"
+			},
+			{
+				"name": "subcategory",
+				"type": "UTF8"
+			},
+			{
+				"name": "unit",
+				"type": "UTF8"
+			},
+			{
+				"name": "data_source",
+				"type": "UTF8"
+			},
+			{
+				"name": "frequency",
+				"type": "UTF8"
+			},
+			{
+				"name": "market_scope",
+				"type": "UTF8"
+			},
+			{
+				"name": "description",
+				"type": "UTF8"
+			},
+			{
+				"name": "is_active",
+				"type": "BOOLEAN"
+			},
+			{
+				"name": "created_at_utc",
+				"type": "INT96"
+			},
+			{
+				"name": "updated_at_utc",
+				"type": "INT96"
+			}
+		]
+	}
+}
