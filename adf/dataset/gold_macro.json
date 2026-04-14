@@ -1,0 +1,212 @@
+{
+	"name": "gold_macro",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "3dtteam1adls",
+			"type": "LinkedServiceReference"
+		},
+		"folder": {
+			"name": "gold"
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"folderPath": "sense_macro",
+				"fileSystem": "feature"
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": [
+			{
+				"name": "date",
+				"type": "DATE"
+			},
+			{
+				"name": "NVDA",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "TSM",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "AMD",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "INTC",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "ASML",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "MU",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "WDC",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "^SOX",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "005930.KS",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "000660.KS",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "NVDA_log_return",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "NVDA_volatility_gk",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "NVDA_volatility_5d",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "SOX_log_return",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "SOX_volatility_5d",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "DGS10",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "DGS2",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "DFF",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "DFII10",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "T10Y2Y",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "BAMLH0A0HYM2",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "yield_spread",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "yield_spread_change",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "stagnation_pressure",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "usd_krw",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "usd_krw_change",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "usd_krw_pct",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "risk_off_flag",
+				"type": "INT32"
+			},
+			{
+				"name": "export_usd",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "export_change_pct",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "export_momentum",
+				"type": "INT32"
+			},
+			{
+				"name": "call_volume",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "call_oi",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "avg_iv",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "iv_change",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "vol_change_pct",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "iv_surge_flag",
+				"type": "INT32"
+			},
+			{
+				"name": "risk_off_composite",
+				"type": "INT32"
+			},
+			{
+				"name": "macro_stress_score",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "fear_composite",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "semi_risk_signal",
+				"type": "INT32"
+			},
+			{
+				"name": "korea_sensitivity",
+				"type": "DOUBLE"
+			},
+			{
+				"name": "global_risk_regime",
+				"type": "INT32"
+			},
+			{
+				"name": "is_high_risk",
+				"type": "INT32"
+			},
+			{
+				"name": "year",
+				"type": "UTF8"
+			},
+			{
+				"name": "month",
+				"type": "UTF8"
+			}
+		]
+	}
+}

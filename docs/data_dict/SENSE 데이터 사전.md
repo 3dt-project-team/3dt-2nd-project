@@ -67,49 +67,94 @@
 ## 🥈 Silver — `curated/news/`
 
 > Databricks 01_raw_to_curated 노트북 출력 (Parquet)
-> 
+>
+> Gold 3개 테이블(`dim_news_display`, `agg_market_sentiment_daily`, `fact_feature_vector_store`)의 소스. Azure OpenAI 호출 결과가 Silver 단계에서 추가됨.
 
 | 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
 | --- | --- | --- | --- | --- |
 | `news_id` | 뉴스 ID | String | Bronze에서 승계한 기사 고유 식별자임 | PK, Not Null |
-| `news_source` | 데이터 소스 | String | 원본 소스 구분자임 ("google", "naver") | Not Null |
+| `news_source` | 데이터 소스 | String | 원본 소스 구분자임 ("google", "naver", "bing") | Not Null |
 | `pub_date` | 발행 일자 | Date | 정규화된 발행 날짜임 | Not Null |
 | `headline` | 기사 제목 | String | 원본 그대로 보존한 기사 제목임 | Not Null |
+| `description` | RSS/API 요약문 | String | Bronze RSS/API 요약문 (Azure OpenAI 요약 소스) | - |
 | `clean_text` | 정제 본문 | String | HTML 태그·특수문자 제거 후 정규화한 본문 텍스트임 | Not Null |
+| `body` | 원본 본문 | String | RAG 검색 컨텍스트 주입용 원문 | - |
 | `url` | 원문 URL | String | 기사 원문 링크임 | - |
 | `press` | 언론사명 | String | 기사 발행 언론사 이름임 | - |
+| `stock_keyword` | 대상 키워드 | String | 수집 대상 기업 구분 ("samsung", "skhynix") | Not Null |
+| `category` | 뉴스 카테고리 | String | Azure OpenAI 분류 카테고리 (실적, 공급망, 규제, 기술, 거시경제, 수급, 기타) | - |
+| `absa_aspect` | ABSA 속성 | String | LLM이 분류한 뉴스 속성 카테고리 (제조원가, 양산일정, 공급망 등) | - |
+| `absa_score` | ABSA 감성 점수 | Float | 양방향 감성 점수 (-1.0 강한 부정 ~ 1.0 강한 긍정) | - |
+| `dynamic_keywords` | 동적 키워드 | String (JSON Array) | TF-IDF/LLM으로 추출한 당일 핵심 키워드 배열 (예: `["트럼프_관세", "HBM_수율"]`) | - |
+| `keyword_momentum` | 키워드 모멘텀 | String (JSON Object) | 키워드별 전일 대비 언급 급증률(%) 매핑 (예: `{"트럼프_관세": 350.0}`) | - |
+| `summary_vector` | 요약 벡터 | Array(Float, 1536) | `description` 임베딩 1536차원 벡터 (pgvector 소스) | - |
 
 ## 🥇 Gold — `feature/sense/` + PostgreSQL
 
 > Databricks 02_curated_to_feature 노트북 출력 → PostgreSQL 적재
-> 
+>
+> **[2026-04 재설계]** 기존 `dim_news_master` + `fact_news_analytics` 구조에서 3개 트랙 특화 테이블로 재편. 상세 설계: `ref/뉴스 데이터 골드레이어.md` 참고.
 
-### `dim_news_master` (뉴스 원문 및 검색 벡터)
+### `dim_news_display` (Track: Web App & Power BI 뉴스 리스트)
 
-| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
-| --- | --- | --- | --- | --- |
-| `news_id` | 뉴스 ID | UUID | 기사를 고유하게 식별하기 위한 해시 기반 ID임 | PK, Not Null |
-| `published_date` | 발행 일자 | Date | 시계열 조인 및 BI 필터링 기준 날짜임 | Not Null |
-| `published_time` | 발행 시각 | Timestamp | 장중/장마감 후 판단에 사용하는 정확한 발행 시각임 | - |
-| `news_source` | 언론사명 | Varchar(50) | 뉴스 출처 언론사 이름임 (신뢰도 파악용) | - |
-| `title` | 기사 제목 | Varchar(255) | 대시보드 리스트 표출용 기사 제목임 | Not Null |
-| `full_text` | 기사 본문 | Text | 유저에게 원문을 보여줄 때 호출하는 서빙용 전체 본문임 | Not Null |
-| `core_summary` | 핵심 요약 | Text | Azure OpenAI가 3줄로 요약한 핵심 내용임 (RAG 컨텍스트 주입용) | Not Null |
-| `category` | 뉴스 카테고리 | Varchar(30) | Azure OpenAI가 요약 시 함께 분류한 기사 카테고리임 (예: 실적, 공급망, 규제, 기술, 거시경제, 수급, 기타). 카테고리별 노이즈 필터링 및 분석에 활용함 | Not Null |
-| `summary_vector` | 요약 벡터 | Vector(1536) | `core_summary`를 임베딩한 1536차원 벡터임 (pgvector 코사인 유사도 검색용) | Not Null |
-| `original_url` | 원문 링크 | Varchar(500) | 원문 기사로 이동할 수 있는 아웃링크임 | - |
+> 유저에게 보여줄 뉴스 리스트 및 상세 정보를 서빙하는 테이블. Varchar 길이 제한 문제로 Text 타입으로 통일.
 
-### `fact_news_analytics` (동적 키워드 및 ABSA 감성 점수)
+| 필드명(물리) | 필드명(논리) | 데이터 타입 | Silver 소스 컬럼 | 설명 | 제약사항 |
+| --- | --- | --- | --- | --- | --- |
+| `news_id` | 뉴스 ID | UUID | `news_id` | 기사 고유 식별자 | PK, Not Null |
+| `display_title` | 표출 제목 | Text | `headline` | 기사 제목 (길이 제한 없음) | Not Null |
+| `core_summary` | AI 핵심 요약 | Text | `description` | Azure OpenAI 3줄 요약 (RAG 컨텍스트 주입용) | Not Null |
+| `sentiment_class` | 감성 등급 | Varchar(10) | `absa_score` | score ≥ 0.3 → '호재', ≤ -0.3 → '악재' (UI 색상 분류용) | Not Null |
+| `category` | 카테고리 | Varchar(30) | `category` | 뉴스 도메인 분류 (실적, 공급망, 규제, 기술, 거시경제, 수급, 기타) | Not Null |
+| `press` | 언론사 | Text | `press` | 뉴스 발행 언론사명 | - |
+| `original_url` | 원문 링크 | Text | `url` | 클릭 시 이동할 기사 원본 링크 | - |
+| `stock_keyword` | 대상 키워드 | Text | `stock_keyword` | 삼성전자/SK하이닉스 구분 필터 | Not Null |
+| `pub_date` | 발행 일자 | Date | `pub_date` | 날짜별 리스트 정렬 및 필터링 기준 | Not Null |
+| `is_surge` | 급증 여부 | BOOLEAN | `dynamic_keywords` (가공) | 모멘텀 300% 이상 키워드 포함 여부 (UI 알람용) | - |
 
-| 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
-| --- | --- | --- | --- | --- |
-| `analytics_id` | 분석 ID | Bigserial | 분석 기록의 고유 식별 번호임 (자동 증가) | PK, Not Null |
-| `news_id` | 뉴스 ID | UUID | `dim_news_master` 테이블의 `news_id`를 참조하는 외래키임 | FK, Not Null |
-| `analyzed_date` | 분석 기준일 | Date | 분석을 수행한 기준 일자임 | Not Null |
-| `dynamic_keywords` | 동적 키워드 | JSONB | TF-IDF/LLM으로 추출한 당일 핵심 키워드 배열임 (예: `["트럼프_관세", "HBM_수율"]`). GIN 인덱스로 검색함 | Not Null |
-| `keyword_momentum` | 키워드 모멘텀 | JSONB | 키워드별 전일 대비 언급 급증률(%) 매핑임 (예: `{"트럼프_관세": 350.0}`). 300% 이상 시 경고 표시함 | - |
-| `absa_aspect` | ABSA 속성 | Varchar(50) | LLM이 분류한 뉴스 속성 카테고리임 (제조원가, 양산일정, 공급망 등) | - |
-| `absa_score` | ABSA 감성 점수 | Float | 해당 키워드·속성에 대한 양방향 감성 점수임 (-1.0 강한 부정 ~ 1.0 강한 긍정). 하방 리스크(< -0.3) 및 상승 모멘텀(> +0.3) 모두 탐지함 | Not Null |
+### `agg_market_sentiment_daily` (Track: EDA 및 통계 분석)
+
+> 일 단위 집계 테이블. 3조가 주가 데이터와 상관관계 분석 시 메인으로 사용하며, Power BI 메인 리스크 차트 소스.
+
+| 필드명(물리) | 필드명(논리) | 데이터 타입 | Silver 소스 컬럼 | 설명 | 제약사항 |
+| --- | --- | --- | --- | --- | --- |
+| `base_date` | 분석 기준일 | Date | `pub_date` | 일자별 그룹화 기준 | PK 후보, Not Null |
+| `stock_code` | 대상 키워드 | Text | `stock_keyword` | 기업별 표준화된 대문자 명칭 | PK 후보, Not Null |
+| `avg_sentiment` | 평균 감성 점수 | Float | `absa_score` | 당일 해당 종목 뉴스들의 평균 점수 | Not Null |
+| `news_vol` | 뉴스 언급량 | Integer | `news_id` | 당일 발행된 총 뉴스 건수 카운트 | Not Null |
+| `main_aspect` | 주요 리스크 요인 | Text | `absa_aspect` | 당일 가장 많이 언급된 속성 (최빈값) | - |
+| `daily_keywords` | 핵심 키워드 상세 | JSONB | `dynamic_keywords` | 키워드별 집계값이 담긴 JSONB 배열 (구조 아래 참고) | Not Null |
+
+> **UNIQUE:** `(base_date, stock_code)`
+>
+> **`daily_keywords` JSONB 구조** (TOP 10, 전일 비교 포함):
+> ```json
+> [
+>   {
+>     "rank": 1,
+>     "keyword": "HBM",
+>     "mention_count": 18,
+>     "avg_sentiment": 0.62,
+>     "sentiment_label": "positive",
+>     "mention_delta": 7,
+>     "mention_delta_pct": 63.6,
+>     "sentiment_delta": 0.14
+>   }
+> ]
+> ```
+
+### `fact_feature_vector_store` (Track: ML 예측 모델 및 RAG 검색)
+
+> 하방 리스크 예측 모델 학습 Input + RAG 기반 챗봇 지식 베이스. pgvector 인덱스(HNSW) 적용.
+
+| 필드명(물리) | 필드명(논리) | 데이터 타입 | Silver 소스 컬럼 | 설명 | 제약사항 |
+| --- | --- | --- | --- | --- | --- |
+| `news_id` | 뉴스 ID | UUID | `news_id` | 고유 식별자 | PK, Not Null |
+| `summary_vec` | 요약 벡터 | Vector(1536) | `summary_vector` | pgvector 코사인 유사도 검색(RAG) 핵심 데이터 | Not Null |
+| `search_context` | 검색 컨텍스트 | Text | `body` | RAG 답변 생성 시 LLM 주입용 원문 | Not Null |
+| `feature_score` | 분석 수치 | Float | `absa_score` | ML 모델 학습용 독립 변수 | Not Null |
+| `aspect_tag` | 속성 태그 | Text | `absa_aspect` | 리스크 카테고리 가중치 부여용 | - |
+| `keyword_momentum` | 키워드 모멘텀 | JSONB | `keyword_momentum` | 키워드별 언급 급증률 (300% 이상 경고). 구조: `{"트럼프_관세": 350.0}` | - |
 
 ---
 
@@ -400,7 +445,9 @@
 | `trde_quanty` | 거래 수량 | Numeric | 수출 수량임 | - |
 | `trde_amount` | 거래 금액 | Numeric | 수출 금액임 (USD) | Not Null |
 
-### PCR (⚠️ 구현 예정)
+### PCR (⚠️ 구현 보류 — 별도 데이터 소스 필요)
+
+> **[2026-04 회의록]** kfinance 수집 데이터(코스피200 옵션)는 콜 96.6%/풋 3.4% 분포에 월별 스냅샷으로, 코스피200 PCR 계산에 사용 불가. 일별 코스피200 콜/풋 거래량 데이터 별도 확보 필요.
 
 | 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
 | --- | --- | --- | --- | --- |
@@ -446,6 +493,34 @@
 | `export_usd_amt` | 수출 금액 (USD) | Float | 해당 월 반도체 수출 금액임 | Not Null |
 | `yoy_change_pct` | 전년 동월 대비 | Float | 전년 동월 대비 증감률(%)임 | - |
 | `mom_change_pct` | 전월 대비 | Float | 전월 대비 증감률(%)임 | - |
+
+### kfinance (Silver) — `curated/semiconductor/`
+
+> Databricks 05_kfinance_raw_to_silver 노트북 출력 (월별, 28행 · 9컬럼). 코스피200 옵션 파생 지표 포함.
+> ⚠️ PCR 계산 불가 확인 (2026-04 회의록): 수집 데이터에 코스피200 풋옵션 없음.
+
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| `date` | DateType | 기준일자 (해당 월 마지막 영업일) |
+| `call_volume` | DoubleType | 코스피200 콜 거래량 합계 |
+| `call_oi` | DoubleType | 코스피200 콜 미결제약정 합계 |
+| `avg_iv` | DoubleType | 거래량 가중평균 내재변동성 (VIX 대용) |
+| `iv_change` | DoubleType | IV 전월 대비 변화량 (첫 행 0) |
+| `vol_change_pct` | DoubleType | 거래량 전월 대비 변화율 (%, 첫 행 0) |
+| `iv_surge_flag` | IntegerType | IV 급등 신호 (전월비 +5 이상 시 1) |
+| `year` / `month` | IntegerType | 파티션 컬럼 |
+
+### semiconductor (Silver) — `curated/semiconductor/`
+
+> Databricks 04_semiconductor_raw_to_silver 출력 (일별 Forward Fill, 511행 · 6컬럼).
+
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| `date` | DateType | 한국 영업일 (Forward Fill 완료) |
+| `export_usd` | DoubleType | 월별 반도체 수출액 (USD, HS8542 합산) |
+| `export_change_pct` | DoubleType | 전월 대비 수출 변화율 (%, 첫 행 0) |
+| `export_momentum` | IntegerType | 수출 급감 경보 (≤-10% 시 1) |
+| `year` / `month` | IntegerType | 파티션 컬럼 |
 
 ## 🥇 Gold — PostgreSQL
 
@@ -495,7 +570,9 @@
 > **UNIQUE:** `(stat_year, stat_month, hs_code)`
 > 
 
-### `fact_quant_pcr` (Put/Call Ratio)
+### `fact_quant_pcr` (Put/Call Ratio — ⚠️ 구현 보류)
+
+> **[2026-04 회의록 확인]** kfinance 데이터로 코스피200 PCR 계산 불가 판정. 수집된 kfinance 데이터는 코스피200 풋옵션이 없고 월별 스냅샷(일별 아님)이므로, 일별 코스피200 콜/풋 거래량을 포함한 별도 데이터 소스 확보 전까지 구현 보류.
 
 | 필드명(물리) | 필드명(논리) | 데이터 타입 | 설명 | 제약사항 |
 | --- | --- | --- | --- | --- |
