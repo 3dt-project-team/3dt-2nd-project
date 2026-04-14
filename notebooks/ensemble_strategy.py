@@ -248,6 +248,7 @@ for ticker in TICKERS:
 # MAGIC | `avg_sentiment` | 당일 ABSA 평균 점수 (-1~+1) | Soft Switching 가중치 조정 |
 # MAGIC | `news_vol` | 당일 뉴스 건수 | 뉴스량 급증 변곡점 감지 |
 # MAGIC | `sentiment_ma7` | 7일 감성 이동평균 | 감성 모멘텀 추출 |
+# MAGIC | `main_aspect` | 주요 뉴스 측면 카테고리 | 레짐 맥락 보조 정보 |
 # MAGIC | `daily_keywords` JSONB | TOP 10 키워드 | 급증 키워드(300%↑) 카운트 |
 
 # COMMAND ----------
@@ -265,14 +266,43 @@ for ticker in TICKERS:
     name = TICKER_NAMES[ticker]
 
     _query = sa_text("""
-        SELECT base_date, avg_sentiment, news_vol, sentiment_ma7, daily_keywords
+        SELECT base_date, avg_sentiment, news_vol, sentiment_ma7,
+               main_aspect, daily_keywords
         FROM gold_news.v_news_sentiment_trend
-        WHERE stock_code = :stock_code
+        WHERE stock_code LIKE '%' || :stock_code || '%'
         ORDER BY base_date
     """)
     df_sent = pd.read_sql(_query, _pg_engine, params={"stock_code": stock_code})
     df_sent["base_date"] = pd.to_datetime(df_sent["base_date"])
     df_sent.rename(columns={"base_date": "date"}, inplace=True)
+
+    # -----------------------------------------------------------------------
+    # 같은 날 여러 stock_code 매칭 시 일별 집계 (공동 기사 포함)
+    # -----------------------------------------------------------------------
+    def _merge_daily_keywords(kw_series):
+        """같은 날 여러 행의 daily_keywords JSONB를 하나로 합칩니다."""
+        merged = []
+        seen_kw = set()
+        for kw_json in kw_series:
+            if kw_json is None:
+                continue
+            items = json.loads(kw_json) if isinstance(kw_json, str) else kw_json
+            for item in items:
+                k = item.get("keyword", "")
+                if k not in seen_kw:
+                    seen_kw.add(k)
+                    merged.append(item)
+        return merged if merged else []
+
+    if df_sent.duplicated(subset=["date"], keep=False).any():
+        df_agg = df_sent.groupby("date", as_index=False).agg(
+            avg_sentiment=("avg_sentiment", "mean"),
+            news_vol=("news_vol", "sum"),
+            sentiment_ma7=("sentiment_ma7", "mean"),
+            main_aspect=("main_aspect", "first"),
+            daily_keywords=("daily_keywords", _merge_daily_keywords),
+        )
+        df_sent = df_agg
 
     # -----------------------------------------------------------------------
     # daily_keywords JSONB → 동적 키워드 파생변수 추출
