@@ -339,3 +339,4 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - uv 통합 가이드: [uv_integration_guide.md](uv_integration_guide.md)
 - 협업 규칙: [../docs/git_guide/](git_guide/)
 - MS 아키텍처 베스트 프랙티스: [architecture.md #MS 아키텍처 베스트 프랙티스 참조](architecture.md#ms-아키텍처-베스트-프랙티스-참조)
+- **TimesFM 앙상블 모델 분석 기록**: [TimesFM_앙상블_튜닝_트러블슈팅.md](TimesFM_앙상블_튜닝_트러블슈팅.md) — v0412~v0414 개발 히스토리, 6가지 이슈 트러블슈팅, 파라미터 튜닝
