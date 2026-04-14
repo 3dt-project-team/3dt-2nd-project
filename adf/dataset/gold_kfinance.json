@@ -1,0 +1,40 @@
+{
+	"name": "gold_kfinance",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "3dtteam1adls",
+			"type": "LinkedServiceReference"
+		},
+		"folder": {
+			"name": "gold"
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": "silver_kfinance.parquet",
+				"fileSystem": "curated"
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": [
+			{
+				"name": "date",
+				"type": "DATE"
+			},
+			{
+				"name": "ticker",
+				"type": "UTF8"
+			},
+			{
+				"name": "close_price",
+				"type": "UTF8"
+			},
+			{
+				"name": "kfinance_collected_at_utc",
+				"type": "INT96"
+			}
+		]
+	}
+}

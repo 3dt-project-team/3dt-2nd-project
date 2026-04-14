@@ -1,0 +1,57 @@
+{
+	"name": "semiconductor_trade",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "3dtteam1adls",
+			"type": "LinkedServiceReference"
+		},
+		"folder": {
+			"name": "raw-1y"
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": "semiconductor_trade_2024_to_2026.parquet",
+				"folderPath": "public_data/semiconductor/source=data_go_kr",
+				"fileSystem": "raw"
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": [
+			{
+				"name": "balPayments",
+				"type": "INT64"
+			},
+			{
+				"name": "expDlr",
+				"type": "INT64"
+			},
+			{
+				"name": "expWgt",
+				"type": "INT64"
+			},
+			{
+				"name": "hsCode",
+				"type": "INT64"
+			},
+			{
+				"name": "impDlr",
+				"type": "INT64"
+			},
+			{
+				"name": "impWgt",
+				"type": "INT64"
+			},
+			{
+				"name": "statKor",
+				"type": "UTF8"
+			},
+			{
+				"name": "year",
+				"type": "DOUBLE"
+			}
+		]
+	}
+}

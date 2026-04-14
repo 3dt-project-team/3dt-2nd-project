@@ -1,0 +1,119 @@
+{
+	"name": "PG_macro_metadata",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "AzurePostgreSql1",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "AzurePostgreSqlTable",
+		"schema": [
+			{
+				"name": "unified_id",
+				"type": "bigint",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "series_key",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "source_table",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "date_column_name",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "source_column_name",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "series_code",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "display_name",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "category",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "subcategory",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "unit",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "data_source",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "frequency",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "market_scope",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "description",
+				"type": "text",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "is_active",
+				"type": "boolean",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "created_at_utc",
+				"type": "timestamp with time zone",
+				"precision": 0,
+				"scale": 0
+			},
+			{
+				"name": "updated_at_utc",
+				"type": "timestamp with time zone",
+				"precision": 0,
+				"scale": 0
+			}
+		],
+		"typeProperties": {
+			"schema": "gold_macro",
+			"table": "dim_macro_metadatas"
+		}
+	}
+}
