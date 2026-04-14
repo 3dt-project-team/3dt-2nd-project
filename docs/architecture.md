@@ -52,7 +52,7 @@ Power BI / Web App / AI Agent
 | ADLS Gen2 (`3dtteam1adls`) | 데이터 레이크 (raw·curated·feature) | _데이터는 Git에 없음_ |
 | Databricks (`sense-databricks`, Premium) | 대용량 전처리·피처 엔지니어링, Key Vault Secret Scope | `src/`, `notebooks/` |
 | ML Studio | 모델 학습·실험 관리 | `src/models/` |
-| Azure Database for PostgreSQL | 결과 데이터 저장·서빙 (`sense_db`, `pgvector`) | _인프라, Git 외부_ |
+| Azure Database for PostgreSQL | 결과 데이터 저장·서빙 (`postgres`, `pgvector`) | _인프라, Git 외부_ |
 | Azure Key Vault (`kv-3dt-team1`) | 모든 자격 증명 중앙 관리 | `src/utils/vault_manager.py` |
 
 ## 인증 구조
@@ -71,7 +71,7 @@ DefaultAzureCredential
          ├─ adls-client-id           → sense-databricks-sp clientId ✅
          ├─ adls-client-secret       → sense-databricks-sp secret ✅
          ├─ adls-tenant-id           → 5fb256f0-… ✅
-         └─ pg-connection-string     → sense_db @ sense-pg-server ✅
+         └─ pg-connection-string     → postgres @ sense-pg-server ✅
 ```
 
 `src/utils/vault_manager.py` 가 이 인증 흐름을 추상화합니다.

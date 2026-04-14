@@ -91,7 +91,7 @@ with engine.connect() as conn:
     result = conn.execute(text("SELECT 1 AS ok"))
     print("[OK] PostgreSQL 연결 성공:", result.fetchone())
 
-# --- 실제 테이블 조회 (테이블명은 sense_db 실제 테이블로 교체) ---
+# --- 실제 테이블 조회 (테이블명은 postgres DB의 실제 테이블로 교체) ---
 # with engine.connect() as conn:
 #     df_result = pd.read_sql(
 #         text("SELECT * FROM fact_timesfm_forecast LIMIT 100"), conn
