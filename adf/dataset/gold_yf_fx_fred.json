@@ -1,0 +1,121 @@
+{
+	"name": "gold_yf_fx_fred",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "3dtteam1adls",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"folderPath": "gold_macro_1y",
+				"fileSystem": "feature"
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": [
+			{
+				"name": "기준일자",
+				"type": "DATE"
+			},
+			{
+				"name": "요일",
+				"type": "INT32"
+			},
+			{
+				"name": "주말여부",
+				"type": "BOOLEAN"
+			},
+			{
+				"name": "한국_휴장일_여부",
+				"type": "BOOLEAN"
+			},
+			{
+				"name": "미국_휴장일_여부",
+				"type": "BOOLEAN"
+			},
+			{
+				"name": "usd_krw_rate",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_amd_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_asml_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_intc_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_mu_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_nvda_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_samsung_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_skhynix_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_sox_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_tsm_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "yfinance_wdc_close",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fred_bamlh0a0hym2",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fred_dff",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fred_dfii10",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fred_dgs10",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fred_dgs2",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fred_t10y2y",
+				"type": "FLOAT"
+			},
+			{
+				"name": "fx_collected_at_utc",
+				"type": "INT96"
+			},
+			{
+				"name": "yfinance_collected_at_utc",
+				"type": "INT96"
+			},
+			{
+				"name": "fred_collected_at_utc",
+				"type": "INT96"
+			}
+		]
+	}
+}

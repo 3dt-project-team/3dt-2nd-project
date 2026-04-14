@@ -1,0 +1,352 @@
+{
+	"name": "Lab4 macro gold push",
+	"properties": {
+		"activities": [
+			{
+				"name": "Copy data1",
+				"description": "macro(yf, fx,fred) 송",
+				"type": "Copy",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "ParquetSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "ParquetReadSettings"
+						}
+					},
+					"sink": {
+						"type": "AzurePostgreSqlSink",
+						"writeBatchSize": 1000000,
+						"writeBatchTimeout": "00:30:00",
+						"writeMethod": "CopyCommand"
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"name": "기준일자",
+									"type": "DateTime",
+									"physicalType": "DATE"
+								},
+								"sink": {
+									"name": "standard_date",
+									"type": "DateTime",
+									"physicalType": "date"
+								}
+							},
+							{
+								"source": {
+									"name": "요일",
+									"type": "Int32",
+									"physicalType": "INT32"
+								},
+								"sink": {
+									"name": "day_of_week",
+									"type": "Int32",
+									"physicalType": "integer"
+								}
+							},
+							{
+								"source": {
+									"name": "주말여부",
+									"type": "Boolean",
+									"physicalType": "BOOLEAN"
+								},
+								"sink": {
+									"name": "is_weekend",
+									"type": "Boolean",
+									"physicalType": "boolean"
+								}
+							},
+							{
+								"source": {
+									"name": "한국_휴장일_여부",
+									"type": "Boolean",
+									"physicalType": "BOOLEAN"
+								},
+								"sink": {
+									"name": "is_kr_market_holiday",
+									"type": "Boolean",
+									"physicalType": "boolean"
+								}
+							},
+							{
+								"source": {
+									"name": "미국_휴장일_여부",
+									"type": "Boolean",
+									"physicalType": "BOOLEAN"
+								},
+								"sink": {
+									"name": "is_us_market_holiday",
+									"type": "Boolean",
+									"physicalType": "boolean"
+								}
+							},
+							{
+								"source": {
+									"name": "usd_krw_rate",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "usd_krw_rate",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "yfinance_amd_close",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "yfinance_amd_close",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "yfinance_asml_close",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "yfinance_asml_close",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "yfinance_intc_close",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "yfinance_intc_close",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "yfinance_mu_close",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "yfinance_mu_close",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "yfinance_nvda_close",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "yfinance_nvda_close",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "yfinance_samsung_close",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "yfinance_samsung_close",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "yfinance_skhynix_close",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "yfinance_skhynix_close",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "yfinance_sox_close",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "yfinance_sox_close",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "yfinance_tsm_close",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "yfinance_tsm_close",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "yfinance_wdc_close",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "yfinance_wdc_close",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "fred_bamlh0a0hym2",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "fred_bamlh0a0hym2",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "fred_dff",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "fred_dff",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "fred_dfii10",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "fred_dfii10",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "fred_dgs10",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "fred_dgs10",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "fred_dgs2",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "fred_dgs2",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "fred_t10y2y",
+									"type": "Single",
+									"physicalType": "FLOAT"
+								},
+								"sink": {
+									"name": "fred_t10y2y",
+									"type": "Double",
+									"physicalType": "double precision"
+								}
+							},
+							{
+								"source": {
+									"name": "fx_collected_at_utc",
+									"type": "DateTime",
+									"physicalType": "INT96"
+								},
+								"sink": {
+									"name": "created_at",
+									"type": "DateTime",
+									"physicalType": "timestamp with time zone"
+								}
+							},
+							{
+								"source": {
+									"name": "yfinance_collected_at_utc",
+									"type": "DateTime",
+									"physicalType": "INT96"
+								},
+								"sink": {
+									"name": "updated_at",
+									"type": "DateTime",
+									"physicalType": "timestamp with time zone"
+								}
+							}
+						],
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "gold_yf_fx_fred",
+						"type": "DatasetReference"
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "PG_macro_1y",
+						"type": "DatasetReference"
+					}
+				]
+			}
+		],
+		"annotations": []
+	}
+}
