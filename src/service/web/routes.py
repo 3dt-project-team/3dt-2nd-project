@@ -60,7 +60,12 @@ def index():
         latest_news = db.query(NewsDisplay).order_by(NewsDisplay.pub_date.desc()).limit(5).all()
         forecast = db.query(EnsembleForecast).order_by(EnsembleForecast.date.desc()).first()
         sentiment = db.query(MarketSentiment).order_by(MarketSentiment.base_date.desc()).first()
-        posts = db.query(CommunityPost).order_by(CommunityPost.created_at.desc()).all()
+        posts = (
+            db.query(CommunityPost)
+            .filter(CommunityPost.parent_id.is_(None))
+            .order_by(CommunityPost.created_at.desc())
+            .all()
+        )
 
         return render_template(
             "index.html",
@@ -80,8 +85,14 @@ def create_post():
     db = SessionLocal()
     try:
         content = request.form.get("content")
+        parent_id = request.form.get("parent_id")
+
         if content and content.strip():
-            new_post = CommunityPost(session_id=session["user_sid"], content=content.strip())
+            new_post = CommunityPost(
+                session_id=session["user_sid"],
+                content=content.strip(),
+                parent_id=parent_id if parent_id else None,
+            )
             db.add(new_post)
             db.commit()
         return redirect(url_for("web.index"))
