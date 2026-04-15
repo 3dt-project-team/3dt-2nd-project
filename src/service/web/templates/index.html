@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Semiconductor Insight Community</title>
+    <title>반도체 인사이트 커뮤니티</title>
     <link rel="stylesheet" href="{{ url_for('web.static', filename='css/style.css') }}">
 </head>
 <body>
@@ -11,8 +11,8 @@
         <div class="admin-top-bar">
             {% if is_admin %}
                 <div class="admin-status">
-                    <span>Admin Mode</span>
-                    <a href="{{ url_for('web.admin_logout') }}">Logout</a>
+                    <span>관리자 모드</span>
+                    <a href="{{ url_for('web.admin_logout') }}">로그아웃</a>
                 </div>
             {% else %}
                 <button
@@ -20,68 +20,68 @@
                     type="button"
                     onclick="document.getElementById('admin-box').classList.toggle('active')"
                 >
-                    Admin Login
+                    관리자 로그인
                 </button>
                 <div id="admin-box" class="admin-login-box">
                     <form action="{{ url_for('web.admin_login') }}" method="POST">
-                        <input type="password" name="password" placeholder="Password">
-                        <button type="submit">Login</button>
+                        <input type="password" name="password" placeholder="비밀번호">
+                        <button type="submit">로그인</button>
                     </form>
                 </div>
             {% endif %}
         </div>
 
         <header class="page-header">
-            <p class="eyebrow">AI Market Intelligence</p>
-            <h1>Semiconductor Insight</h1>
+            <p class="eyebrow">AI 시장 인텔리전스</p>
+            <h1>반도체 인사이트</h1>
             <p class="page-subtitle">
-                News, forecasts, community posts, and the chatbot now work together in one web view.
+                뉴스, 예측, 커뮤니티 게시글, 챗봇을 하나의 화면에서 함께 확인할 수 있습니다.
             </p>
         </header>
 
         <div class="content-wrapper">
             <aside class="analysis-side">
                 <section class="card">
-                    <h2>Forecast Snapshot</h2>
+                    <h2>예측 스냅샷</h2>
                     {% if fc %}
                         <div class="forecast-info">
                             <h3>{{ fc.ticker }}</h3>
                             <p class="stat-line">
-                                <span class="label">Prediction</span>
+                                <span class="label">예측값</span>
                                 <span class="value">{{ fc.final_pred }}</span>
                             </p>
                             <p class="stat-line">
-                                <span class="label">Confidence</span>
+                                <span class="label">신뢰도</span>
                                 <span class="value">{{ fc.confidence_score }}</span>
                             </p>
                             <p class="stat-line">
-                                <span class="label">Regime</span>
+                                <span class="label">국면</span>
                                 <span class="value">{{ fc.regime_label }}</span>
                             </p>
                         </div>
                     {% else %}
-                        <p class="empty-text">Forecast data is loading.</p>
+                        <p class="empty-text">예측 데이터를 불러오는 중입니다.</p>
                     {% endif %}
                 </section>
 
                 <section class="card">
-                    <h2>Sentiment Snapshot</h2>
+                    <h2>심리 스냅샷</h2>
                     {% if st %}
                         <p class="stat-line">
-                            <span class="label">Date</span>
+                            <span class="label">날짜</span>
                             <span class="value">{{ st.base_date }}</span>
                         </p>
                         <p class="stat-line">
-                            <span class="label">Average</span>
+                            <span class="label">평균</span>
                             <span class="value">{{ st.avg_sentiment }}</span>
                         </p>
                     {% else %}
-                        <p class="empty-text">Sentiment data is loading.</p>
+                        <p class="empty-text">심리 데이터를 불러오는 중입니다.</p>
                     {% endif %}
                 </section>
 
                 <section class="card">
-                    <h2>Latest Semiconductor News</h2>
+                    <h2>반도체 최신 뉴스</h2>
                     {% if news_list %}
                         <ul class="news-list">
                             {% for news in news_list %}
@@ -96,21 +96,21 @@
                             {% endfor %}
                         </ul>
                     {% else %}
-                        <p class="empty-text">No news items are available yet.</p>
+                        <p class="empty-text">표시할 뉴스가 아직 없습니다.</p>
                     {% endif %}
                 </section>
             </aside>
 
             <main class="community-main">
                 <section class="card post-box">
-                    <h2>Share Insight</h2>
+                    <h2>인사이트 공유</h2>
                     <form action="{{ url_for('web.create_post') }}" method="POST">
                         <textarea
                             name="content"
-                            placeholder="Share your view on the semiconductor market or a specific stock."
+                            placeholder="반도체 시장 또는 특정 종목에 대한 의견을 남겨보세요."
                             required
                         ></textarea>
-                        <button type="submit">Post</button>
+                        <button type="submit">등록</button>
                     </form>
                 </section>
 
@@ -119,12 +119,12 @@
                         {% for post in posts %}
                             <article class="card post-card" id="post-{{ post.id }}">
                                 <div class="post-header">
-                                    <span class="author">Anon {{ post.session_id[:8] }}</span>
+                                    <span class="author">익명 {{ post.session_id[:8] }}</span>
                                     <span class="date">{{ post.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
 
                                     {% if post.session_id == current_user_sid or is_admin %}
                                         <button class="btn-delete" type="button" onclick="deletePost({{ post.id }})">
-                                            Delete
+                                            삭제
                                         </button>
                                     {% endif %}
                                 </div>
@@ -134,19 +134,19 @@
                                     {% set dislikes = post.reactions | selectattr("reaction_type", "equalto", "dislike") | list | length %}
 
                                     <button class="btn-react" type="button" onclick="sendReaction({{ post.id }}, 'like')">
-                                        Like <span id="likes-{{ post.id }}">{{ likes }}</span>
+                                        좋아요 <span id="likes-{{ post.id }}">{{ likes }}</span>
                                     </button>
                                     <button class="btn-react" type="button" onclick="sendReaction({{ post.id }}, 'dislike')">
-                                        Dislike <span id="dislikes-{{ post.id }}">{{ dislikes }}</span>
+                                        싫어요 <span id="dislikes-{{ post.id }}">{{ dislikes }}</span>
                                     </button>
                                 </div>
                             </article>
                         {% endfor %}
                     {% else %}
                         <section class="card empty-posts">
-                            <h2>Start The Conversation</h2>
+                            <h2>대화를 시작해 보세요</h2>
                             <p class="empty-text">
-                                There are no posts yet. Add the first insight based on the latest news or forecast.
+                                아직 게시글이 없습니다. 최신 뉴스나 예측을 바탕으로 첫 의견을 남겨보세요.
                             </p>
                         </section>
                     {% endif %}
@@ -159,8 +159,8 @@
         <div id="chat-window" class="hidden">
             <div class="chat-header">
                 <div>
-                    <strong>Semiconductor AI Chatbot</strong>
-                    <p>The chatbot is now connected to the existing RAG service.</p>
+                    <strong>반도체 AI 챗봇</strong>
+                    <p>챗봇이 기존 RAG 서비스와 연동되어 답변합니다.</p>
                 </div>
             </div>
             <div id="chat-messages" aria-live="polite"></div>
@@ -168,10 +168,10 @@
                 <input
                     type="text"
                     id="chat-input"
-                    placeholder="Example: Summarize recent SK Hynix news and risk factors"
+                    placeholder="예시: 최근 SK하이닉스 뉴스와 리스크 요인을 요약해줘"
                     autocomplete="off"
                 >
-                <button id="chat-send" type="button" onclick="sendMessage()">Send</button>
+                <button id="chat-send" type="button" onclick="sendMessage()">전송</button>
             </div>
         </div>
         <button id="chatbot-toggle" type="button" onclick="toggleChat()">AI</button>
@@ -187,7 +187,7 @@
         let hasGreeting = false;
 
         function deletePost(postId) {
-            if (!confirm("Delete this post?")) {
+            if (!confirm("게시글을 삭제할까요?")) {
                 return;
             }
 
@@ -201,7 +201,7 @@
                         return;
                     }
 
-                    alert(data.message || "Failed to delete the post.");
+                    alert(data.message || "게시글 삭제에 실패했습니다.");
                 })
                 .catch((error) => console.error("Delete error:", error));
         }
@@ -259,7 +259,7 @@
 
             const title = document.createElement("div");
             title.className = "chat-sources-title";
-            title.textContent = "Sources";
+            title.textContent = "출처";
             container.appendChild(title);
 
             const list = document.createElement("ul");
@@ -271,7 +271,7 @@
                 link.href = source.url || "#";
                 link.target = "_blank";
                 link.rel = "noopener noreferrer";
-                link.textContent = source.title || source.url || "Source link";
+                link.textContent = source.title || source.url || "원문 링크";
                 listItem.appendChild(link);
                 list.appendChild(listItem);
             });
@@ -287,8 +287,8 @@
 
             appendMessage(
                 "bot",
-                "AI Bot",
-                "Ask about semiconductor news, stock risk, or market signals. The answer now comes from the linked RAG backend."
+                "AI 봇",
+                "반도체 뉴스, 종목 리스크, 시장 신호를 질문해보세요. 연동된 RAG 백엔드 기준으로 답변합니다."
             );
             hasGreeting = true;
         }
@@ -315,11 +315,11 @@
             }
 
             ensureGreeting();
-            appendMessage("user", "You", question);
+            appendMessage("user", "사용자", question);
             chatInput.value = "";
             setChatPending(true);
 
-            const loadingMessage = appendMessage("bot", "AI Bot", "Loading response...");
+            const loadingMessage = appendMessage("bot", "AI 봇", "답변을 생성하고 있습니다...");
             loadingMessage.classList.add("loading");
 
             try {
@@ -337,24 +337,24 @@
                 if (!response.ok || data.status !== "ok") {
                     appendMessage(
                         "bot",
-                        "AI Bot",
-                        data.error || "Failed to load a response. Please try again."
+                        "AI 봇",
+                        data.error || "응답을 불러오지 못했습니다. 다시 시도해 주세요."
                     );
                     return;
                 }
 
                 appendMessage(
                     "bot",
-                    "AI Bot",
-                    data.answer || "The response was empty.",
+                    "AI 봇",
+                    data.answer || "응답 내용이 비어 있습니다.",
                     buildSourcesNode(data.sources)
                 );
             } catch (error) {
                 loadingMessage.remove();
                 appendMessage(
                     "bot",
-                    "AI Bot",
-                    "A network error prevented the chatbot response from loading."
+                    "AI 봇",
+                    "네트워크 오류로 챗봇 응답을 불러오지 못했습니다."
                 );
                 console.error("Chat error:", error);
             } finally {

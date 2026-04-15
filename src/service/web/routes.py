@@ -30,7 +30,7 @@ def admin_login():
     admin_pw = os.getenv("ADMIN_PASSWORD")
 
     if not admin_pw:
-        return "<script>alert('ADMIN_PASSWORD is not configured.'); history.back();</script>"
+        return "<script>alert('ADMIN_PASSWORD가 설정되지 않았습니다.'); history.back();</script>"
 
     if password == admin_pw:
         session["is_admin"] = True
