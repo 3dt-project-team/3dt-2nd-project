@@ -1,0 +1,8 @@
+flask
+python-dotenv
+azure-identity
+azure-keyvault-secrets
+psycopg2-binary
+pip install -r requirements.txt
+pip freeze > requirements.txt
+pip install flask sqlalchemy "psycopg[binary]" azure-identity azure-keyvault-secrets python-dotenv
