@@ -1,0 +1,41 @@
+/* 기본 스타일 */
+body { font-family: 'Pretendard', sans-serif; background-color: #f4f7f9; margin: 0; color: #333; }
+.main-container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+header { text-align: center; margin-bottom: 40px; }
+
+/* 레이아웃 */
+.content-wrapper { display: flex; gap: 30px; }
+.analysis-side { flex: 1; }
+.community-main { flex: 2; }
+
+/* 카드 스타일 */
+.card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+h2 { font-size: 1.2rem; margin-top: 0; border-bottom: 2px solid #0078d4; display: inline-block; padding-bottom: 5px; }
+
+/* 뉴스 리스트 */
+.news-list { list-style: none; padding: 0; }
+.news-list li { margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+.sentiment.긍정 { color: green; font-weight: bold; }
+.sentiment.부정 { color: red; font-weight: bold; }
+
+/* 커뮤니티 작성함 */
+.post-box textarea { width: 100%; height: 80px; border: 1px solid #ddd; border-radius: 8px; padding: 10px; resize: none; }
+.post-box button { margin-top: 10px; background: #0078d4; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; float: right; }
+
+/* 게시글 카드 */
+.post-card { border-left: 5px solid #0078d4; }
+.post-header { display: flex; justify-content: space-between; font-size: 0.8rem; color: #777; margin-bottom: 10px; }
+.post-actions { margin-top: 15px; border-top: 1px solid #eee; padding-top: 10px; }
+.btn-react { background: none; border: 1px solid #ddd; padding: 5px 12px; border-radius: 20px; cursor: pointer; margin-right: 10px; }
+
+/* 챗봇 위젯 */
+#chatbot-container { position: fixed; bottom: 30px; right: 30px; z-index: 999; }
+#chatbot-toggle { width: 60px; height: 60px; border-radius: 50%; background: #0078d4; color: white; font-size: 1.5rem; border: none; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+#chat-window { width: 350px; height: 500px; background: white; border-radius: 15px; border: 1px solid #ddd; margin-bottom: 20px; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+#chat-window.hidden { display: none; }
+.chat-header { background: #0078d4; color: white; padding: 15px; border-radius: 15px 15px 0 0; font-weight: bold; }
+#chat-messages { flex: 1; padding: 15px; overflow-y: auto; font-size: 0.9rem; }
+.chat-input-area { padding: 10px; border-top: 1px solid #eee; display: flex; }
+.chat-input-area input { flex: 1; border: 1px solid #ddd; padding: 8px; border-radius: 5px; }
+.chat-input-area button { margin-left: 5px; background: #0078d4; color: white; border: none; border-radius: 5px; padding: 0 15px; cursor: pointer; }
+.msg { margin-bottom: 10px; }
