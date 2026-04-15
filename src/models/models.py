@@ -50,8 +50,7 @@ class EnsembleForecast(Base):
     regime_label = Column(Text)
 
 
-# 게시글과 좋아요 정보
-# 1. 게시글 테이블
+# 4. 커뮤니티 게시글 테이블
 class CommunityPost(Base):
     __tablename__ = "posts"
     __table_args__ = {"schema": "community"}
@@ -61,17 +60,17 @@ class CommunityPost(Base):
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # 좋아요/싫어요 데이터와 연결 (조회 편의성)
+    # 좋아요/싫어요 데이터와 연결
     reactions = relationship(
         "CommunityReaction", back_populates="post", cascade="all, delete-orphan"
     )
 
 
-# 2. 반응(좋아요/싫어요) 테이블
+# 5. 반응(좋아요/싫어요) 테이블
 class CommunityReaction(Base):
     __tablename__ = "reactions"
     __table_args__ = (
-        UniqueConstraint("post_id", "session_id", name="_post_session_uc"),  # 중복 투표 방지!
+        UniqueConstraint("post_id", "session_id", name="_post_session_uc"),
         {"schema": "community"},
     )
 

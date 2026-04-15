@@ -194,6 +194,27 @@ class KeyVaultManager:
         # "postgresql://" 이나 "postgresql+<driver>://" 로 시작하면 URL 형식
         _is_url = connection_string.startswith(("postgresql://", "postgresql+"))
 
+        # 연결 대상 DB 이름 추출 및 검증
+        _CANONICAL_DB = "postgres"
+        if _is_url:
+            from urllib.parse import urlparse
+
+            _parsed = urlparse(connection_string.replace("postgresql+psycopg://", "postgresql://"))
+            _db_name = _parsed.path.lstrip("/").split("?")[0] or "(unknown)"
+        else:
+            _db_name = dict(kv.split("=", 1) for kv in connection_string.split() if "=" in kv).get(
+                "dbname", "(unknown)"
+            )
+        if _db_name != _CANONICAL_DB:
+            import warnings
+
+            warnings.warn(
+                f"[WARN] pg-connection-string이 '{_db_name}' DB를 가리키고 있습니다. "
+                f"정규 DB는 '{_CANONICAL_DB}'입니다. Key Vault 시크릿을 확인하세요.",
+                stacklevel=2,
+            )
+        print(f"[OK] PostgreSQL 연결 대상: {_db_name}")
+
         if engine == "sqlalchemy":
             import psycopg as _psycopg  # psycopg3
             from sqlalchemy import create_engine

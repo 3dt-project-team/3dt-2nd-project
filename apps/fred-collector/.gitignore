@@ -1,9 +1,0 @@
-local.settings.json
-.env
-.env.*
-.azurite/
-__pycache__/
-*.pyc
-debug.log
-.python_packages
-.venv

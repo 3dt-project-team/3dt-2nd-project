@@ -24,9 +24,9 @@
 
 ```bash
 # PostgreSQL 데이터 적재 확인
-psql -d sense_db -c "SELECT COUNT(*) FROM gold_ml.gold_ml_feature_set;"
-psql -d sense_db -c "SELECT COUNT(*) FROM gold_macro.fact_yf_fx_fred_1y;"
-psql -d sense_db -c "SELECT COUNT(*) FROM gold_news.agg_market_sentiment_daily;"
+psql -d postgres -c "SELECT COUNT(*) FROM gold_ml.gold_ml_feature_set;"
+psql -d postgres -c "SELECT COUNT(*) FROM gold_macro.fact_yf_fx_fred_1y;"
+psql -d postgres -c "SELECT COUNT(*) FROM gold_news.agg_market_sentiment_daily;"
 
 # ADLS Parquet 확인
 az storage blob list --account-name 3dtteam1adls \
@@ -284,7 +284,7 @@ LIMIT 5;
 
 Power BI Desktop → PostgreSQL 커넥터:
 - 서버: `<Azure PostgreSQL FQDN>:5432`
-- 데이터베이스: `sense_db`
+- 데이터베이스: `postgres`
 - 권장 뷰: `public.v_daily_report_summary`, `gold_news.v_news_sentiment_trend`, `public.v_forecast_latest`
 
 ---
