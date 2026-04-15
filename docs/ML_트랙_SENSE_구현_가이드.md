@@ -8,15 +8,15 @@
 
 ## 검증 요약 — `ref/ML 트랙.md` vs 실제 구현 현황
 
-| 항목 | 원본 가이드 | 실제 현황 | 처리 |
+| 항목 | 원본 가이드 | 실제 현황 (v0419) | 처리 |
 |------|-----------|---------|------|
 | 피처 테이블 | `fact_equity_ohlcv` + 47컬럼 | `gold_ml.gold_ml_feature_set` 분리 | → §1에서 병합 쿼리 제공 |
 | RSI/ATR 적재 | `fact_equity_ohlcv` 안에 기재 | 별도 컬럼 미적재 | → Databricks 노트북에서 pandas_ta로 계산 |
 | DB 적재 테이블 | `fact_ensemble_forecast` | 확인 ✅ (160행 기 적재) | UPSERT 템플릿 제공 |
-| AML AutoML | "배포/관리 용도" | ML Studio 계정만 (AutoML 비권장) | 방어 논리 섞션 그대로 활용 |
+| AML AutoML | "배포/관리 용도" | **Databricks AutoML로 학습 완료** (UC 모델 등록) | AML 불필요 — 방어 논리 참조 |
 | MLflow | Databricks 내장 | 확인 ✅ | Git commit hash 태그 필수 (CLAUDE.md) |
-| 앙상블 코드 | `ensemble_strategy.py` (언급만) | `notebooks/timesfm_inference.py` ✅ | 현재 파일 기준으로 세분 |
-| 통계 기준선 | ElasticNet | `notebooks/statistical_baseline_analysis.py` ✅ | 현재 파일 기준 |
+| 앙상블 코드 | `ensemble_strategy.py` (언급만) | `notebooks/ensemble_strategy.py` ✅ | TimesFM 0.45 + UC BestTrial 0.55 앙상블 |
+| 통계 기준선 | ElasticNet | **ElasticNet 제거** → Databricks AutoML UC BestTrial | UC 모델: 삼성 R²=0.9266, SK R²=0.7097 |
 
 ---
 
@@ -163,26 +163,34 @@ with mlflow.start_run(run_name="feature_build_v1") as run:
 
 | 파일 | 역할 | 출력 테이블 |
 |------|------|-----------|
-| `notebooks/statistical_baseline_analysis.py` | Ridge/ElasticNet (트랙 B) | `public.fact_stat_forecast` |
-| `notebooks/timesfm_inference.py` | TimesFM + 앙상블 (트랙 A+팀장) | `public.fact_ensemble_forecast` |
+| `notebooks/ensemble_strategy.py` | TimesFM(0.45) + UC BestTrial(0.55) 앙상블 (메인) | `public.fact_ensemble_forecast` |
+| `notebooks/statistical_baseline_analysis.py` | Ridge 시나리오 분석 (보조) | `public.fact_stat_forecast` |
+| `notebooks/timesfm_inference.py` | TimesFM 단독 추론 (레거시) | — |
 
-### 9-2. `timesfm_inference.py` 핵심 파라미터 (현재 구현 기준)
+### 9-2. `ensemble_strategy.py` 핵심 파라미터 (v0419 기준)
 
 ```python
-# timesfm_inference.py 에서 설정되는 주요 변수들 확인 필요
-CONTEXT_LEN  = 128    # TimesFM 컨텍스트 길이 (1년 ≈ 250일 중 128일)
+# ensemble_strategy.py — 주요 설정
+CONTEXT_LEN  = 128    # TimesFM 컨텍스트 길이
 HORIZON      = 10     # 예측 기간: 10 영업일 (2주)
 FREQ_TOKEN   = 0      # 0 = daily
 
-# 앙상블 가중치 — RSI에 따라 동적 조정
-def _get_weights(rsi: float) -> tuple[float, float]:
-    """RSI 30 이하(과매도) → 추세 모델 비중 ↑, 70 이상(과매수) → 회귀 모델 비중 ↑"""
-    if rsi < 30:
-        return 0.75, 0.25   # (trend_weight, meanrev_weight)
-    elif rsi > 70:
-        return 0.35, 0.65
-    else:
-        return 0.55, 0.45   # 중립 구간 기본값
+# ── 기본 가중치 ──
+BASE_TIMESFM_WEIGHT = 0.45   # TimesFM
+BASE_UC_WEIGHT      = 0.55   # Databricks AutoML UC BestTrial
+
+# ── Soft Switching 동적 조정 (5개 함수) ──
+# 1. RSI 조정: ±0.13 + 0.07 가속 (대칭 설계)
+# 2. Vol 조정: +0.12/−0.15
+# 3. Disparity 조정: ±0.15
+# 4. Interaction 규칙 5개 (−0.08 max)
+# 5. Sentiment 조정: ±0.10
+# → 최종 clip [0.25, 0.75]
+
+# ── UC 모델 (Unity Catalog) ──
+# 삼성전자: sense_databricks.models.automl_삼성전자_t20 v1 (R²=0.9266)
+# SK하이닉스: sense_databricks.models.automl_SK하이닉스_t20 v1 (R²=0.7097)
+# sklearn 1.4→1.8 호환: _deep_mark_fitted() 재귀 패치 적용
 ```
 
 ### 9-3. 신뢰도 점수 + 예측 구간 (현재 구현에서 confidence_score 활용)
@@ -205,14 +213,11 @@ ORDER BY ticker, horizon_day;
 ### 9-4. 통계 기준선 실행 (`statistical_baseline_analysis.py`)
 
 ```python
-# 현재 파일에서 8개 시나리오 실행 — 이미 구현됨
-# ① base: 기본 매크로 피처
-# ② with_sentiment: +뉴스 ABSA 점수
-# ③ with_quant: +SOX·메모리 퀀트 신호
-# ④ full: 모든 피처
-# ⑤~⑧ bear/bull/rate_hike/rate_cut: 스트레스 시나리오
+# Ridge 모델 기반 8개 시나리오 실행 — ElasticNet은 v0419에서 제거됨
 
 # 시나리오별 결과는 public.fact_stat_forecast 에 (ticker, base_date, horizon, model, scenario) PK로 적재
+# ※ 메인 앙상블은 ensemble_strategy.py가 담당 (TimesFM + UC BestTrial)
+# ※ 이 파일은 보조 분석용 — 앙상블에 직접 사용되지 않음
 ```
 
 ---
@@ -293,13 +298,12 @@ Power BI Desktop → PostgreSQL 커넥터:
 
 **Q: "왜 AML AutoML을 쓰지 않았나요?"**
 
-> 두 가지 이유입니다.  
-> 첫째 **데이터 한계**: 1년(250일) 데이터로 AutoML을 구동하면 과적합 또는 평균 회귀 편향이 발생합니다. 수천억 개 시계열로 사전 학습된 Google TimesFM(Zero-shot)을 도입해야 했고, 이 모델은 Databricks 환경에서 직접 구동이 적합합니다.  
-> 둘째 **설명 가능성**: AML 블랙박스 대신, Databricks 위에서 추세 모델(TimesFM)과 회귀 모델(ElasticNet)의 가중치를 RSI·이격도 시장 국면에 따라 직접 통제하는 **동적 가중치 앙상블**을 구현했습니다. 이것이 SENSE가 지향하는 설명 가능한 AI(Glass-box XAI)입니다.
+> **Databricks AutoML로 이미 학습 완료했습니다.** Unity Catalog에 등록된 UC BestTrial 모델(삼성 R²=0.9266, SK R²=0.7097)을 앙상블에 직접 통합했으므로 AML AutoML은 불필요합니다.  
+> 추가로, AML AutoML은 블랙박스 성질이며 1년(250일) 소규모 데이터에서는 과적합 위험이 높습니다. Databricks AutoML + TimesFM Zero-shot 앙상블이 설명 가능성과 성능 모두에서 우수합니다.
 
 **Q: "TimesFM이 주가 예측에 유효한가요?"**
 
-> TimesFM 2.5는 Zero-shot 추론으로 데이터 부족 문제를 해결하며, 학술 논문에서 ARIMA, Prophet 대비 우수한 성능을 보입니다. 다만 당사는 TimesFM 단독이 아닌 ElasticNet과의 앙상블로 단방향 편향을 상쇄합니다. `confidence_score`를 통해 모델 불확실성을 명시적으로 전달합니다.
+> TimesFM 2.5는 Zero-shot 추론으로 데이터 부족 문제를 해결하며, 학술 논문에서 ARIMA, Prophet 대비 우수한 성능을 보입니다. 다만 당사는 TimesFM 단독이 아닌 **Databricks AutoML UC BestTrial과의 앙상블**로 단방향 편향을 상쇄합니다. 5개 Soft Switching 함수(RSI, Vol, Disparity, Interaction, Sentiment)로 시장 국면별 가중치를 동적 조정하며, `confidence_score`를 통해 모델 불확실성을 명시적으로 전달합니다.
 
 **Q: "MLflow 실험 재현성 보장은?"**
 
@@ -313,9 +317,10 @@ Power BI Desktop → PostgreSQL 커넥터:
 notebooks/
 ├── 01_raw_to_curated.py              # Bronze → Silver
 ├── 02_curated_to_feature.py          # Silver → Gold feature
-├── 03_ml_feature_build.py            # [신규] 피처 병합 + 타겟 생성
-├── statistical_baseline_analysis.py  # Ridge/ElasticNet 8-시나리오
-└── timesfm_inference.py              # TimesFM + 앙상블
+├── 03_ml_feature_build.py            # 피처 병합 + 타겟 생성
+├── ensemble_strategy.py              # TimesFM(0.45) + UC BestTrial(0.55) 앙상블 (메인)
+├── statistical_baseline_analysis.py  # Ridge 시나리오 분석 (보조)
+└── timesfm_inference.py              # TimesFM 단독 추론 (레거시)
 
 src/sql/
 ├── ddl/
