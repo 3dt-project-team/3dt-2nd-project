@@ -296,6 +296,11 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] AutoML RandomForest 통합 — Databricks AutoML 검증 (삼성 R²=0.72, SK R²=0.86) 기반 RF 모델 추가 (v0417)
 - [x] 회귀 컴포넌트 블렌딩 — `regression_pred = 0.7*RF + 0.3*EN` AutoML 하이퍼파라미터 적용 (v0417)
 - [x] SQLAlchemy 2.x 호환성 — `engine.connect()` + `conn.commit()` 패턴 (3개 파일) (v0417)
+- [x] AI 최종 모델 전환 — Section 8 gpt-4.1-mini → **gpt-5.4-mini** (Responses API) (v0418)
+- [x] ElasticNet 시나리오 분석 — `use_elasticnet` 플래그 + RF+EN vs RF-only 비교 셀 (v0418)
+- [x] Date 인덱스 충돌 수정 — `reset_index(drop=True)` 조건 분기 적용 (v0418)
+- [x] AutoML BestTrial 노트북 — `automl_best_trial.py` Databricks 노트북 신규 (v0418)
+- [x] GPT 모델 비교 평가 — `ref/모델_평가_GPT_비교.md` 성능/가격/품질 분석 문서 (v0418)
 
 > ⚠️ **v0413 실행 결과 발견 이슈 → v0414 대응:**
 > - SK하이닉스 ElasticNet R²=−0.33 → **v0414: 로그수익률 타겟으로 스케일 차이 해소**
@@ -309,7 +314,8 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 > - `timesfm_inference_lite.py` — TimesFM 간소화 아카이브
 > - `statistical_baseline_analysis.py` — 전통 모델 메인 (Full Feature)
 > - `statistical_baseline_analysis_lite.py` — 전통 모델 간소화 아카이브
-> - `ensemble_strategy.py` — 동적 가중치 앙상블 (v0413 신규, v0415 감성, v0416 키워드, v0417 AutoML RF 통합)
+> - `ensemble_strategy.py` — 동적 가중치 앙상블 (v0413 신규, v0415 감성, v0416 키워드, v0417 AutoML RF, v0418 gpt-5.4-mini)
+> - `automl_best_trial.py` — AutoML BestTrial RF 추론/평가/SHAP 분석 (v0418 신규)
 > - `correlation_analysis.py` — 원본 상관분석 (복원)
 
 #### XGBoost/LightGBM 분류 (ML Studio)
@@ -356,3 +362,4 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - **TimesFM 앙상블 모델 분석 기록**: [TimesFM_앙상블_튜닝_트러블슈팅.md](TimesFM_앙상블_튜닝_트러블슈팅.md) — v0412~v0414 개발 히스토리, 6가지 이슈 트러블슈팅, 파라미터 튜닝
 - **v0415 뉴스 감성 통합**: Gold Layer `v_news_sentiment_trend` 뷰 활용, 5개 감성 파생 피처, Soft Switching 감성 가중치, Interaction 규칙 확장, GPT 프롬프트 AI 슈퍼사이클 스토리라인
 - **v0416 키워드 파생변수 + 멀티모델**: `daily_keywords` JSONB 6종 파생변수, 교호작용 4종, Spearman/Pearson 교차검증 상관분석, AI 중간 해석 3셀, GPT-5.4 계열 Responses API 멀티모델 비교, `display(fig)` 전환
+- **v0418 AI 최종 모델 + BestTrial**: Section 8 gpt-5.4-mini 전환 (속도 2.87s, Input $0.25/1M), ElasticNet 시나리오 분석 플래그, Date 인덱스 충돌 수정, `automl_best_trial.py` UC 모델 추론/SHAP 노트북, `ref/모델_평가_GPT_비교.md` 문서
