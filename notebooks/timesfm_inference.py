@@ -680,7 +680,8 @@ for ticker in TICKERS:
         ax_c.set_title(f"{TICKER_NAMES[ticker]} — {method} 상관계수", fontsize=12)
     plt.tight_layout()
     plt.savefig(f"/tmp/timesfm_corr_{ticker}.png", dpi=150)
-    plt.show()
+    display(fig)  # noqa: F821
+    plt.close(fig)
 
     # 타겟 vs 주요 피처 Spearman 순위
     target_cols = [c for c in avail if c != "close"]
@@ -969,7 +970,8 @@ for i, ticker in enumerate(TICKERS):
 plt.xlabel("거래일 인덱스")
 plt.tight_layout()
 plt.savefig("/tmp/timesfm_forecast_comparison.png", dpi=150)
-plt.show()
+display(fig)  # noqa: F821
+plt.close(fig)
 print("시각화 저장: /tmp/timesfm_forecast_comparison.png")
 
 # COMMAND ----------
@@ -999,7 +1001,8 @@ for i, ticker in enumerate(TICKERS):
 plt.xlabel("예측 일차 (T+n)")
 plt.tight_layout()
 plt.savefig("/tmp/timesfm_macro_impact.png", dpi=150)
-plt.show()
+display(fig)  # noqa: F821
+plt.close(fig)
 
 # COMMAND ----------
 
@@ -1265,7 +1268,8 @@ for idx, ticker in enumerate(TICKERS):
 
 plt.tight_layout()
 plt.savefig("/tmp/timesfm_scenario_analysis.png", dpi=150)
-plt.show()
+display(fig)  # noqa: F821
+plt.close(fig)
 
 # COMMAND ----------
 
@@ -1362,7 +1366,8 @@ ax.set_title(f"XReg Attribution — 예측에 가장 큰 영향을 미친 변수
 ax.grid(True, alpha=0.3, axis="x")
 plt.tight_layout()
 plt.savefig("/tmp/timesfm_xreg_attribution.png", dpi=150)
-plt.show()
+display(fig)  # noqa: F821
+plt.close(fig)
 
 print("\n[XReg 기여도 Top 5]")
 for name, score in sorted_attr[:5]:
@@ -1390,7 +1395,8 @@ for idx, ticker in enumerate(TICKERS):
 plt.suptitle("종목별 XReg Attribution 비교", fontsize=14, y=1.02)
 plt.tight_layout()
 plt.savefig("/tmp/timesfm_attribution_per_ticker.png", dpi=150)
-plt.show()
+display(fig)  # noqa: F821
+plt.close(fig)
 
 # 종목 간 기여도 순위 차이 분석
 print("\n[종목 간 Attribution 순위 비교]")
@@ -1612,7 +1618,8 @@ for ti, ticker in enumerate(TICKERS):
 
 plt.tight_layout()
 plt.savefig("/tmp/timesfm_residual_distribution.png", dpi=150)
-plt.show()
+display(fig)  # noqa: F821
+plt.close(fig)
 
 # COMMAND ----------
 
@@ -1758,14 +1765,16 @@ print(df_forecast.head(10).to_string(index=False))
 # PostgreSQL 적재
 # 운영 환경에서는 아래 주석을 해제하고 실행
 
-# conn = vault.get_pg_connection()
-# df_forecast.to_sql(
-#     "fact_timesfm_forecast",
-#     conn,
-#     if_exists="append",
-#     index=False,
-#     method="multi",
-# )
+# engine = vault.get_pg_connection("sqlalchemy")
+# with engine.connect() as conn:
+#     df_forecast.to_sql(
+#         "fact_timesfm_forecast",
+#         conn,
+#         if_exists="append",
+#         index=False,
+#         method="multi",
+#     )
+#     conn.commit()
 # print(f"PostgreSQL 적재 완료: {len(df_forecast)} rows → fact_timesfm_forecast")
 
 # XReg Attribution 결과도 적재
@@ -1773,7 +1782,9 @@ print(df_forecast.head(10).to_string(index=False))
 #     {"covariate": k, "attribution_score": v, "base_date": str(last_date)}
 #     for k, v in sorted_attr
 # ])
-# df_attr.to_sql("fact_timesfm_attribution", conn, if_exists="append", index=False)
+# with engine.connect() as conn:
+#     df_attr.to_sql("fact_timesfm_attribution", conn, if_exists="append", index=False)
+#     conn.commit()
 # print(f"Attribution 적재 완료: {len(df_attr)} rows")
 
 # COMMAND ----------

@@ -43,7 +43,7 @@ uv run python src/utils/vault_manager.py  # verify connection
 Data flows through four Azure layers:
 
 ```
-External Sources → ADF (adf/) → ADLS Gen2 (raw/ → curated/ → feature/) → Databricks (notebooks/) → ML Studio (src/models/) → PostgreSQL (sense_db)
+External Sources → ADF (adf/) → ADLS Gen2 (raw/ → curated/ → feature/) → Databricks (notebooks/) → ML Studio (src/models/) → PostgreSQL (postgres)
 ```
 
 All credentials are centralized in **Azure Key Vault**, accessed via `DefaultAzureCredential` (local: `az login`, cloud: Managed Identity).

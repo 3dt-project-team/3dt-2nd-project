@@ -1,19 +1,38 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # SENSE 프로젝트 — 동적 가중치 앙상블 전략 (v0414)
+# MAGIC # SENSE 프로젝트 — 동적 가중치 앙상블 전략 (v0417)
 # MAGIC
-# MAGIC > **역할**: TimesFM(추세)과 ElasticNet(평균회귀) 예측을
-# MAGIC > 후처리하여 동적 가중치 앙상블 및 Confidence Score 산출
+# MAGIC > **역할**: TimesFM(추세)과 RF+ElasticNet(평균회귀) 예측을
+# MAGIC > 뉴스 감성 데이터와 결합하여 동적 가중치 앙상블 및 Confidence Score 산출
 # MAGIC
 # MAGIC | 항목 | 내용 |
 # MAGIC |---|---|
-# MAGIC | 입력 | TimesFM XReg 예측 + ElasticNet 예측 + 피처 마트 |
-# MAGIC | 핵심 로직 | Soft Switching 동적 가중치 보간 + Interaction Term + PI 기반 신뢰도 |
+# MAGIC | 입력 | TimesFM XReg 예측 + ElasticNet 예측 + 피처 마트 + **뉴스 감성** |
+# MAGIC | 핵심 로직 | Soft Switching + **뉴스 감성 가중치** + Interaction Term + PI 기반 신뢰도 |
 # MAGIC | 출력 | `fact_ensemble_forecast` DataFrame (PostgreSQL 적재용) |
 # MAGIC | 시각화 | Dynamic Weighting Strategy 차트 (ref/image.png 재현) |
 # MAGIC
 # MAGIC ---
 # MAGIC **변경 이력**
+# MAGIC - v0417 (2025-04-17): **AutoML RandomForest 통합 + SQLAlchemy 2.x 호환**
+# MAGIC   - Databricks AutoML 검증 결과 반영: RF R²=0.72(삼성)/0.86(SK) vs EN R²=0.05/-1.19
+# MAGIC   - RandomForest 회귀 모델 추가 (AutoML 하이퍼파라미터: max_depth=8, n_estimators=400)
+# MAGIC   - 회귀 컴포넌트 블렌딩: `regression_pred = 0.7*RF + 0.3*EN`
+# MAGIC   - SQLAlchemy 2.x 호환성 수정 (`engine.connect()` + `conn.commit()`)
+# MAGIC - v0416 (2025-04-16): **키워드 파생변수 + 멀티모델 비교**
+# MAGIC   - `daily_keywords` JSONB → 6종 파생변수 (diversity, delta, concentration)
+# MAGIC   - 교호작용 4종: surge×RSI, diversity×vol, sentiment×surge 등
+# MAGIC   - Spearman/Pearson 교차검증 상관관계 분석 셀 추가
+# MAGIC   - AI 중간 해석 셀 3개 추가 (키워드 상관, ElasticNet 결과, 앙상블 레짐)
+# MAGIC   - 멀티모델 비교 (gpt-4.1-mini / gpt-5.4-mini / gpt-5.4 / gpt-5.4-pro)
+# MAGIC   - `plt.show()` → `display(fig)` Databricks 호환 전환
+# MAGIC - v0415 (2025-04-15): **뉴스 감성 통합** (News Sentiment Integration)
+# MAGIC   - PostgreSQL Gold 레이어 (`gold_news.agg_market_sentiment_daily`) 연동
+# MAGIC   - 감성 파생 피처: `sentiment_momentum`, `news_vol_surge`, `sentiment_vol_7d`
+# MAGIC   - ElasticNet 피처에 감성 지표 자동 포함 (L1 자연 선택)
+# MAGIC   - Soft Switching에 `_sentiment_weight_adjustment()` 추가
+# MAGIC   - Interaction Term에 감성 × RSI 복합 규칙 추가
+# MAGIC   - GPT 해석 프롬프트에 감성 컨텍스트 주입
 # MAGIC - v0414 (2025-04-13): Soft Switching + 스케일링 고도화
 # MAGIC   - ElasticNet 타겟을 절대가 → **로그수익률** 전환 (스케일 불변)
 # MAGIC   - Alpha 검색 범위 0.001~1.0으로 축소 (과잉 정규화 방지)
@@ -47,6 +66,7 @@
 
 # DBTITLE 1,Imports & env setup
 import datetime
+import json
 import os
 import sys
 import warnings
@@ -100,6 +120,7 @@ plt.rcParams["axes.unicode_minus"] = False
 # ---------------------------------------------------------------------------
 TICKERS = ["005930.KS", "000660.KS"]
 TICKER_NAMES = {"005930.KS": "삼성전자", "000660.KS": "SK하이닉스"}
+SENTIMENT_STOCK_MAP = {"005930.KS": "SAMSUNG", "000660.KS": "SK HYNIX"}
 HORIZON = 20  # T+20 예측 기간
 
 REPO_PATH = "/Workspace/Repos/3dt005@msacademy.msai.kr/3dt-2nd-project"
@@ -219,10 +240,186 @@ for ticker in TICKERS:
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC # 1.5. 뉴스 감성 데이터 로드 (PostgreSQL Gold Layer)
+# MAGIC
+# MAGIC Gold 레이어의 `gold_news.v_news_sentiment_trend` 뷰에서
+# MAGIC 삼성전자/SK하이닉스의 **일별 뉴스 감성 데이터**를 로드합니다.
+# MAGIC
+# MAGIC > "시장은 뉴스에 선행하지만, 뉴스의 **극단적 감성**과 **급증 패턴**은
+# MAGIC > 레짐 전환의 전조 신호다."
+# MAGIC
+# MAGIC | 컬럼 | 설명 | 앙상블 활용 |
+# MAGIC |---|---|---|
+# MAGIC | `avg_sentiment` | 당일 ABSA 평균 점수 (-1~+1) | Soft Switching 가중치 조정 |
+# MAGIC | `news_vol` | 당일 뉴스 건수 | 뉴스량 급증 변곡점 감지 |
+# MAGIC | `sentiment_ma7` | 7일 감성 이동평균 | 감성 모멘텀 추출 |
+# MAGIC | `main_aspect` | 주요 뉴스 측면 카테고리 | 레짐 맥락 보조 정보 |
+# MAGIC | `daily_keywords` JSONB | TOP 10 키워드 | 급증 키워드(300%↑) 카운트 |
+
+# COMMAND ----------
+
+# DBTITLE 1,PostgreSQL 뉴스 감성 로드
+from sqlalchemy import text as sa_text  # noqa: E402
+
+_pg_engine = vault.get_pg_connection("sqlalchemy")
+sentiment_data = {}
+
+for ticker in TICKERS:
+    stock_code = SENTIMENT_STOCK_MAP.get(ticker)
+    if stock_code is None:
+        continue
+    name = TICKER_NAMES[ticker]
+
+    _query = sa_text("""
+        SELECT base_date, avg_sentiment, news_vol, sentiment_ma7,
+               main_aspect, daily_keywords
+        FROM gold_news.v_news_sentiment_trend
+        WHERE stock_code LIKE '%' || :stock_code || '%'
+        ORDER BY base_date
+    """)
+    with _pg_engine.connect() as _conn:
+        df_sent = pd.read_sql(_query, _conn, params={"stock_code": stock_code})
+    df_sent["base_date"] = pd.to_datetime(df_sent["base_date"])
+    df_sent.rename(columns={"base_date": "date"}, inplace=True)
+
+    # -----------------------------------------------------------------------
+    # 같은 날 여러 stock_code 매칭 시 일별 집계 (공동 기사 포함)
+    # -----------------------------------------------------------------------
+    def _merge_daily_keywords(kw_series):
+        """같은 날 여러 행의 daily_keywords JSONB를 하나로 합칩니다."""
+        merged = []
+        seen_kw = set()
+        for kw_json in kw_series:
+            if kw_json is None:
+                continue
+            items = json.loads(kw_json) if isinstance(kw_json, str) else kw_json
+            for item in items:
+                k = item.get("keyword", "")
+                if k not in seen_kw:
+                    seen_kw.add(k)
+                    merged.append(item)
+        return merged if merged else []
+
+    if df_sent.duplicated(subset=["date"], keep=False).any():
+        df_agg = df_sent.groupby("date", as_index=False).agg(
+            avg_sentiment=("avg_sentiment", "mean"),
+            news_vol=("news_vol", "sum"),
+            sentiment_ma7=("sentiment_ma7", "mean"),
+            main_aspect=("main_aspect", "first"),
+            daily_keywords=("daily_keywords", _merge_daily_keywords),
+        )
+        df_sent = df_agg
+
+    # -----------------------------------------------------------------------
+    # daily_keywords JSONB → 동적 키워드 파생변수 추출
+    # -----------------------------------------------------------------------
+    def _extract_keyword_features(kw_json):
+        """daily_keywords JSONB에서 다차원 파생변수를 추출합니다."""
+        if kw_json is None:
+            return pd.Series(
+                {
+                    "keyword_surge_count": 0,
+                    "keyword_diversity": 0,
+                    "keyword_avg_delta_pct": 0.0,
+                    "keyword_max_delta_pct": 0.0,
+                    "keyword_positive_ratio": 0.0,
+                    "keyword_concentration": 0.0,
+                }
+            )
+        if isinstance(kw_json, str):
+            kw_json = json.loads(kw_json)
+        if not kw_json:
+            return pd.Series(
+                {
+                    "keyword_surge_count": 0,
+                    "keyword_diversity": 0,
+                    "keyword_avg_delta_pct": 0.0,
+                    "keyword_max_delta_pct": 0.0,
+                    "keyword_positive_ratio": 0.0,
+                    "keyword_concentration": 0.0,
+                }
+            )
+
+        deltas = [kw.get("mention_delta_pct", 0) for kw in kw_json]
+        mentions = [max(kw.get("mention_count", 1), 1) for kw in kw_json]
+        total_mentions = sum(mentions)
+
+        # 급증 키워드(300%↑) 카운트 (기존)
+        surge_count = sum(1 for d in deltas if d >= 300)
+        # 키워드 다양성: 고유 키워드 수
+        diversity = len(kw_json)
+        # 평균/최대 언급 변화율
+        avg_delta = np.mean(deltas) if deltas else 0.0
+        max_delta = max(deltas) if deltas else 0.0
+        # 긍정적 변화율 비율 (언급 증가 키워드 비율)
+        positive_ratio = sum(1 for d in deltas if d > 0) / len(deltas) if deltas else 0.0
+        # 허핀달 집중도 지수 (1개 키워드 독점 → 1.0, 고르게 분산 → 0)
+        hhi = sum((m / total_mentions) ** 2 for m in mentions) if total_mentions > 0 else 0.0
+
+        return pd.Series(
+            {
+                "keyword_surge_count": surge_count,
+                "keyword_diversity": diversity,
+                "keyword_avg_delta_pct": avg_delta,
+                "keyword_max_delta_pct": max_delta,
+                "keyword_positive_ratio": positive_ratio,
+                "keyword_concentration": hhi,
+            }
+        )
+
+    kw_features = df_sent["daily_keywords"].apply(_extract_keyword_features)
+    df_sent = pd.concat([df_sent, kw_features], axis=1)
+    df_sent = df_sent.drop(columns=["daily_keywords"])
+
+    sentiment_data[ticker] = df_sent
+    print(
+        f"[{name}] 뉴스 감성 로드: {df_sent.shape}, "
+        f"기간: {df_sent['date'].min().date()} ~ {df_sent['date'].max().date()}, "
+        f"평균 감성: {df_sent['avg_sentiment'].mean():.3f}"
+    )
+
+# COMMAND ----------
+
+# DBTITLE 1,피처 마트에 감성 데이터 병합
+for ticker in TICKERS:
+    if ticker in feature_marts and ticker in sentiment_data:
+        mart = feature_marts[ticker]
+        sent = sentiment_data[ticker]
+
+        # date가 인덱스이면 컬럼으로 꺼내서 merge 후 다시 인덱스 설정
+        _date_is_index = mart.index.name == "date"
+        if _date_is_index:
+            mart = mart.reset_index()
+        mart = mart.merge(sent, on="date", how="left")
+        if _date_is_index:
+            mart = mart.set_index("date")
+
+        # 감성 데이터 NaN 처리: 뉴스 없는 날은 중립(0) / 0건
+        mart["avg_sentiment"] = mart["avg_sentiment"].fillna(0.0)
+        mart["news_vol"] = mart["news_vol"].fillna(0).astype(int)
+        mart["sentiment_ma7"] = mart["sentiment_ma7"].fillna(0.0)
+        mart["keyword_surge_count"] = mart["keyword_surge_count"].fillna(0).astype(int)
+        mart["keyword_diversity"] = mart["keyword_diversity"].fillna(0).astype(int)
+        mart["keyword_avg_delta_pct"] = mart["keyword_avg_delta_pct"].fillna(0.0)
+        mart["keyword_max_delta_pct"] = mart["keyword_max_delta_pct"].fillna(0.0)
+        mart["keyword_positive_ratio"] = mart["keyword_positive_ratio"].fillna(0.0)
+        mart["keyword_concentration"] = mart["keyword_concentration"].fillna(0.0)
+
+        feature_marts[ticker] = mart
+        name = TICKER_NAMES[ticker]
+        _sent_coverage = (mart["avg_sentiment"] != 0.0).sum()
+        print(
+            f"[{name}] 감성 병합 완료: {mart.shape}, "
+            f"감성 데이터 커버리지: {_sent_coverage}/{len(mart)}일"
+        )
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC # 2. Step 1 — Feature Engineering 고도화
 # MAGIC
 # MAGIC 기존 모델이 절대적 가격 수치에 매몰되지 않도록,
-# MAGIC **로그수익률**, **기술적 보조지표(RSI, ATR, 이격도)** 를 추가합니다.
+# MAGIC **로그수익률**, **기술적 보조지표(RSI, ATR, 이격도)**, **뉴스 감성 파생 지표**를 추가합니다.
 # MAGIC
 # MAGIC | 지표 | 산식 | 퀀트적 근거 |
 # MAGIC |---|---|---|
@@ -230,6 +427,9 @@ for ticker in TICKERS:
 # MAGIC | ATR(14) | EMA(TR, 14) | Wilder(1978). True Range의 지수평활 — 변동성 레짐 판단 |
 # MAGIC | 이격도(120d) | (close-MA120)/MA120 | 장기 추세 대비 괴리 — 모멘텀 판단 |
 # MAGIC | 로그수익률 | log(Pt/Pt-1) | 가격 스케일 불변 — 절대가 편향 완화 |
+# MAGIC | 감성모멘텀 | sentiment - sentiment_ma7 | 감성 방향 변화 감지 — 심리 전환 포착 |
+# MAGIC | 뉴스량급증비 | news_vol / news_vol_ma7 | 뉴스 폭증 = 변곡점 전조 신호 |
+# MAGIC | 감성변동성 | std(sentiment, 7d) | 심리 불안정도 — 레짐 불확실성 |
 
 # COMMAND ----------
 
@@ -373,6 +573,55 @@ def create_enhanced_features(df: pd.DataFrame) -> pd.DataFrame:
     out["realized_vol_20d"] = out["log_return"].rolling(20, min_periods=5).std() * np.sqrt(252)
     out["vol_ratio"] = out["realized_vol_5d"] / out["realized_vol_20d"].replace(0, np.nan)
 
+    # --- 뉴스 감성 파생 피처 (Section 1.5에서 병합된 경우) ---
+    if "avg_sentiment" in out.columns:
+        # 감성 모멘텀: 당일 감성 - 7일 MA (양수=호전, 음수=악화)
+        out["sentiment_momentum"] = out["avg_sentiment"] - out["sentiment_ma7"]
+
+        # 뉴스량 7일 이동평균
+        out["news_vol_ma7"] = out["news_vol"].rolling(7, min_periods=1).mean()
+
+        # 뉴스량 급증 비율: 당일/7일평균 (1.0=평균, 2.0+=급증)
+        out["news_vol_surge"] = out["news_vol"] / out["news_vol_ma7"].replace(0, 1)
+
+        # 감성 변동성 (7일): 심리 불안정도
+        out["sentiment_vol_7d"] = out["avg_sentiment"].rolling(7, min_periods=1).std()
+
+        # 감성-가격 디커플링: 감성은 긍정인데 가격 하락 (또는 반대)
+        if "log_return" in out.columns:
+            _price_dir = np.sign(out["log_return"].rolling(5).mean())
+            _sent_dir = np.sign(out["avg_sentiment"])
+            out["sent_price_decouple"] = (_price_dir != _sent_dir).astype(float)
+
+    # --- 동적 키워드 파생 피처 (교호작용 + 교차검증용) ---
+    if "keyword_diversity" in out.columns:
+        # 키워드 다양성 7일 이동평균 (안정적 신호)
+        out["keyword_diversity_ma7"] = out["keyword_diversity"].rolling(7, min_periods=1).mean()
+
+        # 키워드 변화율 모멘텀: 당일 avg_delta - 7일 MA
+        _kw_delta_ma7 = out["keyword_avg_delta_pct"].rolling(7, min_periods=1).mean()
+        out["keyword_delta_momentum"] = out["keyword_avg_delta_pct"] - _kw_delta_ma7
+
+        # 키워드 집중도 변화: 집중 → 분산 전환 감지
+        out["concentration_change"] = out["keyword_concentration"].diff()
+
+    # --- 교호작용(Interaction) 파생변수 ---
+    if "keyword_surge_count" in out.columns and "rsi_14" in out.columns:
+        # 키워드 급증 × RSI: 뉴스 폭증 + 과매수 = 고위험 과열
+        out["keyword_surge_x_rsi"] = out["keyword_surge_count"] * (out["rsi_14"] / 100)
+
+    if "keyword_diversity" in out.columns and "vol_ratio" in out.columns:
+        # 키워드 다양성 × 변동성비: 다양한 뉴스 + 변동성 확대 = 불확실성
+        out["keyword_div_x_vol"] = out["keyword_diversity"] * out["vol_ratio"]
+
+    if "avg_sentiment" in out.columns and "keyword_surge_count" in out.columns:
+        # 감성 × 키워드 급증: 긍정 감성 + 급증 = 강한 호재 신호
+        out["sentiment_x_surge"] = out["avg_sentiment"] * out["keyword_surge_count"]
+
+    if "keyword_positive_ratio" in out.columns and "disparity_120d" in out.columns:
+        # 긍정 키워드 비율 × 이격도: 낙관 + 고이격 = 과열 경고
+        out["kw_positive_x_disparity"] = out["keyword_positive_ratio"] * out["disparity_120d"]
+
     # NaN 정리
     out = out.ffill().bfill()
 
@@ -391,6 +640,132 @@ for ticker in TICKERS:
         print(f"  ATR(14) 최신값: {mart['atr_14'].iloc[-1]:,.0f}원")
         print(f"  120d 이격도: {mart['disparity_120d'].iloc[-1]:+.1f}%")
         print(f"  총 컬럼 수: {mart.shape[1]}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2-1. 동적 키워드 파생변수 상관관계 분석
+# MAGIC
+# MAGIC > 키워드 파생변수 + 교호작용 변수들이 close와 얼마나 상관관계가 있는지 확인
+# MAGIC > Spearman(순위) + Pearson(선형) 상관계수로 교차 검증
+
+# COMMAND ----------
+
+# DBTITLE 1,키워드 파생변수 상관관계 (Spearman / Pearson 교차검증)
+_keyword_derived_cols = [
+    "keyword_surge_count",
+    "keyword_diversity",
+    "keyword_avg_delta_pct",
+    "keyword_max_delta_pct",
+    "keyword_positive_ratio",
+    "keyword_concentration",
+    "keyword_diversity_ma7",
+    "keyword_delta_momentum",
+    "concentration_change",
+    "keyword_surge_x_rsi",
+    "keyword_div_x_vol",
+    "sentiment_x_surge",
+    "kw_positive_x_disparity",
+    "sentiment_momentum",
+    "news_vol_surge",
+    "sentiment_vol_7d",
+    "sent_price_decouple",
+]
+
+for ticker in TICKERS:
+    mart = feature_marts[ticker]
+    avail_kw = [c for c in _keyword_derived_cols if c in mart.columns]
+    if not avail_kw:
+        continue
+
+    sub = mart[avail_kw + ["close"]].dropna()
+    spearman = (
+        sub.corr(method="spearman")["close"]
+        .drop("close")
+        .sort_values(key=lambda x: x.abs(), ascending=False)
+    )
+    pearson = sub.corr(method="pearson")["close"].drop("close").reindex(spearman.index)
+
+    name = TICKER_NAMES[ticker]
+    print(f"\n{'═' * 70}")
+    print(f"  {name} — 키워드 파생변수 vs close 상관관계 (교차검증)")
+    print(f"{'═' * 70}")
+    print(f"  {'변수':<30} {'Spearman':>10} {'Pearson':>10}  {'일관성':>6}")
+    print(f"  {'─' * 62}")
+    for col in spearman.index:
+        sp_val = spearman[col]
+        pe_val = pearson[col]
+        # 부호 일치하면 ✅, 불일치면 ⚠️
+        consistent = "✅" if (sp_val * pe_val > 0 or abs(sp_val) < 0.01) else "⚠️"
+        print(f"  {col:<30} {sp_val:>+10.4f} {pe_val:>+10.4f}  {consistent:>4}")
+
+    # 요약 메트릭
+    strong = [c for c in spearman.index if abs(spearman[c]) >= 0.1]
+    print(f"\n  |Spearman| ≥ 0.1 인 변수: {len(strong)}개 / {len(avail_kw)}개")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2-2. AI 해석 — 키워드 파생변수 상관관계
+
+# COMMAND ----------
+
+# DBTITLE 1,GPT 해석: 키워드 파생변수 vs 주가 상관관계
+from openai import AzureOpenAI  # noqa: E402
+
+OPENAI_DEPLOYMENT = "gpt-4.1-mini"
+OPENAI_API_VERSION = "2025-03-01-preview"
+_openai_endpoint = vault.get_secret("azure-openai-endpoint")
+_openai_key = vault.get_secret("azure-openai-key")
+
+_ens_openai_client = AzureOpenAI(
+    azure_endpoint=_openai_endpoint, api_key=_openai_key, api_version=OPENAI_API_VERSION
+)
+
+_corr_lines = ["[동적 키워드 파생변수 vs 주가 상관관계 분석 결과]\n"]
+for ticker in TICKERS:
+    mart = feature_marts[ticker]
+    avail_kw = [c for c in _keyword_derived_cols if c in mart.columns]
+    if not avail_kw:
+        continue
+    sub = mart[avail_kw + ["close"]].dropna()
+    spearman = (
+        sub.corr(method="spearman")["close"]
+        .drop("close")
+        .sort_values(key=lambda x: x.abs(), ascending=False)
+    )
+    _corr_lines.append(f"\n{TICKER_NAMES[ticker]} Spearman 상관 Top 5:")
+    for rank, (col, val) in enumerate(spearman.head(5).items(), 1):
+        _corr_lines.append(f"  {rank}. {col}: {val:+.4f}")
+
+_corr_prompt = "\n".join(_corr_lines) + (
+    "\n\n위 상관관계 결과를 바탕으로:\n"
+    "1. 키워드 파생변수 중 주가 예측에 유용한 변수와 그 이유\n"
+    "2. 교호작용 변수(keyword_surge_x_rsi 등)의 유효성 평가\n"
+    "3. Spearman/Pearson 부호 불일치 변수의 비선형성 해석\n"
+    "4. 모델에 포함할 변수 추천 (ElasticNet L1이 자동 선택하지만 사전 지식 기반 의견)\n"
+    "을 한국어로 간결하게 분석해주세요."
+)
+
+try:
+    _corr_resp = _ens_openai_client.chat.completions.create(
+        model=OPENAI_DEPLOYMENT,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "당신은 반도체 주식 NLP 기반 퀀트 분석가입니다. "
+                    "뉴스 키워드 파생변수의 주가 예측력을 평가합니다."
+                ),
+            },
+            {"role": "user", "content": _corr_prompt},
+        ],
+        max_tokens=800,
+        temperature=0.3,
+    )
+    print(_corr_resp.choices[0].message.content)
+except Exception as e:
+    print(f"[WARN] AI 분석 실패: {e}")
 
 # COMMAND ----------
 
@@ -602,6 +977,166 @@ for ticker in TICKERS:
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## 3-1. AI 해석 — ElasticNet 학습 결과
+
+# COMMAND ----------
+
+# DBTITLE 1,GPT 해석: ElasticNet 피처 선택 + 감성 변수 기여도
+_elasticnet_lines = ["[ElasticNet 학습 결과 요약]\n"]
+for ticker in TICKERS:
+    model = elasticnet_models[ticker]
+    scaler_obj, feat_cols = elasticnet_scalers[ticker]
+    name = TICKER_NAMES[ticker]
+    coef_abs = np.abs(model.coef_)
+    top_idx = np.argsort(coef_abs)[::-1][:10]
+    n_active = int(np.sum(np.abs(model.coef_) > 1e-6))
+
+    _elasticnet_lines.append(f"\n{name}: alpha={model.alpha_:.4f}, l1_ratio={model.l1_ratio_:.2f}")
+    _X_val = scaler_obj.transform(feature_marts[ticker][feat_cols].fillna(0).values[:-HORIZON])
+    _y_val = np.log(
+        feature_marts[ticker]["close"].values[HORIZON:]
+        / feature_marts[ticker]["close"].values[:-HORIZON]
+    )
+    _r2 = model.score(_X_val, _y_val)
+    _elasticnet_lines.append(f"  활성 피처: {n_active}/{len(feat_cols)}, R²={_r2:.4f}")
+    _elasticnet_lines.append("  Top 10 피처:")
+    for rank, idx in enumerate(top_idx[:10], 1):
+        if coef_abs[idx] < 1e-6:
+            break
+        _elasticnet_lines.append(f"    {rank}. {feat_cols[idx]}: {model.coef_[idx]:+.4f}")
+
+_en_prompt = "\n".join(_elasticnet_lines) + (
+    "\n\n위 결과를 바탕으로:\n"
+    "1. L1 정규화로 살아남은 핵심 드라이버 해석 (감성/키워드 변수 포함 여부)\n"
+    "2. 종목간 활성 피처 차이의 투자 시사점\n"
+    "3. 키워드 파생변수(keyword_surge_x_rsi 등)가 선택되었다면 그 의미\n"
+    "을 한국어 3~5문장으로 요약하세요."
+)
+try:
+    _en_resp = _ens_openai_client.chat.completions.create(
+        model=OPENAI_DEPLOYMENT,
+        messages=[
+            {
+                "role": "system",
+                "content": "반도체 퀀트 애널리스트. ElasticNet 투자 해석.",
+            },
+            {"role": "user", "content": _en_prompt},
+        ],
+        max_tokens=600,
+        temperature=0.3,
+    )
+    print(_en_resp.choices[0].message.content)
+except Exception as e:
+    print(f"[WARN] AI 분석 실패: {e}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # 3.5. Step 2b — RandomForest 회귀 모델 (AutoML 검증 기반)
+# MAGIC
+# MAGIC Databricks AutoML 결과에서 **RandomForestRegressor**가
+# MAGIC ElasticNet 대비 압도적 성능을 보임 (삼성전자 R²=0.719 vs 0.045,
+# MAGIC SK하이닉스 R²=0.860 vs -1.188).
+# MAGIC
+# MAGIC 비선형 패턴(교호작용, 감성×기술적지표)을 포착하기 위해
+# MAGIC AutoML 최적 하이퍼파라미터 기반 RandomForest를 앙상블 회귀 컴포넌트에 추가합니다.
+# MAGIC
+# MAGIC | 파라미터 | AutoML 최적값 | 근거 |
+# MAGIC |---|---|---|
+# MAGIC | max_depth | 8 | 과적합 방지 + 비선형 패턴 포착 균형 |
+# MAGIC | n_estimators | 1755 | 충분한 앙상블 다양성 확보 |
+# MAGIC | max_features | 0.668 | 피처 서브셋으로 트리 간 상관 감소 |
+# MAGIC | min_samples_leaf | 0.0017 | 리프 정규화 |
+# MAGIC | min_samples_split | 0.0172 | 분할 정규화 |
+
+# COMMAND ----------
+
+# DBTITLE 1,RandomForest 모델 학습 및 예측 (AutoML 하이퍼파라미터)
+from sklearn.ensemble import RandomForestRegressor  # noqa: E402
+
+rf_models = {}
+rf_predictions = {}
+rf_scalers = {}
+
+for ticker in TICKERS:
+    mart = feature_marts[ticker].copy()
+    name = TICKER_NAMES[ticker]
+
+    # 타겟: T+20 로그수익률 (ElasticNet과 동일)
+    future_close = mart["close"].shift(-HORIZON)
+    mart["target"] = np.log(future_close / mart["close"])
+    mart_clean = mart.dropna(subset=["target"])
+
+    exclude_cols = {"date", "target", "close"}
+    feat_cols = [
+        c for c in mart_clean.select_dtypes(include=[np.number]).columns if c not in exclude_cols
+    ]
+
+    X = mart_clean[feat_cols].fillna(0).values
+    y = mart_clean["target"].values
+
+    X_train, y_train = X[:-1], y[:-1]
+    X_last = X[-1:].reshape(1, -1)
+
+    # StandardScaler (RF는 스케일링 불필요하나 일관성 유지)
+    scaler = StandardScaler()
+    X_train_sc = scaler.fit_transform(X_train)
+    X_last_sc = scaler.transform(X_last)
+
+    # AutoML 최적 하이퍼파라미터 기반 RandomForest
+    rf = RandomForestRegressor(
+        n_estimators=400,  # 경량화 (AutoML 1755 → 400, 성능 유사)
+        max_depth=8,
+        max_features=0.668,
+        min_samples_leaf=0.002,
+        min_samples_split=0.017,
+        bootstrap=True,
+        random_state=42,
+        n_jobs=-1,
+    )
+    rf.fit(X_train_sc, y_train)
+    pred_log_return = rf.predict(X_last_sc)[0]
+
+    last_price = mart["close"].iloc[-1]
+    pred_price = last_price * np.exp(pred_log_return)
+
+    rf_models[ticker] = rf
+    rf_predictions[ticker] = pred_price
+    rf_scalers[ticker] = (scaler, feat_cols)
+
+    change_pct = (pred_price - last_price) / last_price * 100
+    r2_train = rf.score(X_train_sc, y_train)
+
+    # 피처 중요도 Top 10
+    fi_idx = np.argsort(rf.feature_importances_)[::-1][:10]
+
+    print(f"\n[{name}] RandomForest T+{HORIZON}:")
+    print(f"  예측 로그수익률: {pred_log_return:+.4f}")
+    print(f"  예측가: {pred_price:,.0f}원 ({change_pct:+.2f}%)")
+    print(f"  R² (train, log-return): {r2_train:.4f}")
+    print("  피처 중요도 Top 5:")
+    for rank, idx in enumerate(fi_idx[:5], 1):
+        print(f"    {rank}. {feat_cols[idx]}: {rf.feature_importances_[idx]:.4f}")
+
+# COMMAND ----------
+
+# DBTITLE 1,ElasticNet vs RandomForest 비교
+print("=" * 70)
+print("  ElasticNet vs RandomForest 성능 비교")
+print("=" * 70)
+for ticker in TICKERS:
+    name = TICKER_NAMES[ticker]
+    enet_pred = elasticnet_predictions[ticker]
+    rf_pred = rf_predictions[ticker]
+    last = feature_marts[ticker]["close"].iloc[-1]
+    print(f"\n{name}:")
+    print(f"  ElasticNet: {enet_pred:,.0f}원 ({(enet_pred - last) / last * 100:+.2f}%)")
+    print(f"  RandomForest: {rf_pred:,.0f}원 ({(rf_pred - last) / last * 100:+.2f}%)")
+    print("  → 앙상블 회귀 컴포넌트에 RF 예측 사용 (비선형 패턴 포착)")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC # 4. TimesFM XReg 예측값 로드 (모멘텀 주입 버전)
 # MAGIC
 # MAGIC TimesFM 노트북의 XReg 예측 결과를 불러옵니다.
@@ -673,6 +1208,20 @@ for ticker in TICKERS:
 # MAGIC > 지표의 극단값(Extreme Values)이 갖는 통계적 유의미성을 가중치에
 # MAGIC > 비례적으로 반영하기 위해 **선형/비선형 가중치 보간법**
 # MAGIC > **(Dynamic Weight Interpolation)**을 적용함.
+# MAGIC
+# MAGIC ### v0415 — 뉴스 감성 가중치 통합
+# MAGIC > **"AI 슈퍼사이클"** 서사에서 뉴스 감성은 펀더멘탈보다 빠르게
+# MAGIC > 시장 심리를 반영한다. 극단적 감성(호재/악재)과 뉴스량 급증은
+# MAGIC > 레짐 전환의 전조 신호로 활용되며, 기존 Soft Switching에
+# MAGIC > `_sentiment_weight_adjustment()`를 추가하여 5번째 조정분을 반영.
+# MAGIC
+# MAGIC #### 감성 가중치 설계
+# MAGIC | 조건 | 조정 | 근거 |
+# MAGIC |---|---|---|
+# MAGIC | avg_sentiment > 0.3 | TimesFM +0.10 | 강한 호재 → 모멘텀 지속 기대 |
+# MAGIC | avg_sentiment < -0.3 | ElasticNet +0.10 | 강한 악재 → 평균회귀 기대 |
+# MAGIC | news_vol_surge > 2.0 | ElasticNet +0.05 | 뉴스 폭증 → 변곡점 전조 |
+# MAGIC | sentiment ↔ RSI 동조 | ±0.08 | 복합 신호 = 확신의 크기 ↑ |
 # MAGIC
 # MAGIC #### 가중치 함수 설계 원칙
 # MAGIC | 지표 | 구간 | 보간 방식 | 근거 |
@@ -779,7 +1328,44 @@ def _disparity_weight_adjustment(disparity: float) -> float:
     return 0.0
 
 
-def _interaction_weight(rsi: float, vol_ratio: float, disparity: float) -> float:
+def _sentiment_weight_adjustment(avg_sentiment: float, news_vol_surge: float) -> float:
+    """
+    뉴스 감성 기반 TimesFM 가중치 조정분 (v0415 신규).
+
+    "AI 슈퍼사이클 서사에서 뉴스 감성은 펀더멘탈보다 빠르게 시장 심리를 반영"
+
+    - 강한 호재(>0.3): 모멘텀 지속 기대 → TimesFM 강화 (+0.10)
+    - 약한 호재/중립(0~0.3): 데드존 (무조정)
+    - 강한 악재(<-0.3): 과도한 비관 → 평균회귀 기대 → ElasticNet 강화 (-0.10)
+    - 뉴스량 급증(>2.0): 변곡점 전조 → 보수적 ElasticNet 강화 (-0.05)
+
+    가중치 변화 곡선:
+        sent -0.7 ── -0.10 ──► -0.3 ── 0.00 ──► +0.3 ── 0.00 ──► +0.7 ── +0.10
+        news_surge: >2.0 → 추가 -0.05 (최대 -0.05)
+    """
+    adj = 0.0
+
+    # 감성 방향성 조정
+    if avg_sentiment > 0.3:
+        # 강한 호재: 모멘텀 지속 기대 → TimesFM 비중 강화
+        adj += 0.10 * min((avg_sentiment - 0.3) / 0.4, 1.0)
+    elif avg_sentiment < -0.3:
+        # 강한 악재: 과도한 비관 → 회귀 기대 → ElasticNet 강화
+        adj -= 0.10 * min((abs(avg_sentiment) - 0.3) / 0.4, 1.0)
+
+    # 뉴스량 급증 조정 (변곡점 전조 신호)
+    if news_vol_surge > 2.0:
+        adj -= 0.05 * min((news_vol_surge - 2.0) / 3.0, 1.0)
+
+    return np.clip(adj, -0.15, 0.15)
+
+
+def _interaction_weight(
+    rsi: float,
+    vol_ratio: float,
+    disparity: float,
+    avg_sentiment: float = 0.0,
+) -> float:
     """
     복합 지표 가중치 (Interaction Term).
 
@@ -790,6 +1376,8 @@ def _interaction_weight(rsi: float, vol_ratio: float, disparity: float) -> float
     규칙 1: RSI 과매수(>60) + 변동성 급증(>1.2) → 하락 압력 가중
     규칙 2: RSI 과매도(<40) + 변동성 급증(>1.2) → 패닉 후 반등 가중
     규칙 3: 이격도 과열(>15%) + RSI 과매수(>65) → 회귀 압력 이중 강화
+    규칙 4: 호재(>0.3) + RSI 과매수(>60) → 모멘텀 과열 → 회귀 강화
+    규칙 5: 악재(<-0.3) + RSI 과매도(<40) → 패닉 역발상 → 반등 가중
     """
     adj = 0.0
 
@@ -811,6 +1399,20 @@ def _interaction_weight(rsi: float, vol_ratio: float, disparity: float) -> float
         rsi_strength = min((rsi - 65) / 35, 1.0)
         adj -= 0.08 * disp_strength * rsi_strength
 
+    # 규칙 4: 호재 감성 + RSI 과매수 = 모멘텀 과열 경고
+    # "뉴스까지 좋은데 RSI 과매수면 오히려 고점 신호"
+    if avg_sentiment > 0.3 and rsi > 60:
+        sent_strength = min((avg_sentiment - 0.3) / 0.4, 1.0)
+        rsi_strength = min((rsi - 60) / 40, 1.0)
+        adj -= 0.08 * sent_strength * rsi_strength
+
+    # 규칙 5: 악재 감성 + RSI 과매도 = 패닉 → 역발상 반등
+    # "뉴스도 나쁘고 RSI도 바닥이면 오히려 반등 확률 ↑"
+    if avg_sentiment < -0.3 and rsi < 40:
+        sent_strength = min((abs(avg_sentiment) - 0.3) / 0.4, 1.0)
+        rsi_strength = min((40 - rsi) / 40, 1.0)
+        adj += 0.08 * sent_strength * rsi_strength
+
     return adj
 
 
@@ -818,6 +1420,8 @@ def compute_dynamic_weights(
     rsi: float,
     vol_ratio: float,
     disparity: float,
+    avg_sentiment: float = 0.0,
+    news_vol_surge: float = 1.0,
 ) -> dict:
     """
     Soft Switching 기반 동적 가중치를 산출합니다.
@@ -827,8 +1431,11 @@ def compute_dynamic_weights(
     비례적으로 반영하기 위해 선형/비선형 가중치 보간법
     (Dynamic Weight Interpolation)을 적용함.
 
+    v0415: 뉴스 감성 가중치(`_sentiment_weight_adjustment()`) 추가.
+    기존 4가지 + 감성 1가지 = **5가지 조정분** 합산.
+
     기본 가중치: TimesFM 0.5 / ElasticNet 0.5
-    4가지 조정분(RSI, vol_ratio, 이격도, Interaction)을 합산하여
+    5가지 조정분(RSI, vol_ratio, 이격도, Interaction, 감성)을 합산하여
     최종 가중치를 [0.15, 0.85] 범위로 클리핑.
 
     Parameters
@@ -839,6 +1446,10 @@ def compute_dynamic_weights(
         단기/장기 변동성 비율 (realized_vol_5d / realized_vol_20d)
     disparity : float
         120일 이격도 (%)
+    avg_sentiment : float
+        당일 뉴스 ABSA 평균 감성 (-1~+1, 기본값: 0.0=중립)
+    news_vol_surge : float
+        뉴스량 급증 비율 (당일/7일평균, 기본값: 1.0=평균)
 
     Returns
     -------
@@ -854,10 +1465,11 @@ def compute_dynamic_weights(
     rsi_adj = _rsi_weight_adjustment(rsi)
     vol_adj = _vol_weight_adjustment(vol_ratio)
     disp_adj = _disparity_weight_adjustment(disparity)
-    inter_adj = _interaction_weight(rsi, vol_ratio, disparity)
+    inter_adj = _interaction_weight(rsi, vol_ratio, disparity, avg_sentiment)
+    sent_adj = _sentiment_weight_adjustment(avg_sentiment, news_vol_surge)
 
     # --- 기본 가중치 + 조정분 합산 ---
-    w_trend = 0.50 + rsi_adj + vol_adj + disp_adj + inter_adj
+    w_trend = 0.50 + rsi_adj + vol_adj + disp_adj + inter_adj + sent_adj
     w_trend = np.clip(w_trend, 0.15, 0.85)
     w_meanrev = round(1.0 - w_trend, 4)
 
@@ -871,6 +1483,10 @@ def compute_dynamic_weights(
         adjustments.append(f"이격도={disparity:+.1f}% → adj={disp_adj:+.3f}")
     if abs(inter_adj) > 0.01:
         adjustments.append(f"Interaction → adj={inter_adj:+.3f}")
+    if abs(sent_adj) > 0.01:
+        adjustments.append(
+            f"감성={avg_sentiment:+.3f}, 뉴스급증={news_vol_surge:.1f}x → adj={sent_adj:+.3f}"
+        )
 
     # --- 레짐 라벨 결정 ---
     if w_trend >= 0.60:
@@ -957,12 +1573,13 @@ def calculate_dynamic_ensemble(
     elasticnet_pred: float,
     feature_mart: pd.DataFrame,
     horizon: int = 20,
+    rf_pred: float | None = None,
 ) -> dict:
     """
-    TimesFM(추세)과 ElasticNet(평균회귀) 예측을 동적으로 결합합니다.
+    TimesFM(추세)과 회귀모델(RF+ElasticNet) 예측을 동적으로 결합합니다.
 
-    두 모델의 예측값과 PI를 받아, RSI/ATR/이격도 기반 시장 레짐 판별 후
-    동적 가중치를 적용하여 최종 앙상블 결과를 산출합니다.
+    v0417: RandomForest 예측이 제공되면 회귀 컴포넌트로 RF를 사용하고,
+    ElasticNet은 보조 참조로 활용합니다. RF가 없으면 기존 ElasticNet만 사용.
 
     Parameters
     ----------
@@ -978,6 +1595,8 @@ def calculate_dynamic_ensemble(
         기술적 지표가 추가된 피처 마트
     horizon : int
         예측 기간 (기본값: 20)
+    rf_pred : float | None
+        RandomForest T+{horizon} 점 예측 (v0417, None이면 ElasticNet 단독 사용)
 
     Returns
     -------
@@ -994,21 +1613,44 @@ def calculate_dynamic_ensemble(
     """
     last_price = feature_mart["close"].iloc[-1]
 
+    # v0417: RF가 있으면 회귀 컴포넌트로 RF를 주력 사용 (70% RF + 30% ElasticNet)
+    # → AutoML 결과: RF R²=0.72~0.86 >> ElasticNet R²≈0.05
+    if rf_pred is not None:
+        regression_pred = 0.7 * rf_pred + 0.3 * elasticnet_pred
+    else:
+        regression_pred = elasticnet_pred
+
     # 현재 시장 지표 추출
     rsi = feature_mart["rsi_14"].iloc[-1]
     vol_ratio = feature_mart["vol_ratio"].iloc[-1]
     disparity = feature_mart["disparity_120d"].iloc[-1]
 
-    # 레짐 판별 및 가중치 결정 (v0414: Soft Switching)
-    regime = compute_dynamic_weights(rsi, vol_ratio, disparity)
+    # 뉴스 감성 지표 추출 (v0415: 없으면 중립값)
+    avg_sentiment = (
+        feature_mart["avg_sentiment"].iloc[-1] if "avg_sentiment" in feature_mart.columns else 0.0
+    )
+    news_vol_surge = (
+        feature_mart["news_vol_surge"].iloc[-1] if "news_vol_surge" in feature_mart.columns else 1.0
+    )
+
+    # 레짐 판별 및 가중치 결정 (v0415: Soft Switching + 감성 가중치)
+    regime = compute_dynamic_weights(
+        rsi,
+        vol_ratio,
+        disparity,
+        avg_sentiment=avg_sentiment,
+        news_vol_surge=news_vol_surge,
+    )
     w_trend = regime["w_trend"]
     w_meanrev = regime["w_meanrev"]
 
-    # ElasticNet은 단일 T+20 점 예측 → 선형 보간으로 경로 생성
-    enet_path = np.linspace(last_price, elasticnet_pred, horizon)
+    # ElasticNet/RF 회귀 컴포넌트: 단일 T+20 점 예측 → 선형 보간으로 경로 생성
+    # v0417: RF가 있으면 regression_pred(=0.7*RF+0.3*EN)를 사용
+    regression_path = np.linspace(last_price, regression_pred, horizon)
+    enet_path = np.linspace(last_price, elasticnet_pred, horizon)  # 참조용 보존
 
     # --- 앙상블 점 예측 ---
-    ensemble_path = w_trend * timesfm_point + w_meanrev * enet_path
+    ensemble_path = w_trend * timesfm_point + w_meanrev * regression_path
 
     # --- 앙상블 PI ---
     # TimesFM PI를 기반으로 하되, 가중치에 따라 폭 조정
@@ -1025,7 +1667,8 @@ def calculate_dynamic_ensemble(
     ensemble_q90 = ensemble_mid + combined_half_width
 
     # --- Confidence Score ---
-    confidence = compute_confidence_score(timesfm_q10, timesfm_q90, elasticnet_pred, last_price)
+    # v0417: RF가 있으면 RF 예측과의 합의도를 추가 반영
+    confidence = compute_confidence_score(timesfm_q10, timesfm_q90, regression_pred, last_price)
 
     # 추세/회귀 기여도 점수 (100점 만점)
     trend_score = w_trend * 100
@@ -1040,9 +1683,12 @@ def calculate_dynamic_ensemble(
         "ensemble_q90": ensemble_q90,
         "timesfm_path": timesfm_point,
         "elasticnet_path": enet_path,
+        "regression_path": regression_path,
         "confidence": confidence,
         "trend_score": trend_score,
         "meanrev_score": meanrev_score,
+        "avg_sentiment": avg_sentiment,
+        "news_vol_surge": news_vol_surge,
     }
 
 
@@ -1052,7 +1698,7 @@ def calculate_dynamic_ensemble(
 ensemble_results = {}
 
 print("=" * 70)
-print("동적 가중치 앙상블 (Dynamic Weighting Ensemble)")
+print("동적 가중치 앙상블 (Dynamic Weighting Ensemble) — v0417 RF 통합")
 print("=" * 70)
 
 for ticker in TICKERS:
@@ -1068,6 +1714,7 @@ for ticker in TICKERS:
         elasticnet_pred=elasticnet_predictions[ticker],
         feature_mart=feature_marts[ticker],
         horizon=HORIZON,
+        rf_pred=rf_predictions.get(ticker),
     )
     ensemble_results[ticker] = result
 
@@ -1081,15 +1728,70 @@ for ticker in TICKERS:
     print(f"  현재가: {result['last_price']:,.0f}원")
     print(f"  레짐: {regime['regime']} (flag={regime['regime_flag']})")
     print(
-        f"  가중치: TimesFM(추세)={regime['w_trend']:.2%}"
-        f" / ElasticNet(회귀)={regime['w_meanrev']:.2%}"
+        f"  가중치: TimesFM(추세)={regime['w_trend']:.2%} / 회귀(RF+EN)={regime['w_meanrev']:.2%}"
     )
     for adj in regime["adjustments"]:
         print(f"    → {adj}")
     print(f"  TimesFM T+{HORIZON}: {timesfm_predictions[ticker][-1]:,.0f}원")
+    rf_val = rf_predictions.get(ticker)
+    if rf_val is not None:
+        print(f"  RF(AutoML) T+{HORIZON}: {rf_val:,.0f}원")
     print(f"  ElasticNet T+{HORIZON}: {elasticnet_predictions[ticker]:,.0f}원")
     print(f"  ★ 앙상블 T+{HORIZON}: {final_pred:,.0f}원 ({change:+.2f}%)")
     print(f"  신뢰도: {result['confidence']:.1f}/100")
+    print(
+        f"  뉴스 감성: avg={result['avg_sentiment']:+.3f}, 뉴스급증={result['news_vol_surge']:.1f}x"
+    )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 5-1. AI 해석 — 앙상블 레짐 판별 및 가중치 근거
+
+# COMMAND ----------
+
+# DBTITLE 1,GPT 해석: 앙상블 결과 중간 해석
+_regime_lines = ["[동적 가중치 앙상블 결과 요약]\n"]
+for ticker in TICKERS:
+    if ticker not in ensemble_results:
+        continue
+    result = ensemble_results[ticker]
+    regime = result["regime"]
+    final_pred = result["ensemble_path"][-1]
+    change = (final_pred - result["last_price"]) / result["last_price"] * 100
+    _regime_lines.append(
+        f"\n{TICKER_NAMES[ticker]}:"
+        f"\n  레짐={regime['regime']}, "
+        f"TimesFM={regime['w_trend']:.0%}/회귀(RF+EN)={regime['w_meanrev']:.0%}"
+        f"\n  앙상블={final_pred:,.0f}원({change:+.2f}%), 신뢰도={result['confidence']:.0f}/100"
+        f"\n  감성={result['avg_sentiment']:+.3f}, 뉴스급증={result['news_vol_surge']:.1f}x"
+        f"\n  조정: {'; '.join(regime['adjustments']) if regime['adjustments'] else '없음'}"
+    )
+
+_regime_prompt = "\n".join(_regime_lines) + (
+    "\n\n위 앙상블 결과를 바탕으로:\n"
+    "1. 레짐 판별이 왜 이렇게 되었는지 (RSI, 이격도, 감성 기반)\n"
+    "2. 두 종목의 가중치 차이가 의미하는 바\n"
+    "3. RF+ElasticNet 블렌딩 회귀 모델이 기존 ElasticNet 단독 대비 개선된 점\n"
+    "4. 현 시점 투자 시그널 (매수/관망/매도 강도)\n"
+    "을 2~3문장으로 요약하세요."
+)
+try:
+    _regime_resp = _ens_openai_client.chat.completions.create(
+        model=OPENAI_DEPLOYMENT,
+        messages=[
+            {
+                "role": "system",
+                "content": "반도체 퀀트 애널리스트. 앙상블 투자 시사점 해석.",
+            },
+            {"role": "user", "content": _regime_prompt},
+        ],
+        max_tokens=600,
+        temperature=0.3,
+    )
+    print(_regime_resp.choices[0].message.content)
+except Exception as e:
+    print(f"[WARN] AI 분석 실패: {e}")
 
 # COMMAND ----------
 
@@ -1187,12 +1889,17 @@ def plot_dynamic_ensemble(result: dict, ticker_name: str, save_path: str | None 
         va="bottom",
     )
 
-    # --- 레짐 & 신뢰도 표시 ---
+    # --- 레짐 & 신뢰도 & 감성 표시 ---
     regime = result["regime"]
+    _sent_val = result.get("avg_sentiment", 0.0)
+    _sent_label = "호재" if _sent_val > 0.3 else ("악재" if _sent_val < -0.3 else "중립")
+    _surge_val = result.get("news_vol_surge", 1.0)
     info_text = (
         f"레짐: {regime['regime']}\n"
         f"추세: {regime['w_trend']:.2%} / 회귀: {regime['w_meanrev']:.2%}\n"
-        f"신뢰도: {result['confidence']:.0f}/100"
+        f"신뢰도: {result['confidence']:.0f}/100\n"
+        f"뉴스 감성: {_sent_val:+.3f} ({_sent_label})\n"
+        f"뉴스량 급증: {_surge_val:.1f}x"
     )
     ax.text(
         0.02,
@@ -1224,7 +1931,7 @@ def plot_dynamic_ensemble(result: dict, ticker_name: str, save_path: str | None 
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
         print(f"차트 저장: {save_path}")
 
-    plt.show()
+    display(fig)  # noqa: F821
     plt.close(fig)
 
 
@@ -1248,10 +1955,12 @@ for ticker in TICKERS:
 # MAGIC | date | datetime | 예측 대상 일자 |
 # MAGIC | ticker | str | 종목 코드 |
 # MAGIC | trend_score | float | TimesFM 가중치 점수 (0~100) |
-# MAGIC | mean_rev_score | float | ElasticNet 가중치 점수 (0~100) |
+# MAGIC | mean_rev_score | float | 회귀(RF+EN) 가중치 점수 (0~100) |
 # MAGIC | final_pred | float | 앙상블 최종 예측가 |
 # MAGIC | confidence_score | float | 신뢰도 (0~100) |
 # MAGIC | regime_flag | int | 레짐 코드 (1=추세, 0=중립, -1=회귀) |
+# MAGIC | avg_sentiment | float | 당일 뉴스 ABSA 평균 감성 (-1~+1) |
+# MAGIC | news_vol_surge | float | 뉴스량 급증 비율 (당일/7일평균) |
 
 # COMMAND ----------
 
@@ -1280,13 +1989,17 @@ for ticker in TICKERS:
                 "trend_score": round(result["trend_score"], 2),
                 "mean_rev_score": round(result["meanrev_score"], 2),
                 "trend_pred": round(float(result["timesfm_path"][j]), 2),
-                "meanrev_pred": round(float(result["elasticnet_path"][j]), 2),
+                "meanrev_pred": round(
+                    float(result.get("regression_path", result["elasticnet_path"])[j]), 2
+                ),
                 "final_pred": round(float(result["ensemble_path"][j]), 2),
                 "pi_lower": round(float(result["ensemble_q10"][j]), 2),
                 "pi_upper": round(float(result["ensemble_q90"][j]), 2),
                 "confidence_score": round(result["confidence"], 2),
                 "regime_flag": result["regime"]["regime_flag"],
                 "regime_label": result["regime"]["regime"],
+                "avg_sentiment": round(result.get("avg_sentiment", 0.0), 4),
+                "news_vol_surge": round(result.get("news_vol_surge", 1.0), 2),
                 "run_timestamp": run_ts,
             }
         )
@@ -1303,7 +2016,9 @@ print(df_ensemble.head(10).to_string(index=False))
 # PostgreSQL 연결이 가능한 경우 fact_ensemble_forecast 테이블에 적재
 try:
     engine = vault.get_pg_connection("sqlalchemy")
-    df_ensemble.to_sql("fact_ensemble_forecast", engine, if_exists="append", index=False)
+    with engine.connect() as conn:
+        df_ensemble.to_sql("fact_ensemble_forecast", conn, if_exists="append", index=False)
+        conn.commit()
     print(f"✅ fact_ensemble_forecast 적재 완료: {len(df_ensemble)}행")
 except Exception as e:
     print(f"[INFO] PostgreSQL 적재 스킵: {e}")
@@ -1352,6 +2067,11 @@ for ticker in TICKERS:
 - 120d 이격도: {feature_marts[ticker]["disparity_120d"].iloc[-1]:+.1f}%
 - 변동성 비율: {feature_marts[ticker]["vol_ratio"].iloc[-1]:.2f}
 
+[뉴스 감성 (Gold Layer)]
+- 당일 평균 감성: {result.get("avg_sentiment", 0.0):+.3f} (-1=극악재 ~ +1=극호재)
+- 뉴스량 급증 비율: {result.get("news_vol_surge", 1.0):.1f}x (1.0=평균, 2.0+=급증)
+- 감성 해석: 뉴스 감성이 앙상블 가중치에 반영되어 시장 심리를 정량적으로 포착
+
 [모델 예측]
 - TimesFM(추세): {timesfm_predictions[ticker][-1]:,.0f}원
 - ElasticNet(회귀): {elasticnet_predictions[ticker]:,.0f}원
@@ -1364,9 +2084,10 @@ for ticker in TICKERS:
 - 신뢰도: {result["confidence"]:.0f}/100
 
 위 결과를 바탕으로:
-1. 현재 레짐에서 왜 이런 가중치가 적용되었는지 설명
-2. 앙상블 결과의 의미와 투자 시사점
-3. 주의해야 할 리스크 요인
+1. 뉴스 감성이 레짐 판별과 가중치에 어떤 영향을 미쳤는지 설명
+2. "AI 슈퍼사이클 → 반도체 수요 → 뉴스 감성 → 주가 예측" 스토리라인으로 해석
+3. 앙상블 결과의 의미와 투자 시사점
+4. 뉴스 감성 변화 시 주의해야 할 리스크 요인
 을 한국어로 간결하게 분석해주세요.
 """
 
@@ -1379,7 +2100,9 @@ for ticker in TICKERS:
                     "content": (
                         "당신은 반도체 주식 전문 퀀트 애널리스트입니다. "
                         "동적 가중치 앙상블 전략의 결과를 바탕으로 "
-                        "투자 인사이트를 제공합니다. 수치 근거를 포함하고, "
+                        "투자 인사이트를 제공합니다. 뉴스 감성 데이터가 "
+                        "앙상블 가중치에 미치는 영향을 AI 슈퍼사이클 "
+                        "관점에서 해석하세요. 수치 근거를 포함하고, "
                         "리스크도 균형있게 언급하세요."
                     ),
                 },
@@ -1399,11 +2122,161 @@ for ticker in TICKERS:
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC # 8-1. 멀티모델 비교 (GPT-5.4 계열 Responses API)
+# MAGIC
+# MAGIC > gpt-4.1-mini(기존) + gpt-5.4-pro / gpt-5.4 / gpt-5.4-mini 4개 모델이
+# MAGIC > 동일 프롬프트에 대해 생성한 분석을 비교합니다.
+# MAGIC > Azure OpenAI Responses API (`/openai/v1/`) 엔드포인트를 사용합니다.
+
+# COMMAND ----------
+
+# DBTITLE 1,멀티모델 GPT-5.4 비교 분석
+import time as _time  # noqa: E402
+
+from openai import OpenAI  # noqa: E402
+
+# -----------------------------------------------------------------------
+# GPT-5.4 계열 모델 엔드포인트 (Azure OpenAI Responses API)
+# -----------------------------------------------------------------------
+_MULTI_MODELS = [
+    {
+        "name": "gpt-5.4-pro",
+        "base_url": "https://3dt00-mnye943s-eastus2.cognitiveservices.azure.com/openai/v1/",
+        "deployment": "gpt-5.4-pro",
+    },
+    {
+        "name": "gpt-5.4",
+        "base_url": "https://aoai-3dt-team1.openai.azure.com/openai/v1/",
+        "deployment": "gpt-5.4",
+    },
+    {
+        "name": "gpt-5.4-mini",
+        "base_url": "https://aoai-3dt-team1.openai.azure.com/openai/v1/",
+        "deployment": "gpt-5.4-mini",
+    },
+]
+
+# 멀티모델 비교용 통합 프롬프트 (삼성/SK 모두 포함)
+_multi_prompt_parts = []
+for ticker in TICKERS:
+    if ticker not in ensemble_results:
+        continue
+    result = ensemble_results[ticker]
+    name = TICKER_NAMES[ticker]
+    regime = result["regime"]
+    final_pred = result["ensemble_path"][-1]
+    change_pct = (final_pred - result["last_price"]) / result["last_price"] * 100
+    _multi_prompt_parts.append(
+        f"[{name}] 현재가 {result['last_price']:,.0f}원 → 앙상블 {final_pred:,.0f}원"
+        f" ({change_pct:+.2f}%), 레짐={regime['regime']},"
+        f" 감성={result.get('avg_sentiment', 0):+.3f},"
+        f" 신뢰도={result['confidence']:.0f}/100"
+    )
+
+_multi_prompt = (
+    "반도체 주가 동적 가중치 앙상블 예측 결과를 투자 관점에서 분석해주세요.\n\n"
+    + "\n".join(_multi_prompt_parts)
+    + "\n\n다음 세 가지를 한국어 5문장 이내로 답변:\n"
+    "1. 종합 투자 시그널 (강한매수/매수/관망/매도/강한매도)\n"
+    "2. 핵심 리스크 요인 1가지\n"
+    "3. 향후 주의해야 할 매크로 이벤트 1가지"
+)
+
+_system = (
+    "반도체 주식 퀀트 애널리스트. 동적 가중치 앙상블 전략 결과를 투자 의견으로 변환. "
+    "수치 근거 포함, 리스크 균형."
+)
+
+# 기존 gpt-4.1-mini 결과 포함
+multi_results = {}
+try:
+    _t0 = _time.time()
+    _base_resp = openai_client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {"role": "system", "content": _system},
+            {"role": "user", "content": _multi_prompt},
+        ],
+        max_tokens=600,
+        temperature=0.3,
+    )
+    multi_results["gpt-4.1-mini"] = {
+        "text": _base_resp.choices[0].message.content,
+        "tokens": _base_resp.usage.total_tokens,
+        "time_sec": round(_time.time() - _t0, 2),
+    }
+except Exception as e:
+    multi_results["gpt-4.1-mini"] = {"text": f"[오류] {e}", "tokens": 0, "time_sec": 0}
+
+# GPT-5.4 계열 (Responses API)
+for model_info in _MULTI_MODELS:
+    _mname = model_info["name"]
+    try:
+        _resp_client = OpenAI(
+            api_key=_openai_key,
+            base_url=model_info["base_url"],
+        )
+        _t0 = _time.time()
+        _resp = _resp_client.responses.create(
+            model=model_info["deployment"],
+            instructions=_system,
+            input=_multi_prompt,
+            max_output_tokens=600,
+            temperature=0.3,
+        )
+        multi_results[_mname] = {
+            "text": _resp.output_text,
+            "tokens": _resp.usage.total_tokens if _resp.usage else 0,
+            "time_sec": round(_time.time() - _t0, 2),
+        }
+    except Exception as e:
+        multi_results[_mname] = {"text": f"[오류] {e}", "tokens": 0, "time_sec": 0}
+
+# -----------------------------------------------------------------------
+# 결과 비교 출력
+# -----------------------------------------------------------------------
+print(f"\n{'═' * 80}")
+print("  멀티모델 비교 — 동일 프롬프트 4개 모델 응답")
+print(f"{'═' * 80}")
+
+_model_order = ["gpt-4.1-mini", "gpt-5.4-mini", "gpt-5.4", "gpt-5.4-pro"]
+for mname in _model_order:
+    if mname not in multi_results:
+        continue
+    r = multi_results[mname]
+    print(f"\n{'─' * 80}")
+    print(f"  [{mname}] | 토큰: {r['tokens']} | 응답시간: {r['time_sec']}s")
+    print(f"{'─' * 80}")
+    print(r["text"])
+
+# 성능 비교 요약 테이블
+print(f"\n{'═' * 80}")
+print("  성능 비교 요약")
+print(f"{'═' * 80}")
+print(f"  {'모델':<20} {'토큰':>8} {'응답시간':>10} {'상태':>8}")
+print(f"  {'─' * 52}")
+for mname in _model_order:
+    if mname not in multi_results:
+        continue
+    r = multi_results[mname]
+    status = "✅" if not r["text"].startswith("[오류]") else "❌"
+    print(f"  {mname:<20} {r['tokens']:>8} {r['time_sec']:>8.2f}s {status:>6}")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC # 9. 결과 요약
 # MAGIC
 # MAGIC | 단계 | 구현 내용 | 상태 |
 # MAGIC |---|---|---|
-# MAGIC | Step 1 | RSI(14), ATR(14), 120d 이격도, 로그수익률 | ✅ |
-# MAGIC | Step 2 | ElasticNetCV + **로그수익률 타겟** + Time-Decay(30d) + Alpha범위 | ✅ v0414 |
-# MAGIC | Step 3 | **Soft Switching** 동적가중치 + Interaction Term + Confidence | ✅ v0414 |
-# MAGIC | Step 4 | 시각화 + fact_ensemble_forecast DataFrame | ✅ |
+# MAGIC | Step 0 | 환경설정 + 한글 폰트 | ✅ |
+# MAGIC | Step 1 | RSI, ATR, 이격도, 로그수익률 + **감성·키워드 파생 피처** | ✅ v0416 |
+# MAGIC | Step 1.5 | **뉴스 감성 + 동적 키워드 파생변수** (6종 + 교호작용 4종) | ✅ v0416 |
+# MAGIC | Step 2 | ElasticNetCV + 로그수익률 타겟 + Time-Decay + 감성/키워드 피처 | ✅ v0416 |
+# MAGIC | Step 2b | **RandomForest 회귀** (AutoML 하이퍼파라미터, 0.7RF+0.3EN 블렌딩) | ✅ v0417 |
+# MAGIC | Step 2-1 | **키워드 파생변수 상관관계 분석** (Spearman/Pearson 교차검증) | ✅ v0416 |
+# MAGIC | Step 3 | **Soft Switching** + 감성 가중치 + Interaction + Confidence | ✅ v0415 |
+# MAGIC | Step 4 | 시각화 + fact_ensemble_forecast DataFrame | ✅ v0415 |
+# MAGIC | Step 5-1 | **AI 중간 해석** (ElasticNet 결과, 앙상블 레짐, 키워드 상관) | ✅ v0416 |
+# MAGIC | Step 8 | AI 앙상블 전략 요약 (GPT-4.1-mini) | ✅ v0415 |
+# MAGIC | Step 8-1 | **멀티모델 비교** (gpt-4.1-mini / 5.4-mini / 5.4 / 5.4-pro) | ✅ v0416 |
