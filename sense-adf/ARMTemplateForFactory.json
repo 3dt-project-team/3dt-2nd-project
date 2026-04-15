@@ -1692,7 +1692,7 @@
 			]
 		},
 		{
-			"name": "[concat(parameters('factoryName'), '/pl_naver_news_preprocessing')]",
+			"name": "[concat(parameters('factoryName'), '/pl_news_preprocessing')]",
 			"type": "Microsoft.DataFactory/factories/pipelines",
 			"apiVersion": "2018-06-01",
 			"properties": {
@@ -3824,7 +3824,7 @@
 				"pipelines": [
 					{
 						"pipelineReference": {
-							"referenceName": "pl_naver_news_preprocessing",
+							"referenceName": "pl_news_preprocessing",
 							"type": "PipelineReference"
 						},
 						"parameters": {}
@@ -3842,7 +3842,7 @@
 				}
 			},
 			"dependsOn": [
-				"[concat(variables('factoryId'), '/pipelines/pl_naver_news_preprocessing')]"
+				"[concat(variables('factoryId'), '/pipelines/pl_news_preprocessing')]"
 			]
 		},
 		{
