@@ -10,7 +10,7 @@ from src.models.models import (
     MarketSentiment,
     NewsDisplay,
 )
-from src.service.app import handle_chat_request_payload
+from src.service.rag import handle_chat_request_payload
 from src.utils.database import SessionLocal
 
 from . import web_bp

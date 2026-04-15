@@ -1,11 +1,62 @@
 import os
+import shutil
+from contextlib import suppress
+from pathlib import Path
 
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from dotenv import load_dotenv
 
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+WORKSPACE_AZURE_CONFIG_DIR = PROJECT_ROOT / ".azure-config"
+USER_AZURE_CONFIG_DIR = Path.home() / ".azure"
+
+
+def _normalize_proxy_env() -> None:
+    broken_proxy_markers = ("127.0.0.1:9", "localhost:9")
+    proxy_keys = (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "GIT_HTTP_PROXY",
+        "GIT_HTTPS_PROXY",
+    )
+
+    for key in proxy_keys:
+        value = os.getenv(key, "")
+        if value and any(marker in value for marker in broken_proxy_markers):
+            os.environ.pop(key, None)
+
+
+def _ensure_workspace_azure_cli_cache() -> None:
+    WORKSPACE_AZURE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("AZURE_CONFIG_DIR", str(WORKSPACE_AZURE_CONFIG_DIR))
+
+    if not USER_AZURE_CONFIG_DIR.exists():
+        return
+
+    for name in (
+        "azureProfile.json",
+        "msal_token_cache.bin",
+        "msal_http_cache.bin",
+        "config",
+        "clouds.config",
+    ):
+        src = USER_AZURE_CONFIG_DIR / name
+        dst = WORKSPACE_AZURE_CONFIG_DIR / name
+        if src.exists() and not dst.exists():
+            with suppress(Exception):
+                shutil.copy2(src, dst)
+
+
+_normalize_proxy_env()
+_ensure_workspace_azure_cli_cache()
+
+load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 _instance = None
 

@@ -3,14 +3,14 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
-
 from .config import get_settings
 
 
 @contextmanager
-def get_connection() -> Iterator[psycopg2.extensions.connection]:
+def get_connection() -> Iterator[Any]:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+
     settings = get_settings()
     settings.require_database()
 
@@ -58,8 +58,8 @@ def run_query_with_fallbacks(
     for query, params in candidates:
         try:
             return run_query(query, params)
-        except psycopg2.Error as exc:
-            if exc.pgcode in FALLBACK_SQLSTATE_CODES:
+        except Exception as exc:  # noqa: BLE001
+            if getattr(exc, "pgcode", None) in FALLBACK_SQLSTATE_CODES:
                 last_error = exc
                 continue
             raise
