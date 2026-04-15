@@ -3,207 +3,372 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>반도체 인사이트 커뮤니티</title>
+    <title>Semiconductor Insight Community</title>
     <link rel="stylesheet" href="{{ url_for('web.static', filename='css/style.css') }}">
-    <style>
-        /* 관리자 영역을 우측 상단에 배치하기 위한 추가 스타일 */
-        .admin-top-bar {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 100;
-        }
-        .admin-btn-toggle {
-            background: #6c757d;
-            color: white;
-            border: none;
-            padding: 5px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.75rem;
-            opacity: 0.8;
-        }
-        .admin-btn-toggle:hover { opacity: 1; }
-        
-        .admin-login-box {
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            margin-top: 5px;
-            display: none; /* 기본은 숨김 */
-        }
-        .admin-login-box.active { display: block; }
-        
-        .admin-status {
-            background: rgba(40, 167, 69, 0.1);
-            color: #28a745;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-weight: bold;
-            font-size: 0.8rem;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-    </style>
 </head>
 <body>
-
-    <div class="main-container" style="position: relative;">
+    <div class="main-container">
         <div class="admin-top-bar">
             {% if is_admin %}
                 <div class="admin-status">
-                    <span>🟢 Admin Mode</span>
-                    <a href="{{ url_for('web.admin_logout') }}" style="color: #d9534f; text-decoration: none; font-size: 0.7rem;">[로그아웃]</a>
+                    <span>Admin Mode</span>
+                    <a href="{{ url_for('web.admin_logout') }}">Logout</a>
                 </div>
             {% else %}
-                <button class="admin-btn-toggle" onclick="document.getElementById('admin-box').classList.toggle('active')">Admin Login</button>
+                <button
+                    class="admin-btn-toggle"
+                    type="button"
+                    onclick="document.getElementById('admin-box').classList.toggle('active')"
+                >
+                    Admin Login
+                </button>
                 <div id="admin-box" class="admin-login-box">
-                    <form action="{{ url_for('web.admin_login') }}" method="POST" style="display: flex; flex-direction: column; gap: 8px;">
-                        <input type="password" name="password" placeholder="비밀번호" style="padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
-                        <button type="submit" style="background: #0078d4; color: white; border: none; padding: 5px; border-radius: 4px; cursor: pointer;">인증</button>
+                    <form action="{{ url_for('web.admin_login') }}" method="POST">
+                        <input type="password" name="password" placeholder="Password">
+                        <button type="submit">Login</button>
                     </form>
                 </div>
             {% endif %}
         </div>
 
-        <header>
+        <header class="page-header">
+            <p class="eyebrow">AI Market Intelligence</p>
             <h1>Semiconductor Insight</h1>
-            <p>실시간 분석 및 전문가 커뮤니티</p>
+            <p class="page-subtitle">
+                News, forecasts, community posts, and the chatbot now work together in one web view.
+            </p>
         </header>
 
         <div class="content-wrapper">
             <aside class="analysis-side">
-                <div class="card">
-                    <h2>📊 주가 예측 결과</h2>
+                <section class="card">
+                    <h2>Forecast Snapshot</h2>
                     {% if fc %}
                         <div class="forecast-info">
                             <h3>{{ fc.ticker }}</h3>
-                            <p class="price">예측가: <span>{{ fc.final_pred }}</span>원</p>
-                            <p>신뢰도: {{ fc.confidence_score }}</p>
-                            <p>시장 국면: {{ fc.regime_label }}</p>
+                            <p class="stat-line">
+                                <span class="label">Prediction</span>
+                                <span class="value">{{ fc.final_pred }}</span>
+                            </p>
+                            <p class="stat-line">
+                                <span class="label">Confidence</span>
+                                <span class="value">{{ fc.confidence_score }}</span>
+                            </p>
+                            <p class="stat-line">
+                                <span class="label">Regime</span>
+                                <span class="value">{{ fc.regime_label }}</span>
+                            </p>
                         </div>
                     {% else %}
-                        <p>데이터를 불러오는 중입니다...</p>
+                        <p class="empty-text">Forecast data is loading.</p>
                     {% endif %}
-                </div>
+                </section>
 
-                <div class="card">
-                    <h2>📰 주요 반도체 뉴스</h2>
-                    <ul class="news-list">
-                        {% for news in news_list %}
-                            <li>
-                                <a href="{{ news.original_url }}" target="_blank">{{ news.display_title }}</a>
-                                <span class="sentiment {{ news.sentiment_class }}">{{ news.sentiment_class }}</span>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                </div>
+                <section class="card">
+                    <h2>Sentiment Snapshot</h2>
+                    {% if st %}
+                        <p class="stat-line">
+                            <span class="label">Date</span>
+                            <span class="value">{{ st.base_date }}</span>
+                        </p>
+                        <p class="stat-line">
+                            <span class="label">Average</span>
+                            <span class="value">{{ st.avg_sentiment }}</span>
+                        </p>
+                    {% else %}
+                        <p class="empty-text">Sentiment data is loading.</p>
+                    {% endif %}
+                </section>
+
+                <section class="card">
+                    <h2>Latest Semiconductor News</h2>
+                    {% if news_list %}
+                        <ul class="news-list">
+                            {% for news in news_list %}
+                                <li>
+                                    <a href="{{ news.original_url }}" target="_blank" rel="noopener noreferrer">
+                                        {{ news.display_title }}
+                                    </a>
+                                    {% if news.sentiment_class %}
+                                        <span class="sentiment {{ news.sentiment_class }}">{{ news.sentiment_class }}</span>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="empty-text">No news items are available yet.</p>
+                    {% endif %}
+                </section>
             </aside>
 
             <main class="community-main">
-                <div class="card post-box">
-                    <h2>💬 인사이트 공유</h2>
+                <section class="card post-box">
+                    <h2>Share Insight</h2>
                     <form action="{{ url_for('web.create_post') }}" method="POST">
-                        <textarea name="content" placeholder="반도체 시장에 대한 의견을 나눠주세요." required></textarea>
-                        <button type="submit">게시하기</button>
+                        <textarea
+                            name="content"
+                            placeholder="Share your view on the semiconductor market or a specific stock."
+                            required
+                        ></textarea>
+                        <button type="submit">Post</button>
                     </form>
-                </div>
+                </section>
 
-                <div class="post-feed">
-                    {% for post in posts %}
-                        <div class="card post-card" id="post-{{ post.id }}">
-                            <div class="post-header">
-                                <span class="author">익명 ({{ post.session_id[:8] }})</span>
-                                <span class="date">{{ post.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
-                                
-                                {% if post.session_id == current_user_sid or is_admin %}
-                                    <button class="btn-delete" onclick="deletePost({{ post.id }})">삭제</button>
-                                {% endif %}
-                            </div>
-                            <div class="post-content">
-                                {{ post.content }}
-                            </div>
-                            <div class="post-actions">
-                                {% set likes = post.reactions | selectattr("reaction_type", "equalto", "like") | list | length %}
-                                {% set dislikes = post.reactions | selectattr("reaction_type", "equalto", "dislike") | list | length %}
-                                
-                                <button class="btn-react" onclick="sendReaction({{ post.id }}, 'like')">
-                                    👍 <span id="likes-{{ post.id }}">{{ likes }}</span>
-                                </button>
-                                <button class="btn-react" onclick="sendReaction({{ post.id }}, 'dislike')">
-                                    👎 <span id="dislikes-{{ post.id }}">{{ dislikes }}</span>
-                                </button>
-                            </div>
-                        </div>
-                    {% endfor %}
-                </div>
+                <section class="post-feed">
+                    {% if posts %}
+                        {% for post in posts %}
+                            <article class="card post-card" id="post-{{ post.id }}">
+                                <div class="post-header">
+                                    <span class="author">Anon {{ post.session_id[:8] }}</span>
+                                    <span class="date">{{ post.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+
+                                    {% if post.session_id == current_user_sid or is_admin %}
+                                        <button class="btn-delete" type="button" onclick="deletePost({{ post.id }})">
+                                            Delete
+                                        </button>
+                                    {% endif %}
+                                </div>
+                                <div class="post-content">{{ post.content }}</div>
+                                <div class="post-actions">
+                                    {% set likes = post.reactions | selectattr("reaction_type", "equalto", "like") | list | length %}
+                                    {% set dislikes = post.reactions | selectattr("reaction_type", "equalto", "dislike") | list | length %}
+
+                                    <button class="btn-react" type="button" onclick="sendReaction({{ post.id }}, 'like')">
+                                        Like <span id="likes-{{ post.id }}">{{ likes }}</span>
+                                    </button>
+                                    <button class="btn-react" type="button" onclick="sendReaction({{ post.id }}, 'dislike')">
+                                        Dislike <span id="dislikes-{{ post.id }}">{{ dislikes }}</span>
+                                    </button>
+                                </div>
+                            </article>
+                        {% endfor %}
+                    {% else %}
+                        <section class="card empty-posts">
+                            <h2>Start The Conversation</h2>
+                            <p class="empty-text">
+                                There are no posts yet. Add the first insight based on the latest news or forecast.
+                            </p>
+                        </section>
+                    {% endif %}
+                </section>
             </main>
         </div>
     </div>
 
     <div id="chatbot-container">
         <div id="chat-window" class="hidden">
-            <div class="chat-header">🤖 반도체 RAG 챗봇</div>
-            <div id="chat-messages"></div>
+            <div class="chat-header">
+                <div>
+                    <strong>Semiconductor AI Chatbot</strong>
+                    <p>The chatbot is now connected to the existing RAG service.</p>
+                </div>
+            </div>
+            <div id="chat-messages" aria-live="polite"></div>
             <div class="chat-input-area">
-                <input type="text" id="chat-input" placeholder="무엇이든 물어보세요...">
-                <button onclick="sendMessage()">전송</button>
+                <input
+                    type="text"
+                    id="chat-input"
+                    placeholder="Example: Summarize recent SK Hynix news and risk factors"
+                    autocomplete="off"
+                >
+                <button id="chat-send" type="button" onclick="sendMessage()">Send</button>
             </div>
         </div>
-        <button id="chatbot-toggle" onclick="toggleChat()">💬</button>
+        <button id="chatbot-toggle" type="button" onclick="toggleChat()">AI</button>
     </div>
 
     <script>
-        // 게시글 삭제 처리
-        function deletePost(postId) {
-            if (!confirm("정말 이 게시글을 삭제하시겠습니까?")) return;
+        const chatWindow = document.getElementById("chat-window");
+        const chatMessages = document.getElementById("chat-messages");
+        const chatInput = document.getElementById("chat-input");
+        const chatSendButton = document.getElementById("chat-send");
 
-            fetch(`/post/${postId}/delete`, { method: 'POST' })
-                .then(res => res.json())
-                .then(data => {
+        let isChatLoading = false;
+        let hasGreeting = false;
+
+        function deletePost(postId) {
+            if (!confirm("Delete this post?")) {
+                return;
+            }
+
+            fetch(`/post/${postId}/delete`, { method: "POST" })
+                .then((response) => response.json())
+                .then((data) => {
                     if (data.success) {
                         const postElement = document.getElementById(`post-${postId}`);
-                        postElement.style.opacity = '0';
+                        postElement.style.opacity = "0";
                         setTimeout(() => postElement.remove(), 300);
-                    } else {
-                        alert(data.message);
+                        return;
                     }
+
+                    alert(data.message || "Failed to delete the post.");
                 })
-                .catch(err => console.error("Error:", err));
+                .catch((error) => console.error("Delete error:", error));
         }
 
-        // 좋아요/싫어요 비동기 처리
         function sendReaction(postId, action) {
-            fetch(`/post/${postId}/${action}`, { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        document.getElementById(`likes-${postId}`).innerText = data.likes;
-                        document.getElementById(`dislikes-${postId}`).innerText = data.dislikes;
+            fetch(`/post/${postId}/${action}`, { method: "POST" })
+                .then((response) => response.json())
+                .then((data) => {
+                    if (!data.success) {
+                        return;
                     }
+
+                    document.getElementById(`likes-${postId}`).innerText = data.likes;
+                    document.getElementById(`dislikes-${postId}`).innerText = data.dislikes;
                 })
-                .catch(err => console.error("Error:", err));
+                .catch((error) => console.error("Reaction error:", error));
         }
 
-        // 챗봇 창 열기/닫기
+        function appendMessage(role, label, text, extraNode = null) {
+            const wrapper = document.createElement("div");
+            wrapper.className = `msg ${role}`;
+
+            const labelNode = document.createElement("span");
+            labelNode.className = "msg-label";
+            labelNode.textContent = label;
+
+            const bubble = document.createElement("div");
+            bubble.className = "msg-bubble";
+            bubble.textContent = text;
+
+            wrapper.appendChild(labelNode);
+            wrapper.appendChild(bubble);
+
+            if (extraNode) {
+                wrapper.appendChild(extraNode);
+            }
+
+            chatMessages.appendChild(wrapper);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return wrapper;
+        }
+
+        function buildSourcesNode(sources) {
+            if (!Array.isArray(sources) || sources.length === 0) {
+                return null;
+            }
+
+            const items = sources.filter((source) => source && (source.title || source.url)).slice(0, 3);
+            if (items.length === 0) {
+                return null;
+            }
+
+            const container = document.createElement("div");
+            container.className = "chat-sources";
+
+            const title = document.createElement("div");
+            title.className = "chat-sources-title";
+            title.textContent = "Sources";
+            container.appendChild(title);
+
+            const list = document.createElement("ul");
+            list.className = "chat-sources-list";
+
+            items.forEach((source) => {
+                const listItem = document.createElement("li");
+                const link = document.createElement("a");
+                link.href = source.url || "#";
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.textContent = source.title || source.url || "Source link";
+                listItem.appendChild(link);
+                list.appendChild(listItem);
+            });
+
+            container.appendChild(list);
+            return container;
+        }
+
+        function ensureGreeting() {
+            if (hasGreeting) {
+                return;
+            }
+
+            appendMessage(
+                "bot",
+                "AI Bot",
+                "Ask about semiconductor news, stock risk, or market signals. The answer now comes from the linked RAG backend."
+            );
+            hasGreeting = true;
+        }
+
+        function setChatPending(isPending) {
+            isChatLoading = isPending;
+            chatInput.disabled = isPending;
+            chatSendButton.disabled = isPending;
+        }
+
         function toggleChat() {
-            const window = document.getElementById('chat-window');
-            window.classList.toggle('hidden');
+            chatWindow.classList.toggle("hidden");
+
+            if (!chatWindow.classList.contains("hidden")) {
+                ensureGreeting();
+                chatInput.focus();
+            }
         }
 
-        // 챗봇 메시지 전송 (추후 RAG 연결용)
-        function sendMessage() {
-            const input = document.getElementById('chat-input');
-            const messages = document.getElementById('chat-messages');
-            if (!input.value.trim()) return;
+        async function sendMessage() {
+            const question = chatInput.value.trim();
+            if (!question || isChatLoading) {
+                return;
+            }
 
-            messages.innerHTML += `<div class="msg user"><b>나:</b> ${input.value}</div>`;
-            messages.innerHTML += `<div class="msg bot"><b>Bot:</b> RAG 엔진을 연결하는 중입니다...</div>`;
-            input.value = '';
-            messages.scrollTop = messages.scrollHeight;
+            ensureGreeting();
+            appendMessage("user", "You", question);
+            chatInput.value = "";
+            setChatPending(true);
+
+            const loadingMessage = appendMessage("bot", "AI Bot", "Loading response...");
+            loadingMessage.classList.add("loading");
+
+            try {
+                const response = await fetch("{{ url_for('web.api_chat') }}", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ question }),
+                });
+
+                const data = await response.json().catch(() => ({}));
+                loadingMessage.remove();
+
+                if (!response.ok || data.status !== "ok") {
+                    appendMessage(
+                        "bot",
+                        "AI Bot",
+                        data.error || "Failed to load a response. Please try again."
+                    );
+                    return;
+                }
+
+                appendMessage(
+                    "bot",
+                    "AI Bot",
+                    data.answer || "The response was empty.",
+                    buildSourcesNode(data.sources)
+                );
+            } catch (error) {
+                loadingMessage.remove();
+                appendMessage(
+                    "bot",
+                    "AI Bot",
+                    "A network error prevented the chatbot response from loading."
+                );
+                console.error("Chat error:", error);
+            } finally {
+                setChatPending(false);
+                chatInput.focus();
+            }
         }
+
+        chatInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        });
     </script>
 </body>
 </html>
