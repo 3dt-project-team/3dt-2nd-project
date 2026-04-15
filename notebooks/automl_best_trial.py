@@ -13,7 +13,7 @@
 # MAGIC |  | `sense_databricks.models.automl_SK하이닉스_t20` (v1, R²=0.860) |
 # MAGIC | 알고리즘 | RandomForestRegressor (AutoML 최적 하이퍼파라미터) |
 # MAGIC | 타겟 | T+20 로그수익률 (`log(close_t+20 / close_t)`) |
-# MAGIC | 피처 | 기술적 지표 + 매크로 + 뉴스 감성 + 키워드 파생변수 (47종) |
+# MAGIC | 피처 | 기술적 지표 + 매크로 + 리스크 시그널 + 뉴스 감성 + 키워드 파생변수 (72종) |
 # MAGIC | 데이터 소스 | ADLS Gen2 Feature Layer + PostgreSQL Gold Layer |
 # MAGIC
 # MAGIC ---
@@ -40,7 +40,7 @@
 # COMMAND ----------
 
 # MAGIC %sh
-# MAGIC uv pip install shap openai --quiet 2>/dev/null || pip install shap openai --quiet
+# MAGIC uv pip install shap openai "psycopg[binary]" --quiet 2>/dev/null || pip install shap openai "psycopg[binary]" --quiet  # noqa: E501
 # MAGIC echo "--- packages ready ---"
 
 # COMMAND ----------
@@ -107,6 +107,7 @@ os.environ["KEY_VAULT_URL"] = "https://kv-3dt-team1.vault.azure.net/"
 # DBTITLE 1,프로젝트 상수 정의
 TICKERS = ["005930.KS", "000660.KS"]
 TICKER_NAMES = {"005930.KS": "삼성전자", "000660.KS": "SK하이닉스"}
+SENTIMENT_STOCK_MAP = {"005930.KS": "SAMSUNG", "000660.KS": "SK HYNIX"}
 HORIZON = 20
 
 # Unity Catalog 모델 경로
@@ -274,70 +275,253 @@ def safe_read_parquet(path, date_col=None, index_col=None):
 
 # COMMAND ----------
 
-# DBTITLE 1,주가 OHLCV 데이터 로드
+# DBTITLE 1,Gold Layer 데이터 로드 (feature 컨테이너)
 TICKER_COL_MAP = {
     "005930.KS": "yfinance_samsung_close",
     "000660.KS": "yfinance_skhynix_close",
 }
 
 print("=" * 60)
-print("  주가 OHLCV 데이터 로드")
+print("  Gold Layer 데이터 로드 (feature 컨테이너)")
 print("=" * 60)
 
-stock_data = {}
-for ticker in TICKERS:
-    path = f"abfss://feature@{account}.dfs.core.windows.net/{TICKER_COL_MAP[ticker]}"
-    df = safe_read_parquet(path, date_col="date", index_col="date")
-    if df is not None:
-        stock_data[ticker] = df
+# -----------------------------------------------------------------------
+# 1) gold_macro_1y: 주가 + FX + FRED 통합 (368행 × 25컬럼)
+#    주의: 날짜 컬럼이 '기준일자'임
+# -----------------------------------------------------------------------
+_gold_macro_path = f"abfss://feature@{account}.dfs.core.windows.net/gold_macro_1y/"
+df_gold_macro = spark.read.parquet(_gold_macro_path).toPandas()  # noqa: F821
+df_gold_macro.rename(columns={"기준일자": "date"}, inplace=True)
+df_gold_macro["date"] = pd.to_datetime(df_gold_macro["date"])
+df_gold_macro = df_gold_macro.sort_values("date").reset_index(drop=True)
+print(
+    f"  [OK] gold_macro_1y: {df_gold_macro.shape}, "
+    f"기간: {df_gold_macro['date'].min().date()} ~ {df_gold_macro['date'].max().date()}"
+)
 
-# COMMAND ----------
-
-# DBTITLE 1,매크로·퀀트·감성 피처 로드
-print("\n매크로·퀀트·감성 피처 로드")
-print("=" * 60)
-
-# 매크로 지표
-macro_path = f"abfss://feature@{account}.dfs.core.windows.net/macro_indicators"
-macro_df = safe_read_parquet(macro_path, date_col="date", index_col="date")
-
-# 퀀트 선행 지표
-quant_path = f"abfss://feature@{account}.dfs.core.windows.net/quant_leading_indicators"
-quant_df = safe_read_parquet(quant_path, date_col="date", index_col="date")
-
-# 뉴스 감성 (PostgreSQL Gold Layer)
+# -----------------------------------------------------------------------
+# 2) macro_semiconductor: 반도체 수출입 (HS코드별 → 월별 집계)
+# -----------------------------------------------------------------------
 try:
-    pg_conn = vault.get_pg_connection("sqlalchemy")
-    sentiment_query = """
-    SELECT date, ticker, avg_sentiment, news_vol, sentiment_ma7,
-           keyword_surge_count, keyword_diversity, keyword_avg_delta_pct,
-           keyword_max_delta_pct, keyword_positive_ratio, keyword_concentration
-    FROM gold_news.agg_market_sentiment_daily
-    WHERE ticker IN ('삼성전자', 'SK하이닉스')
-    ORDER BY date
-    """
-    sent_raw = pd.read_sql(sentiment_query, pg_conn)
-    sent_raw["date"] = pd.to_datetime(sent_raw["date"])
-    print(f"  [OK] 뉴스 감성: {len(sent_raw)} rows")
-except Exception as e:
-    print(f"  [WARN] 뉴스 감성 로드 실패: {e}")
-    sent_raw = pd.DataFrame()
+    _semi_path = f"abfss://feature@{account}.dfs.core.windows.net/macro_semiconductor/"
+    df_semi_raw = spark.read.parquet(_semi_path).toPandas()  # noqa: F821
+    df_semi_raw["date"] = pd.to_datetime(df_semi_raw["date"])
+    df_semi_monthly = (
+        df_semi_raw.groupby("date")
+        .agg(
+            semi_hsCode=("hsCode", "first"),
+            semi_expDlr=("expDlr", "sum"),
+            semi_impDlr=("impDlr", "sum"),
+        )
+        .reset_index()
+    )
+    print(f"  [OK] macro_semiconductor: {df_semi_monthly.shape}")
+except Exception as e:  # noqa: BLE001
+    print(f"  [WARN] 반도체 수출입 로드 실패: {e}")
+    df_semi_monthly = pd.DataFrame()
+
+# -----------------------------------------------------------------------
+# 3) sense_macro: 파생 리스크 시그널 포함 통합 매크로
+#    risk_off_composite, macro_stress_score, fear_composite 등 23개 파생변수
+# -----------------------------------------------------------------------
+try:
+    _sense_path = f"abfss://feature@{account}.dfs.core.windows.net/sense_macro/"
+    df_sense = spark.read.parquet(_sense_path).toPandas()  # noqa: F821
+    df_sense["date"] = pd.to_datetime(df_sense["date"])
+    _sense_derived_cols = [
+        "date",
+        # 변동성/리스크 파생변수
+        "NVDA_log_return",
+        "NVDA_volatility_gk",
+        "NVDA_volatility_5d",
+        "SOX_log_return",
+        "SOX_volatility_5d",
+        # 금리 파생변수
+        "yield_spread",
+        "yield_spread_change",
+        "stagnation_pressure",
+        # 환율 파생변수
+        "usd_krw_change",
+        "usd_krw_pct",
+        # 리스크 시그널
+        "risk_off_flag",
+        "risk_off_composite",
+        "macro_stress_score",
+        "fear_composite",
+        "semi_risk_signal",
+        "korea_sensitivity",
+        "global_risk_regime",
+        "is_high_risk",
+        # 수출 모멘텀
+        "export_change_pct",
+        "export_momentum",
+        # KFinance 파생상품
+        "avg_iv",
+        "iv_change",
+        "iv_surge_flag",
+    ]
+    _available = [c for c in _sense_derived_cols if c in df_sense.columns]
+    df_sense_derived = df_sense[_available].copy()
+    print(f"  [OK] sense_macro 파생변수: {df_sense_derived.shape} ({len(_available) - 1}개 컬럼)")
+except Exception as e:  # noqa: BLE001
+    print(f"  [WARN] sense_macro 로드 실패 (비필수): {e}")
+    df_sense_derived = pd.DataFrame()
 
 # COMMAND ----------
 
-# DBTITLE 1,피처 마트 구성
-print("\n피처 마트 구성")
+# DBTITLE 1,뉴스 감성 데이터 로드 (PostgreSQL gold_news.v_news_sentiment_trend)
+import json  # noqa: E402
+
+from sqlalchemy import text as sa_text  # noqa: E402
+
+print("\n뉴스 감성 데이터 로드")
+print("=" * 60)
+
+_pg_engine = vault.get_pg_connection("sqlalchemy")
+sentiment_data = {}
+
+for ticker in TICKERS:
+    stock_code = SENTIMENT_STOCK_MAP.get(ticker)
+    if stock_code is None:
+        continue
+    name = TICKER_NAMES[ticker]
+
+    _query = sa_text("""
+        SELECT base_date, avg_sentiment, news_vol, sentiment_ma7,
+               main_aspect, daily_keywords
+        FROM gold_news.v_news_sentiment_trend
+        WHERE stock_code LIKE '%' || :stock_code || '%'
+        ORDER BY base_date
+    """)
+    with _pg_engine.connect() as _conn:
+        df_sent = pd.read_sql(_query, _conn, params={"stock_code": stock_code})
+    df_sent["base_date"] = pd.to_datetime(df_sent["base_date"])
+    df_sent.rename(columns={"base_date": "date"}, inplace=True)
+
+    # 같은 날 여러 행 있을 시 일별 집계
+    def _merge_daily_keywords(kw_series):
+        merged, seen = [], set()
+        for kw_json in kw_series:
+            if kw_json is None:
+                continue
+            items = json.loads(kw_json) if isinstance(kw_json, str) else kw_json
+            for item in items:
+                k = item.get("keyword", "")
+                if k not in seen:
+                    seen.add(k)
+                    merged.append(item)
+        return merged if merged else []
+
+    if df_sent.duplicated(subset=["date"], keep=False).any():
+        df_agg = df_sent.groupby("date", as_index=False).agg(
+            avg_sentiment=("avg_sentiment", "mean"),
+            news_vol=("news_vol", "sum"),
+            sentiment_ma7=("sentiment_ma7", "mean"),
+            main_aspect=("main_aspect", "first"),
+            daily_keywords=("daily_keywords", _merge_daily_keywords),
+        )
+        df_sent = df_agg
+
+    # daily_keywords JSONB → 키워드 파생변수 추출
+    def _extract_keyword_features(kw_json):
+        defaults = pd.Series(
+            {
+                "keyword_surge_count": 0,
+                "keyword_diversity": 0,
+                "keyword_avg_delta_pct": 0.0,
+                "keyword_max_delta_pct": 0.0,
+                "keyword_positive_ratio": 0.0,
+                "keyword_concentration": 0.0,
+            }
+        )
+        if kw_json is None:
+            return defaults
+        if isinstance(kw_json, str):
+            kw_json = json.loads(kw_json)
+        if not kw_json:
+            return defaults
+        deltas = [kw.get("mention_delta_pct", 0) for kw in kw_json]
+        mentions = [max(kw.get("mention_count", 1), 1) for kw in kw_json]
+        total = sum(mentions)
+        return pd.Series(
+            {
+                "keyword_surge_count": sum(1 for d in deltas if d >= 300),
+                "keyword_diversity": len(kw_json),
+                "keyword_avg_delta_pct": float(np.mean(deltas)) if deltas else 0.0,
+                "keyword_max_delta_pct": float(max(deltas)) if deltas else 0.0,
+                "keyword_positive_ratio": (
+                    sum(1 for d in deltas if d > 0) / len(deltas) if deltas else 0.0
+                ),
+                "keyword_concentration": (
+                    sum((m / total) ** 2 for m in mentions) if total > 0 else 0.0
+                ),
+            }
+        )
+
+    kw_features = df_sent["daily_keywords"].apply(_extract_keyword_features)
+    df_sent = pd.concat([df_sent, kw_features], axis=1)
+    df_sent = df_sent.drop(columns=["daily_keywords"])
+
+    sentiment_data[ticker] = df_sent
+    print(
+        f"  [{name}] 감성: {df_sent.shape}, "
+        f"기간: {df_sent['date'].min().date()} ~ {df_sent['date'].max().date()}, "
+        f"평균 감성: {df_sent['avg_sentiment'].mean():.3f}"
+    )
+
+# COMMAND ----------
+
+# DBTITLE 1,피처 마트 구성 (Gold Layer 기반)
+print("\n피처 마트 구성 (Gold Layer)")
 print("=" * 60)
 
 feature_marts = {}
 
 for ticker in TICKERS:
     name = TICKER_NAMES[ticker]
-    if ticker not in stock_data:
-        print(f"[{name}] 주가 데이터 없어 스킵")
+    close_col = TICKER_COL_MAP.get(ticker)
+
+    if close_col is None or close_col not in df_gold_macro.columns:
+        print(f"[{name}] close 컬럼({close_col}) 미발견 — 스킵")
         continue
 
-    mart = stock_data[ticker].copy()
+    # --- gold_macro_1y 기반 마트 초기화 ---
+    mart = df_gold_macro[["date"]].copy()
+    mart["close"] = df_gold_macro[close_col].values
+
+    _exclude = {
+        "date",
+        close_col,
+        "요일",
+        "주말여부",
+        "한국_휴장일_여부",
+        "미국_휴장일_여부",
+        "fx_collected_at_utc",
+        "yfinance_collected_at_utc",
+        "fred_collected_at_utc",
+    }
+    for c in df_gold_macro.columns:
+        if c not in _exclude:
+            mart[c] = df_gold_macro[c].values
+
+    # --- 반도체 수출입 병합 (macro_semiconductor → 월별 Forward Fill) ---
+    if not df_semi_monthly.empty:
+        mart = mart.merge(df_semi_monthly, on="date", how="left")
+        for sc in ["semi_hsCode", "semi_expDlr", "semi_impDlr"]:
+            if sc in mart.columns:
+                mart[sc] = mart[sc].ffill()
+
+    # --- sense_macro 파생변수 병합 (리스크 시그널 23개) ---
+    if not df_sense_derived.empty:
+        mart = mart.merge(df_sense_derived, on="date", how="left")
+        _sense_num_cols = df_sense_derived.select_dtypes(include=[np.number]).columns.tolist()
+        for sc in _sense_num_cols:
+            if sc in mart.columns:
+                mart[sc] = mart[sc].ffill()
+
+    mart = mart.sort_values("date").reset_index(drop=True)
+    mart.index = mart["date"]
+    mart["return_1d"] = mart["close"].pct_change()
 
     # --- 기술적 지표 ---
     close = mart["close"]
@@ -349,13 +533,15 @@ for ticker in TICKERS:
     rs = gain / loss.replace(0, np.nan)
     mart["rsi_14"] = 100 - (100 / (1 + rs))
 
-    # ATR(14)
+    # ATR(14) — gold_macro_1y에 h/l 없을 경우 단순 TR 사용
     if "high" in mart.columns and "low" in mart.columns:
         h_l = mart["high"] - mart["low"]
         h_pc = (mart["high"] - close.shift(1)).abs()
         l_pc = (mart["low"] - close.shift(1)).abs()
         tr = pd.concat([h_l, h_pc, l_pc], axis=1).max(axis=1)
         mart["atr_14"] = tr.rolling(14).mean()
+    else:
+        mart["atr_14"] = close.diff().abs().rolling(14).mean()
 
     # 이동평균 & 이격도
     for w in [5, 20, 60, 120]:
@@ -368,44 +554,34 @@ for ticker in TICKERS:
     mart["realized_vol_20d"] = mart["log_return"].rolling(20).std() * np.sqrt(252)
     mart["vol_ratio"] = mart["realized_vol_5d"] / mart["realized_vol_20d"].replace(0, np.nan)
 
-    # 매크로·퀀트 병합
-    if macro_df is not None:
-        mart = mart.join(macro_df, how="left", rsuffix="_macro")
-    if quant_df is not None:
-        mart = mart.join(quant_df, how="left", rsuffix="_quant")
+    # --- 감성 병합 ---
+    if ticker in sentiment_data:
+        sent = sentiment_data[ticker]
+        _date_is_index = mart.index.name == "date"
+        if _date_is_index:
+            if "date" in mart.columns:
+                mart = mart.reset_index(drop=True)
+            else:
+                mart = mart.reset_index()
+        mart = mart.merge(sent, on="date", how="left")
+        if _date_is_index:
+            mart = mart.set_index("date")
 
-    # 뉴스 감성 병합
-    if not sent_raw.empty:
-        ticker_name_kr = name
-        sent_ticker = sent_raw[sent_raw["ticker"] == ticker_name_kr].copy()
-        if not sent_ticker.empty:
-            sent_ticker = sent_ticker.set_index("date").drop(columns=["ticker"])
-            _date_is_index = mart.index.name == "date"
-            if _date_is_index:
-                if "date" in mart.columns:
-                    mart = mart.reset_index(drop=True)
-                else:
-                    mart = mart.reset_index()
-            mart = mart.merge(sent_ticker, on="date", how="left")
-            if _date_is_index:
-                mart = mart.set_index("date")
+        for col in [
+            "avg_sentiment",
+            "sentiment_ma7",
+            "keyword_avg_delta_pct",
+            "keyword_max_delta_pct",
+            "keyword_positive_ratio",
+            "keyword_concentration",
+        ]:
+            if col in mart.columns:
+                mart[col] = mart[col].fillna(0.0)
+        for col in ["news_vol", "keyword_surge_count", "keyword_diversity"]:
+            if col in mart.columns:
+                mart[col] = mart[col].fillna(0).astype(int)
 
-            # NaN → 중립값
-            for col in [
-                "avg_sentiment",
-                "sentiment_ma7",
-                "keyword_avg_delta_pct",
-                "keyword_max_delta_pct",
-                "keyword_positive_ratio",
-                "keyword_concentration",
-            ]:
-                if col in mart.columns:
-                    mart[col] = mart[col].fillna(0.0)
-            for col in ["news_vol", "keyword_surge_count", "keyword_diversity"]:
-                if col in mart.columns:
-                    mart[col] = mart[col].fillna(0).astype(int)
-
-    # 감성 파생 피처
+    # --- 감성 파생 피처 ---
     if "avg_sentiment" in mart.columns:
         mart["sentiment_momentum"] = mart["avg_sentiment"].diff(3)
         mart["sentiment_vol_7d"] = mart["avg_sentiment"].rolling(7).std()
@@ -413,7 +589,7 @@ for ticker in TICKERS:
             _nv_mean = mart["news_vol"].rolling(20, min_periods=5).mean().replace(0, 1)
             mart["news_vol_surge"] = mart["news_vol"] / _nv_mean
 
-    # 교호작용 변수
+    # --- 교호작용 변수 ---
     if "keyword_surge_count" in mart.columns and "rsi_14" in mart.columns:
         mart["keyword_surge_x_rsi"] = mart["keyword_surge_count"] * (mart["rsi_14"] / 50 - 1)
     if "keyword_diversity" in mart.columns and "vol_ratio" in mart.columns:
@@ -424,7 +600,11 @@ for ticker in TICKERS:
         mart["sentiment_x_rsi_dev"] = mart["avg_sentiment"] * (mart["rsi_14"] / 50 - 1)
 
     feature_marts[ticker] = mart
-    print(f"[{name}] 피처 마트: {mart.shape}, 기간: {mart.index.min()} ~ {mart.index.max()}")
+    _n_cols = len(mart.columns)
+    print(
+        f"[{name}] 피처 마트: {mart.shape} ({_n_cols}컬럼), "
+        f"기간: {mart.index.min()} ~ {mart.index.max()}"
+    )
 
 # COMMAND ----------
 
@@ -521,38 +701,43 @@ for ticker in TICKERS:
             n_miss = len(missing_feats)
             print(f"  [WARN] UC 모델에 필요하나 누락된 피처 {n_miss}개: {missing_feats[:5]}...")
 
-        X_uc = mart_clean[available_feats].fillna(0).values
+        # DataFrame으로 전달 (AutoML ColumnSelector가 컬럼명 필요)
+        X_uc_df = mart_clean[available_feats].fillna(0)
         test_size = len(md["X_test"])
-        X_uc_test = X_uc[-test_size:]
-        X_uc_last = X_uc[-1:].reshape(1, -1)
+        X_uc_test = X_uc_df.iloc[-test_size:]
+        X_uc_last = X_uc_df.iloc[-1:]
 
-        y_pred_test = uc_model.predict(X_uc_test)
-        y_pred_last = uc_model.predict(X_uc_last)[0]
+        try:
+            y_pred_test = uc_model.predict(X_uc_test)
+            y_pred_last = uc_model.predict(X_uc_last)[0]
 
-        pred_price = md["last_price"] * np.exp(y_pred_last)
-        change_pct = (pred_price - md["last_price"]) / md["last_price"] * 100
+            pred_price = md["last_price"] * np.exp(y_pred_last)
+            change_pct = (pred_price - md["last_price"]) / md["last_price"] * 100
 
-        r2 = r2_score(md["y_test"], y_pred_test)
-        mae = mean_absolute_error(md["y_test"], y_pred_test)
-        rmse = np.sqrt(mean_squared_error(md["y_test"], y_pred_test))
+            r2 = r2_score(md["y_test"], y_pred_test)
+            mae = mean_absolute_error(md["y_test"], y_pred_test)
+            rmse = np.sqrt(mean_squared_error(md["y_test"], y_pred_test))
 
-        uc_results[ticker] = {
-            "model": uc_model,
-            "y_pred_test": y_pred_test,
-            "pred_log_return": y_pred_last,
-            "pred_price": pred_price,
-            "change_pct": change_pct,
-            "r2_test": r2,
-            "mae_test": mae,
-            "rmse_test": rmse,
-        }
+            uc_results[ticker] = {
+                "model": uc_model,
+                "y_pred_test": y_pred_test,
+                "pred_log_return": y_pred_last,
+                "pred_price": pred_price,
+                "change_pct": change_pct,
+                "r2_test": r2,
+                "mae_test": mae,
+                "rmse_test": rmse,
+            }
 
-        print(f"\n[{name}] Unity Catalog BestTrial")
-        print(f"  예측 로그수익률: {y_pred_last:+.4f}")
-        print(f"  예측가: {pred_price:,.0f}원 ({change_pct:+.2f}%)")
-        print(f"  Test R²: {r2:.4f}")
-        print(f"  Test MAE: {mae:.4f}")
-        print(f"  Test RMSE: {rmse:.4f}")
+            print(f"\n[{name}] Unity Catalog BestTrial")
+            print(f"  예측 로그수익률: {y_pred_last:+.4f}")
+            print(f"  예측가: {pred_price:,.0f}원 ({change_pct:+.2f}%)")
+            print(f"  Test R²: {r2:.4f}")
+            print(f"  Test MAE: {mae:.4f}")
+            print(f"  Test RMSE: {rmse:.4f}")
+        except Exception as e:  # noqa: BLE001
+            print(f"\n[{name}] UC 모델 추론 실패: {e}")
+            print("  → 피처 차이로 인한 추론 실패 — 로컬 학습 모드로 자동 전환합니다.")
     else:
         print(f"\n[{name}] UC 모델 없음 — 로컬 학습 모드 사용")
 
@@ -1031,8 +1216,8 @@ print(analysis_text)
 # MAGIC |---|---|---|
 # MAGIC | 환경 설정 | 한글 폰트 + 패키지 + Key Vault | ✅ |
 # MAGIC | UC 모델 로드 | MLflow `models:/` URI로 BestTrial 로드 | ✅ |
-# MAGIC | 데이터 로드 | ADLS Gen2 + PostgreSQL 감성 데이터 | ✅ |
-# MAGIC | Feature Engineering | 기술적 지표 + 매크로 + 감성 + 교호작용 | ✅ |
+# MAGIC | 데이터 로드 | ADLS Gen2 Gold Layer + PostgreSQL 감성 | ✅ |
+# MAGIC | Feature Engineering | 기술적 지표 + 매크로 + 리스크 시그널 + 감성 + 교호작용 (72종) | ✅ |
 # MAGIC | UC 모델 추론 | AutoML BestTrial 예측 + 테스트 평가 | ✅ |
 # MAGIC | 로컬 비교 | RF(경량화) + ElasticNet 베이스라인 | ✅ |
 # MAGIC | 성능 대시보드 | R², MAE, RMSE, 방향 정확도 비교 | ✅ |
