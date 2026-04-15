@@ -189,6 +189,28 @@ h2 {
     font-size: 1.25rem;
 }
 
+.forecast-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.forecast-selector label {
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.forecast-selector select {
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    color: var(--text);
+    font: inherit;
+}
+
 .stat-line {
     display: flex;
     justify-content: space-between;
@@ -251,15 +273,23 @@ h2 {
 }
 
 .sentiment.긍정,
+.sentiment.호재,
 .sentiment.positive {
     background: rgba(20, 128, 74, 0.12);
     color: var(--positive);
 }
 
 .sentiment.부정,
+.sentiment.악재,
 .sentiment.negative {
     background: rgba(194, 65, 12, 0.12);
     color: var(--negative);
+}
+
+.sentiment.중립,
+.sentiment.neutral {
+    background: rgba(245, 158, 11, 0.16);
+    color: #a16207;
 }
 
 .post-box textarea {
