@@ -1,0 +1,207 @@
+{
+	"name": "Pipeline_Daily_SENSE_Predict",
+	"properties": {
+		"description": "SENSE 일별 반도체 예측 파이프라인: 수집 → 정제 → 피처 빌드 → 통계 baseline → 앙상블 예측",
+		"activities": [
+			{
+				"name": "act_collect_fx_data",
+				"description": "야후 파이낸스 환율·주가 수집 (fx-collector Azure Function)",
+				"type": "WebActivity",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 1,
+					"retryIntervalInSeconds": 60,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"url": "https://fx-collector-sense.azurewebsites.net/api/collect",
+					"body": {
+						"value": "{}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "act_collect_naver_news",
+				"description": "네이버 뉴스 크롤링 (navernews-collector Azure Function)",
+				"type": "WebActivity",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 1,
+					"retryIntervalInSeconds": 60,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"url": "https://navernews-collector.azurewebsites.net/api/crawl",
+					"body": {
+						"value": "{}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "act_raw_to_curated",
+				"description": "Raw → Curated 변환 (데이터 정제·스키마 통일)",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "act_collect_fx_data",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "act_collect_naver_news",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/01_raw_to_curated"
+				},
+				"linkedServiceName": {
+					"referenceName": "AzureDatabricks2",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "act_curated_to_feature",
+				"description": "Curated → Feature 변환 (Gold Layer 집계)",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "act_raw_to_curated",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/02_curated_to_feature"
+				},
+				"linkedServiceName": {
+					"referenceName": "AzureDatabricks2",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "act_ml_feature_build",
+				"description": "ML 피처 병합 + 타겟 생성 → gold_ml.gold_ml_feature_set UPSERT",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "act_curated_to_feature",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/03_ml_feature_build"
+				},
+				"linkedServiceName": {
+					"referenceName": "AzureDatabricks2",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "act_statistical_baseline",
+				"description": "통계 기준선 분석 (statistical_baseline_analysis)",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "act_ml_feature_build",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/statistical_baseline_analysis"
+				},
+				"linkedServiceName": {
+					"referenceName": "AzureDatabricks2",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "act_ensemble_predict",
+				"description": "앙상블 예측 실행 (RandomForest + ElasticNet 좌표 → 최종 시그널)",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "act_statistical_baseline",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/ensemble_strategy"
+				},
+				"linkedServiceName": {
+					"referenceName": "AzureDatabricks2",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"annotations": [],
+		"lastPublishTime": "2026-04-15T00:00:00"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

@@ -1,0 +1,25 @@
+{
+	"name": "tr_daily_sense_predict",
+	"properties": {
+		"description": "SENSE 일별 예측 파이프라인 스케줄 트리거 — 매일 16:30 KST",
+		"annotations": [],
+		"runtimeState": "Stopped",
+		"pipelines": [
+			{
+				"pipelineReference": {
+					"referenceName": "Pipeline_Daily_SENSE_Predict",
+					"type": "PipelineReference"
+				}
+			}
+		],
+		"type": "ScheduleTrigger",
+		"typeProperties": {
+			"recurrence": {
+				"frequency": "Day",
+				"interval": 1,
+				"startTime": "2026-04-15T16:30:00",
+				"timeZone": "Korea Standard Time"
+			}
+		}
+	}
+}
