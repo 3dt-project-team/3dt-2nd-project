@@ -330,6 +330,13 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 #### 앙상블 합의 판정
 - [x] 동적 가중치 앙상블 (`ensemble_strategy.py`) — TimesFM(추세) × ElasticNet(회귀) 후처리 결합 (v0413)
 - [x] AutoML RandomForest 통합 — RF+EN 블렌딩 회귀 컴포넌트 (v0417, Issue #88)
+- [x] UC 모델 재학습 — Gold Layer 피처 통일, Samsung R²=0.817/SK R²=0.770 (v0419)
+- [x] ElasticNet 제거 + UC BestTrial 단독 — Samsung R²=0.9266, SK R²=0.7097 (v0419)
+- [x] 앙상블 가중치 최적화 — base 0.45/0.55, clip [0.25, 0.75] (v0419)
+- [x] sklearn 1.4→1.8 호환성 패치 — `_deep_mark_fitted()` SimpleImputer 재귀 수정 (v0419)
+- [x] TimesFM 3단계 fallback — ADLS feature/timesfm_forecast → memory → simulation (v0419)
+- [x] Silver vs Gold 비교 실험 셀 — 시점 차이가 TimesFM context 변화 근본 원인 확인 (v0419)
+- [x] 3개 노트북 Gold Layer 통일 — automl_best_trial, ensemble_strategy, timesfm_inference (v0419)
 - [ ] XGBoost 확률 통합 — 하방 리스크 확률을 앙상블 가중치에 반영
 - [ ] RAG 연동 — XReg Attribution 기반 예측 근거 자동 생성
 
@@ -363,3 +370,4 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - **v0415 뉴스 감성 통합**: Gold Layer `v_news_sentiment_trend` 뷰 활용, 5개 감성 파생 피처, Soft Switching 감성 가중치, Interaction 규칙 확장, GPT 프롬프트 AI 슈퍼사이클 스토리라인
 - **v0416 키워드 파생변수 + 멀티모델**: `daily_keywords` JSONB 6종 파생변수, 교호작용 4종, Spearman/Pearson 교차검증 상관분석, AI 중간 해석 3셀, GPT-5.4 계열 Responses API 멀티모델 비교, `display(fig)` 전환
 - **v0418 AI 최종 모델 + BestTrial**: Section 8 gpt-5.4-mini 전환 (속도 2.87s, Input $0.25/1M), ElasticNet 시나리오 분석 플래그, Date 인덱스 충돌 수정, `automl_best_trial.py` UC 모델 추론/SHAP 노트북, `ref/모델_평가_GPT_비교.md` 문서
+- **v0419 UC 재학습 + Gold Layer 통일 + ElasticNet 제거**: UC 모델 Gold Layer 피처로 재학습 (Samsung R²=0.8165→0.9266, SK R²=0.7703→0.7097), ElasticNet 완전 제거 (R²≈0.05/−1.19), `ensemble_strategy.py` v0419 TimesFM(0.45)+UC(0.55) 앙상블 (clip [0.25, 0.75], RSI ±0.20, vol ±0.15, sentiment ±0.10), sklearn 1.4→1.8 `_deep_mark_fitted()` 재귀 패치, TimesFM 3단계 fallback (ADLS→memory→simulation), Silver vs Gold 비교 실험 셀 추가, 3개 노트북 Gold Layer 데이터 소스 통일

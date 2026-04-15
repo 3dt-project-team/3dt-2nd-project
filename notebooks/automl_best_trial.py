@@ -45,6 +45,13 @@
 
 # COMMAND ----------
 
+# MAGIC %sh
+# MAGIC sudo apt-get update
+# MAGIC sudo apt-get install -y fonts-nanum
+# MAGIC fc-cache -fv
+
+# COMMAND ----------
+
 # DBTITLE 1,Imports & 환경 초기화
 import os
 import sys
@@ -115,7 +122,6 @@ UC_MODELS = {
     "005930.KS": "sense_databricks.models.automl_삼성전자_t20",
     "000660.KS": "sense_databricks.models.automl_SK하이닉스_t20",
 }
-UC_MODEL_VERSION = 1
 
 # AutoML BestTrial 하이퍼파라미터 (참조용)
 AUTOML_PARAMS = {
@@ -220,28 +226,69 @@ print(f"Azure OpenAI 연결 완료 | 배포: {OPENAI_DEPLOYMENT}")
 
 # COMMAND ----------
 
-# DBTITLE 1,MLflow 모델 로드
+# DBTITLE 1,MLflow 모델 로드 (최신 버전 + sklearn 호환성 패치)
 import mlflow  # noqa: E402
+from mlflow import MlflowClient  # noqa: E402
+from sklearn.impute import SimpleImputer  # noqa: E402
 
 mlflow.set_registry_uri("databricks-uc")
+_ml_client = MlflowClient(registry_uri="databricks-uc")
+
+
+def _deep_mark_fitted(obj, _visited=None):
+    """역직렬화된 sklearn 파이프라인의 모든 하위 estimator를 fitted로 마킹.
+
+    sklearn 1.4→1.8 호환.
+    """
+    if _visited is None:
+        _visited = set()
+    if id(obj) in _visited:
+        return
+    _visited.add(id(obj))
+
+    if hasattr(obj, "get_params"):
+        obj.__sklearn_is_fitted__ = lambda: True
+
+    if isinstance(obj, SimpleImputer) and not hasattr(obj, "_fill_dtype"):
+        obj._fill_dtype = (
+            obj.statistics_.dtype if hasattr(obj, "statistics_") else np.float64
+        )
+
+    for attr_val in vars(obj).values():
+        if attr_val is None:
+            continue
+        if hasattr(attr_val, "get_params"):
+            _deep_mark_fitted(attr_val, _visited)
+        elif isinstance(attr_val, (list, tuple)):
+            for item in attr_val:
+                if hasattr(item, "get_params"):
+                    _deep_mark_fitted(item, _visited)
+                elif isinstance(item, (list, tuple)):
+                    for sub in item:
+                        if hasattr(sub, "get_params"):
+                            _deep_mark_fitted(sub, _visited)
+
 
 uc_loaded_models = {}
 
 for ticker in TICKERS:
     name = TICKER_NAMES[ticker]
-    model_uri = f"models:/{UC_MODELS[ticker]}/{UC_MODEL_VERSION}"
+    model_name = UC_MODELS[ticker]
+
+    # 최신 버전 자동 감지
+    versions = _ml_client.search_model_versions(f"name='{model_name}'")
+    latest_ver = max(int(v.version) for v in versions)
+    model_uri = f"models:/{model_name}/{latest_ver}"
+
     try:
         model = mlflow.sklearn.load_model(model_uri)
+        _deep_mark_fitted(model)
         uc_loaded_models[ticker] = model
-        print(f"[{name}] ✅ 모델 로드 성공: {model_uri}")
+        print(f"[{name}] ✅ 모델 로드 성공: {model_name} v{latest_ver}")
         print(f"  알고리즘: {type(model).__name__}")
-        if hasattr(model, "n_estimators"):
-            print(f"  n_estimators: {model.n_estimators}")
-        if hasattr(model, "max_depth"):
-            print(f"  max_depth: {model.max_depth}")
         if hasattr(model, "n_features_in_"):
             print(f"  입력 피처 수: {model.n_features_in_}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"[{name}] ❌ 모델 로드 실패: {e}")
         print("  → 경량화 파라미터로 로컬 학습 모드로 전환합니다.")
 
@@ -255,8 +302,8 @@ for ticker in TICKERS:
 
 # COMMAND ----------
 
-
 # DBTITLE 1,ADLS 데이터 로드 유틸리티
+
 def safe_read_parquet(path, date_col=None, index_col=None):
     """ADLS Gen2 Parquet 파일을 안전하게 로드합니다."""
     try:
@@ -675,6 +722,53 @@ print("=" * 70)
 print("  Unity Catalog BestTrial 모델 추론")
 print("=" * 70)
 
+
+def _ensure_uc_features(mart_df, uc_feat_list):
+    """UC 모델이 기대하는 파생변수를 mart에서 실시간 계산합니다."""
+    df = mart_df.copy()
+
+    # keyword_delta_momentum: 키워드 변동률의 3일 모멘텀
+    if "keyword_delta_momentum" not in df.columns and "keyword_avg_delta_pct" in df.columns:
+        df["keyword_delta_momentum"] = df["keyword_avg_delta_pct"].diff(3)
+    # keyword_diversity_ma7: 키워드 다양성 7일 이동평균
+    if "keyword_diversity_ma7" not in df.columns and "keyword_diversity" in df.columns:
+        df["keyword_diversity_ma7"] = df["keyword_diversity"].rolling(7).mean()
+    # keyword_div_x_vol: 키워드 다양성 × 변동성 비율
+    if (
+        "keyword_div_x_vol" not in df.columns
+        and "keyword_diversity" in df.columns
+        and "vol_ratio" in df.columns
+    ):
+        df["keyword_div_x_vol"] = df["keyword_diversity"] * df["vol_ratio"]
+    # kw_positive_x_disparity: 긍정 키워드 비율 × 이격도
+    if (
+        "kw_positive_x_disparity" not in df.columns
+        and "keyword_positive_ratio" in df.columns
+        and "disparity_120d" in df.columns
+    ):
+        df["kw_positive_x_disparity"] = df["keyword_positive_ratio"] * df["disparity_120d"]
+    # concentration_change: 키워드 집중도 변화량
+    if "concentration_change" not in df.columns and "keyword_concentration" in df.columns:
+        df["concentration_change"] = df["keyword_concentration"].diff()
+    # atr_pct: ATR 대비 가격 비율
+    if "atr_pct" not in df.columns and "atr_14" in df.columns and "close" in df.columns:
+        df["atr_pct"] = df["atr_14"] / df["close"].replace(0, np.nan) * 100
+    # sent_price_decouple: 감성-가격 괴리도
+    if (
+        "sent_price_decouple" not in df.columns
+        and "avg_sentiment" in df.columns
+        and "return_1d" in df.columns
+    ):
+        df["sent_price_decouple"] = df["avg_sentiment"] - df["return_1d"].fillna(0) * 100
+
+    # 나머지 누락 피처는 0.0 fallback
+    for feat in uc_feat_list:
+        if feat not in df.columns:
+            df[feat] = 0.0
+
+    return df
+
+
 for ticker in TICKERS:
     name = TICKER_NAMES[ticker]
     if ticker not in model_data:
@@ -693,16 +787,19 @@ for ticker in TICKERS:
         else:
             uc_feat = md["feat_cols"]
 
-        # 피처 정렬 (UC 모델 피처 순서에 맞춤)
         mart_clean = md["mart_clean"]
-        available_feats = [f for f in uc_feat if f in mart_clean.columns]
-        missing_feats = [f for f in uc_feat if f not in mart_clean.columns]
-        if missing_feats:
-            n_miss = len(missing_feats)
-            print(f"  [WARN] UC 모델에 필요하나 누락된 피처 {n_miss}개: {missing_feats[:5]}...")
 
-        # DataFrame으로 전달 (AutoML ColumnSelector가 컬럼명 필요)
-        X_uc_df = mart_clean[available_feats].fillna(0)
+        # 누락 파생변수 보완 (모델 학습 시 존재했던 피처 실시간 계산)
+        mart_enriched = _ensure_uc_features(mart_clean, uc_feat)
+
+        _before = set(mart_clean.columns)
+        _after = set(mart_enriched.columns)
+        _added = _after - _before
+        if _added:
+            print(f"  [FIX] 파생변수 {len(_added)}개 보완: {sorted(_added)}")
+
+        # DataFrame으로 전달 — 모든 컬럼 포함 (AutoML 내부 ColumnSelector가 필요한 것 선택)
+        X_uc_df = mart_enriched.fillna(0)
         test_size = len(md["X_test"])
         X_uc_test = X_uc_df.iloc[-test_size:]
         X_uc_last = X_uc_df.iloc[-1:]

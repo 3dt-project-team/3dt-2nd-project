@@ -20,8 +20,9 @@
 ├── notebooks/
 │   ├── 01_raw_to_curated.py      # Databricks: 뉴스 원문 클렌징
 │   ├── 02_curated_to_feature.py  # Databricks: 피처 엔지니어링
-│   ├── ensemble_strategy.py      # Databricks: Soft Switching 동적 가중치 앙상블 + RF+EN 블렌딩 + 뉴스 감성 (v0418)
-│   ├── automl_best_trial.py      # Databricks: AutoML BestTrial RF 추론·평가·SHAP 분석
+│   ├── ensemble_strategy.py      # Databricks: TimesFM(0.45)+UC BestTrial(0.55) 동적 앙상블 + 감성 가중치 (v0419)
+│   ├── automl_best_trial.py      # Databricks: AutoML UC 추론·평가·SHAP + Gold Layer (v0419)
+│   ├── timesfm_inference.py      # Databricks: TimesFM 2.5 Zero-shot 시계열 예측 + Gold Layer (v0419)
 │   ├── databricks_uv_example.py  # uv + vault_manager 연동 예시
 │   └── init_script_install_uv.sh # 클러스터 Init Script
 ├── tests/
