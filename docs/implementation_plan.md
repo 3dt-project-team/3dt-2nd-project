@@ -293,6 +293,9 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] AI 중간 해석 셀 — 키워드 상관, ElasticNet 결과, 앙상블 레짐 3개 셀 (v0416)
 - [x] 멀티모델 비교 — GPT-5.4 계열 Responses API 4개 모델 비교 (v0416)
 - [x] `plt.show()` → `display(fig)` — 3개 노트북 전체 Databricks 호환 전환 (v0416)
+- [x] AutoML RandomForest 통합 — Databricks AutoML 검증 (삼성 R²=0.72, SK R²=0.86) 기반 RF 모델 추가 (v0417)
+- [x] 회귀 컴포넌트 블렌딩 — `regression_pred = 0.7*RF + 0.3*EN` AutoML 하이퍼파라미터 적용 (v0417)
+- [x] SQLAlchemy 2.x 호환성 — `engine.connect()` + `conn.commit()` 패턴 (3개 파일) (v0417)
 
 > ⚠️ **v0413 실행 결과 발견 이슈 → v0414 대응:**
 > - SK하이닉스 ElasticNet R²=−0.33 → **v0414: 로그수익률 타겟으로 스케일 차이 해소**
@@ -306,7 +309,7 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 > - `timesfm_inference_lite.py` — TimesFM 간소화 아카이브
 > - `statistical_baseline_analysis.py` — 전통 모델 메인 (Full Feature)
 > - `statistical_baseline_analysis_lite.py` — 전통 모델 간소화 아카이브
-> - `ensemble_strategy.py` — 동적 가중치 앙상블 (v0413 신규, v0415 감성 통합, v0416 키워드 파생변수·멀티모델)
+> - `ensemble_strategy.py` — 동적 가중치 앙상블 (v0413 신규, v0415 감성, v0416 키워드, v0417 AutoML RF 통합)
 > - `correlation_analysis.py` — 원본 상관분석 (복원)
 
 #### XGBoost/LightGBM 분류 (ML Studio)
@@ -320,6 +323,7 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 
 #### 앙상블 합의 판정
 - [x] 동적 가중치 앙상블 (`ensemble_strategy.py`) — TimesFM(추세) × ElasticNet(회귀) 후처리 결합 (v0413)
+- [x] AutoML RandomForest 통합 — RF+EN 블렌딩 회귀 컴포넌트 (v0417, Issue #88)
 - [ ] XGBoost 확률 통합 — 하방 리스크 확률을 앙상블 가중치에 반영
 - [ ] RAG 연동 — XReg Attribution 기반 예측 근거 자동 생성
 
