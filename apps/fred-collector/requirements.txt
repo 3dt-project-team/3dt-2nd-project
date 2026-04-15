@@ -1,5 +1,0 @@
-azure-functions
-fredapi
-pandas
-azure-storage-blob
-pyarrow
