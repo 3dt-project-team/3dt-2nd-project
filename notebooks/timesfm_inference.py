@@ -1765,14 +1765,16 @@ print(df_forecast.head(10).to_string(index=False))
 # PostgreSQL 적재
 # 운영 환경에서는 아래 주석을 해제하고 실행
 
-# conn = vault.get_pg_connection()
-# df_forecast.to_sql(
-#     "fact_timesfm_forecast",
-#     conn,
-#     if_exists="append",
-#     index=False,
-#     method="multi",
-# )
+# engine = vault.get_pg_connection("sqlalchemy")
+# with engine.connect() as conn:
+#     df_forecast.to_sql(
+#         "fact_timesfm_forecast",
+#         conn,
+#         if_exists="append",
+#         index=False,
+#         method="multi",
+#     )
+#     conn.commit()
 # print(f"PostgreSQL 적재 완료: {len(df_forecast)} rows → fact_timesfm_forecast")
 
 # XReg Attribution 결과도 적재
@@ -1780,7 +1782,9 @@ print(df_forecast.head(10).to_string(index=False))
 #     {"covariate": k, "attribution_score": v, "base_date": str(last_date)}
 #     for k, v in sorted_attr
 # ])
-# df_attr.to_sql("fact_timesfm_attribution", conn, if_exists="append", index=False)
+# with engine.connect() as conn:
+#     df_attr.to_sql("fact_timesfm_attribution", conn, if_exists="append", index=False)
+#     conn.commit()
 # print(f"Attribution 적재 완료: {len(df_attr)} rows")
 
 # COMMAND ----------

@@ -56,8 +56,17 @@ pythonpath = ["src"]
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 
+[tool.ruff.lint.per-file-ignores]
+# Databricks AutoML/EDA 노트북: 자동생성 코드 — spark, dbutils 등 런타임 전역 변수 + 스타일
+"notebooks/AutoML Stock Prediction.ipynb" = ["F821", "E501"]
+"notebooks/Best Trial Notebook.ipynb" = ["F821", "E501", "F841", "E731"]
+"notebooks/SK하이닉스 EDA_DataExPloration노트북.ipynb" = ["F821", "E501"]
+"notebooks/삼성전자 EDA_DataExPloration노트북.ipynb" = ["F821", "E501"]
+
 [tool.ruff]
 line-length = 100
+# Databricks %sh 매직 커맨드 파싱 불가 → 제외
+extend-exclude = ["notebooks/ensemble_strategy.ipynb"]
 
 # ── black 포매터 설정 ───────────────────────────────────────────────────────────
 [tool.black]

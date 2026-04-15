@@ -1416,9 +1416,11 @@ display(df_output_stat.head(10))  # noqa: F821
 
 try:
     engine = vault.get_pg_connection("sqlalchemy")
-    df_output_stat.to_sql(
-        "fact_stat_forecast", engine, schema="public", if_exists="append", index=False
-    )
+    with engine.connect() as conn:
+        df_output_stat.to_sql(
+            "fact_stat_forecast", conn, schema="public", if_exists="append", index=False
+        )
+        conn.commit()
     print(f"✅ fact_stat_forecast 적재 완료: {len(df_output_stat)}행")
 except Exception as e:
     print(f"⚠️ PostgreSQL 적재 실패 (오프라인 모드): {e}")

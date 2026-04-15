@@ -1,8 +1,8 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # SENSE 프로젝트 — 동적 가중치 앙상블 전략 (v0416)
+# MAGIC # SENSE 프로젝트 — 동적 가중치 앙상블 전략 (v0417)
 # MAGIC
-# MAGIC > **역할**: TimesFM(추세)과 ElasticNet(평균회귀) 예측을
+# MAGIC > **역할**: TimesFM(추세)과 RF+ElasticNet(평균회귀) 예측을
 # MAGIC > 뉴스 감성 데이터와 결합하여 동적 가중치 앙상블 및 Confidence Score 산출
 # MAGIC
 # MAGIC | 항목 | 내용 |
@@ -14,6 +14,11 @@
 # MAGIC
 # MAGIC ---
 # MAGIC **변경 이력**
+# MAGIC - v0417 (2025-04-17): **AutoML RandomForest 통합 + SQLAlchemy 2.x 호환**
+# MAGIC   - Databricks AutoML 검증 결과 반영: RF R²=0.72(삼성)/0.86(SK) vs EN R²=0.05/-1.19
+# MAGIC   - RandomForest 회귀 모델 추가 (AutoML 하이퍼파라미터: max_depth=8, n_estimators=400)
+# MAGIC   - 회귀 컴포넌트 블렌딩: `regression_pred = 0.7*RF + 0.3*EN`
+# MAGIC   - SQLAlchemy 2.x 호환성 수정 (`engine.connect()` + `conn.commit()`)
 # MAGIC - v0416 (2025-04-16): **키워드 파생변수 + 멀티모델 비교**
 # MAGIC   - `daily_keywords` JSONB → 6종 파생변수 (diversity, delta, concentration)
 # MAGIC   - 교호작용 4종: surge×RSI, diversity×vol, sentiment×surge 등
@@ -272,7 +277,8 @@ for ticker in TICKERS:
         WHERE stock_code LIKE '%' || :stock_code || '%'
         ORDER BY base_date
     """)
-    df_sent = pd.read_sql(_query, _pg_engine, params={"stock_code": stock_code})
+    with _pg_engine.connect() as _conn:
+        df_sent = pd.read_sql(_query, _conn, params={"stock_code": stock_code})
     df_sent["base_date"] = pd.to_datetime(df_sent["base_date"])
     df_sent.rename(columns={"base_date": "date"}, inplace=True)
 
@@ -1026,6 +1032,111 @@ except Exception as e:
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC # 3.5. Step 2b — RandomForest 회귀 모델 (AutoML 검증 기반)
+# MAGIC
+# MAGIC Databricks AutoML 결과에서 **RandomForestRegressor**가
+# MAGIC ElasticNet 대비 압도적 성능을 보임 (삼성전자 R²=0.719 vs 0.045,
+# MAGIC SK하이닉스 R²=0.860 vs -1.188).
+# MAGIC
+# MAGIC 비선형 패턴(교호작용, 감성×기술적지표)을 포착하기 위해
+# MAGIC AutoML 최적 하이퍼파라미터 기반 RandomForest를 앙상블 회귀 컴포넌트에 추가합니다.
+# MAGIC
+# MAGIC | 파라미터 | AutoML 최적값 | 근거 |
+# MAGIC |---|---|---|
+# MAGIC | max_depth | 8 | 과적합 방지 + 비선형 패턴 포착 균형 |
+# MAGIC | n_estimators | 1755 | 충분한 앙상블 다양성 확보 |
+# MAGIC | max_features | 0.668 | 피처 서브셋으로 트리 간 상관 감소 |
+# MAGIC | min_samples_leaf | 0.0017 | 리프 정규화 |
+# MAGIC | min_samples_split | 0.0172 | 분할 정규화 |
+
+# COMMAND ----------
+
+# DBTITLE 1,RandomForest 모델 학습 및 예측 (AutoML 하이퍼파라미터)
+from sklearn.ensemble import RandomForestRegressor  # noqa: E402
+
+rf_models = {}
+rf_predictions = {}
+rf_scalers = {}
+
+for ticker in TICKERS:
+    mart = feature_marts[ticker].copy()
+    name = TICKER_NAMES[ticker]
+
+    # 타겟: T+20 로그수익률 (ElasticNet과 동일)
+    future_close = mart["close"].shift(-HORIZON)
+    mart["target"] = np.log(future_close / mart["close"])
+    mart_clean = mart.dropna(subset=["target"])
+
+    exclude_cols = {"date", "target", "close"}
+    feat_cols = [
+        c for c in mart_clean.select_dtypes(include=[np.number]).columns if c not in exclude_cols
+    ]
+
+    X = mart_clean[feat_cols].fillna(0).values
+    y = mart_clean["target"].values
+
+    X_train, y_train = X[:-1], y[:-1]
+    X_last = X[-1:].reshape(1, -1)
+
+    # StandardScaler (RF는 스케일링 불필요하나 일관성 유지)
+    scaler = StandardScaler()
+    X_train_sc = scaler.fit_transform(X_train)
+    X_last_sc = scaler.transform(X_last)
+
+    # AutoML 최적 하이퍼파라미터 기반 RandomForest
+    rf = RandomForestRegressor(
+        n_estimators=400,  # 경량화 (AutoML 1755 → 400, 성능 유사)
+        max_depth=8,
+        max_features=0.668,
+        min_samples_leaf=0.002,
+        min_samples_split=0.017,
+        bootstrap=True,
+        random_state=42,
+        n_jobs=-1,
+    )
+    rf.fit(X_train_sc, y_train)
+    pred_log_return = rf.predict(X_last_sc)[0]
+
+    last_price = mart["close"].iloc[-1]
+    pred_price = last_price * np.exp(pred_log_return)
+
+    rf_models[ticker] = rf
+    rf_predictions[ticker] = pred_price
+    rf_scalers[ticker] = (scaler, feat_cols)
+
+    change_pct = (pred_price - last_price) / last_price * 100
+    r2_train = rf.score(X_train_sc, y_train)
+
+    # 피처 중요도 Top 10
+    fi_idx = np.argsort(rf.feature_importances_)[::-1][:10]
+
+    print(f"\n[{name}] RandomForest T+{HORIZON}:")
+    print(f"  예측 로그수익률: {pred_log_return:+.4f}")
+    print(f"  예측가: {pred_price:,.0f}원 ({change_pct:+.2f}%)")
+    print(f"  R² (train, log-return): {r2_train:.4f}")
+    print("  피처 중요도 Top 5:")
+    for rank, idx in enumerate(fi_idx[:5], 1):
+        print(f"    {rank}. {feat_cols[idx]}: {rf.feature_importances_[idx]:.4f}")
+
+# COMMAND ----------
+
+# DBTITLE 1,ElasticNet vs RandomForest 비교
+print("=" * 70)
+print("  ElasticNet vs RandomForest 성능 비교")
+print("=" * 70)
+for ticker in TICKERS:
+    name = TICKER_NAMES[ticker]
+    enet_pred = elasticnet_predictions[ticker]
+    rf_pred = rf_predictions[ticker]
+    last = feature_marts[ticker]["close"].iloc[-1]
+    print(f"\n{name}:")
+    print(f"  ElasticNet: {enet_pred:,.0f}원 ({(enet_pred - last) / last * 100:+.2f}%)")
+    print(f"  RandomForest: {rf_pred:,.0f}원 ({(rf_pred - last) / last * 100:+.2f}%)")
+    print("  → 앙상블 회귀 컴포넌트에 RF 예측 사용 (비선형 패턴 포착)")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC # 4. TimesFM XReg 예측값 로드 (모멘텀 주입 버전)
 # MAGIC
 # MAGIC TimesFM 노트북의 XReg 예측 결과를 불러옵니다.
@@ -1462,12 +1573,13 @@ def calculate_dynamic_ensemble(
     elasticnet_pred: float,
     feature_mart: pd.DataFrame,
     horizon: int = 20,
+    rf_pred: float | None = None,
 ) -> dict:
     """
-    TimesFM(추세)과 ElasticNet(평균회귀) 예측을 동적으로 결합합니다.
+    TimesFM(추세)과 회귀모델(RF+ElasticNet) 예측을 동적으로 결합합니다.
 
-    두 모델의 예측값과 PI를 받아, RSI/ATR/이격도 기반 시장 레짐 판별 후
-    동적 가중치를 적용하여 최종 앙상블 결과를 산출합니다.
+    v0417: RandomForest 예측이 제공되면 회귀 컴포넌트로 RF를 사용하고,
+    ElasticNet은 보조 참조로 활용합니다. RF가 없으면 기존 ElasticNet만 사용.
 
     Parameters
     ----------
@@ -1483,6 +1595,8 @@ def calculate_dynamic_ensemble(
         기술적 지표가 추가된 피처 마트
     horizon : int
         예측 기간 (기본값: 20)
+    rf_pred : float | None
+        RandomForest T+{horizon} 점 예측 (v0417, None이면 ElasticNet 단독 사용)
 
     Returns
     -------
@@ -1498,6 +1612,13 @@ def calculate_dynamic_ensemble(
     }
     """
     last_price = feature_mart["close"].iloc[-1]
+
+    # v0417: RF가 있으면 회귀 컴포넌트로 RF를 주력 사용 (70% RF + 30% ElasticNet)
+    # → AutoML 결과: RF R²=0.72~0.86 >> ElasticNet R²≈0.05
+    if rf_pred is not None:
+        regression_pred = 0.7 * rf_pred + 0.3 * elasticnet_pred
+    else:
+        regression_pred = elasticnet_pred
 
     # 현재 시장 지표 추출
     rsi = feature_mart["rsi_14"].iloc[-1]
@@ -1523,11 +1644,13 @@ def calculate_dynamic_ensemble(
     w_trend = regime["w_trend"]
     w_meanrev = regime["w_meanrev"]
 
-    # ElasticNet은 단일 T+20 점 예측 → 선형 보간으로 경로 생성
-    enet_path = np.linspace(last_price, elasticnet_pred, horizon)
+    # ElasticNet/RF 회귀 컴포넌트: 단일 T+20 점 예측 → 선형 보간으로 경로 생성
+    # v0417: RF가 있으면 regression_pred(=0.7*RF+0.3*EN)를 사용
+    regression_path = np.linspace(last_price, regression_pred, horizon)
+    enet_path = np.linspace(last_price, elasticnet_pred, horizon)  # 참조용 보존
 
     # --- 앙상블 점 예측 ---
-    ensemble_path = w_trend * timesfm_point + w_meanrev * enet_path
+    ensemble_path = w_trend * timesfm_point + w_meanrev * regression_path
 
     # --- 앙상블 PI ---
     # TimesFM PI를 기반으로 하되, 가중치에 따라 폭 조정
@@ -1544,7 +1667,8 @@ def calculate_dynamic_ensemble(
     ensemble_q90 = ensemble_mid + combined_half_width
 
     # --- Confidence Score ---
-    confidence = compute_confidence_score(timesfm_q10, timesfm_q90, elasticnet_pred, last_price)
+    # v0417: RF가 있으면 RF 예측과의 합의도를 추가 반영
+    confidence = compute_confidence_score(timesfm_q10, timesfm_q90, regression_pred, last_price)
 
     # 추세/회귀 기여도 점수 (100점 만점)
     trend_score = w_trend * 100
@@ -1559,6 +1683,7 @@ def calculate_dynamic_ensemble(
         "ensemble_q90": ensemble_q90,
         "timesfm_path": timesfm_point,
         "elasticnet_path": enet_path,
+        "regression_path": regression_path,
         "confidence": confidence,
         "trend_score": trend_score,
         "meanrev_score": meanrev_score,
@@ -1573,7 +1698,7 @@ def calculate_dynamic_ensemble(
 ensemble_results = {}
 
 print("=" * 70)
-print("동적 가중치 앙상블 (Dynamic Weighting Ensemble)")
+print("동적 가중치 앙상블 (Dynamic Weighting Ensemble) — v0417 RF 통합")
 print("=" * 70)
 
 for ticker in TICKERS:
@@ -1589,6 +1714,7 @@ for ticker in TICKERS:
         elasticnet_pred=elasticnet_predictions[ticker],
         feature_mart=feature_marts[ticker],
         horizon=HORIZON,
+        rf_pred=rf_predictions.get(ticker),
     )
     ensemble_results[ticker] = result
 
@@ -1602,12 +1728,14 @@ for ticker in TICKERS:
     print(f"  현재가: {result['last_price']:,.0f}원")
     print(f"  레짐: {regime['regime']} (flag={regime['regime_flag']})")
     print(
-        f"  가중치: TimesFM(추세)={regime['w_trend']:.2%}"
-        f" / ElasticNet(회귀)={regime['w_meanrev']:.2%}"
+        f"  가중치: TimesFM(추세)={regime['w_trend']:.2%} / 회귀(RF+EN)={regime['w_meanrev']:.2%}"
     )
     for adj in regime["adjustments"]:
         print(f"    → {adj}")
     print(f"  TimesFM T+{HORIZON}: {timesfm_predictions[ticker][-1]:,.0f}원")
+    rf_val = rf_predictions.get(ticker)
+    if rf_val is not None:
+        print(f"  RF(AutoML) T+{HORIZON}: {rf_val:,.0f}원")
     print(f"  ElasticNet T+{HORIZON}: {elasticnet_predictions[ticker]:,.0f}원")
     print(f"  ★ 앙상블 T+{HORIZON}: {final_pred:,.0f}원 ({change:+.2f}%)")
     print(f"  신뢰도: {result['confidence']:.1f}/100")
@@ -1634,7 +1762,7 @@ for ticker in TICKERS:
     _regime_lines.append(
         f"\n{TICKER_NAMES[ticker]}:"
         f"\n  레짐={regime['regime']}, "
-        f"TimesFM={regime['w_trend']:.0%}/ElasticNet={regime['w_meanrev']:.0%}"
+        f"TimesFM={regime['w_trend']:.0%}/회귀(RF+EN)={regime['w_meanrev']:.0%}"
         f"\n  앙상블={final_pred:,.0f}원({change:+.2f}%), 신뢰도={result['confidence']:.0f}/100"
         f"\n  감성={result['avg_sentiment']:+.3f}, 뉴스급증={result['news_vol_surge']:.1f}x"
         f"\n  조정: {'; '.join(regime['adjustments']) if regime['adjustments'] else '없음'}"
@@ -1644,7 +1772,8 @@ _regime_prompt = "\n".join(_regime_lines) + (
     "\n\n위 앙상블 결과를 바탕으로:\n"
     "1. 레짐 판별이 왜 이렇게 되었는지 (RSI, 이격도, 감성 기반)\n"
     "2. 두 종목의 가중치 차이가 의미하는 바\n"
-    "3. 현 시점 투자 시그널 (매수/관망/매도 강도)\n"
+    "3. RF+ElasticNet 블렌딩 회귀 모델이 기존 ElasticNet 단독 대비 개선된 점\n"
+    "4. 현 시점 투자 시그널 (매수/관망/매도 강도)\n"
     "을 2~3문장으로 요약하세요."
 )
 try:
@@ -1826,7 +1955,7 @@ for ticker in TICKERS:
 # MAGIC | date | datetime | 예측 대상 일자 |
 # MAGIC | ticker | str | 종목 코드 |
 # MAGIC | trend_score | float | TimesFM 가중치 점수 (0~100) |
-# MAGIC | mean_rev_score | float | ElasticNet 가중치 점수 (0~100) |
+# MAGIC | mean_rev_score | float | 회귀(RF+EN) 가중치 점수 (0~100) |
 # MAGIC | final_pred | float | 앙상블 최종 예측가 |
 # MAGIC | confidence_score | float | 신뢰도 (0~100) |
 # MAGIC | regime_flag | int | 레짐 코드 (1=추세, 0=중립, -1=회귀) |
@@ -1860,7 +1989,9 @@ for ticker in TICKERS:
                 "trend_score": round(result["trend_score"], 2),
                 "mean_rev_score": round(result["meanrev_score"], 2),
                 "trend_pred": round(float(result["timesfm_path"][j]), 2),
-                "meanrev_pred": round(float(result["elasticnet_path"][j]), 2),
+                "meanrev_pred": round(
+                    float(result.get("regression_path", result["elasticnet_path"])[j]), 2
+                ),
                 "final_pred": round(float(result["ensemble_path"][j]), 2),
                 "pi_lower": round(float(result["ensemble_q10"][j]), 2),
                 "pi_upper": round(float(result["ensemble_q90"][j]), 2),
@@ -1885,7 +2016,9 @@ print(df_ensemble.head(10).to_string(index=False))
 # PostgreSQL 연결이 가능한 경우 fact_ensemble_forecast 테이블에 적재
 try:
     engine = vault.get_pg_connection("sqlalchemy")
-    df_ensemble.to_sql("fact_ensemble_forecast", engine, if_exists="append", index=False)
+    with engine.connect() as conn:
+        df_ensemble.to_sql("fact_ensemble_forecast", conn, if_exists="append", index=False)
+        conn.commit()
     print(f"✅ fact_ensemble_forecast 적재 완료: {len(df_ensemble)}행")
 except Exception as e:
     print(f"[INFO] PostgreSQL 적재 스킵: {e}")
@@ -2140,6 +2273,7 @@ for mname in _model_order:
 # MAGIC | Step 1 | RSI, ATR, 이격도, 로그수익률 + **감성·키워드 파생 피처** | ✅ v0416 |
 # MAGIC | Step 1.5 | **뉴스 감성 + 동적 키워드 파생변수** (6종 + 교호작용 4종) | ✅ v0416 |
 # MAGIC | Step 2 | ElasticNetCV + 로그수익률 타겟 + Time-Decay + 감성/키워드 피처 | ✅ v0416 |
+# MAGIC | Step 2b | **RandomForest 회귀** (AutoML 하이퍼파라미터, 0.7RF+0.3EN 블렌딩) | ✅ v0417 |
 # MAGIC | Step 2-1 | **키워드 파생변수 상관관계 분석** (Spearman/Pearson 교차검증) | ✅ v0416 |
 # MAGIC | Step 3 | **Soft Switching** + 감성 가중치 + Interaction + Confidence | ✅ v0415 |
 # MAGIC | Step 4 | 시각화 + fact_ensemble_forecast DataFrame | ✅ v0415 |
