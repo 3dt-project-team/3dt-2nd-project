@@ -3,7 +3,7 @@
 -- 데이터 사전: docs/data_dict/SENSE 데이터 사전.md
 -- 실제 구조 확인: docs/SENSE_데이터_구조_전체.md §5-2 (2026-04-14)
 --
--- 실행: psql -U <user> -d sense_db -f gold_layer_ddl.sql
+-- 실행: psql -U <user> -d postgres -f gold_layer_ddl.sql
 -- 재실행 안전: CREATE TABLE / ADD COLUMN 모두 IF NOT EXISTS 사용
 --
 -- ─── 스키마별 현재 상태 ──────────────────────────────────────────────────────
