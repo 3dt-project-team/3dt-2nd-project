@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # SENSE 프로젝트 — 동적 가중치 앙상블 전략 (v0417)
+# MAGIC # SENSE 프로젝트 — 동적 가중치 앙상블 전략 (v0418)
 # MAGIC
 # MAGIC > **역할**: TimesFM(추세)과 RF+ElasticNet(평균회귀) 예측을
 # MAGIC > 뉴스 감성 데이터와 결합하여 동적 가중치 앙상블 및 Confidence Score 산출
@@ -14,6 +14,10 @@
 # MAGIC
 # MAGIC ---
 # MAGIC **변경 이력**
+# MAGIC - v0418 (2025-04-18): **AI 모델 전환 + ElasticNet 시나리오 + Date 인덱스 수정**
+# MAGIC   - Section 8 AI 최종 분석 모델: gpt-4.1-mini → **gpt-5.4-mini** (Responses API)
+# MAGIC   - 회귀 컴포넌트 `use_elasticnet` 플래그 추가 (RF-only 시나리오 지원)
+# MAGIC   - Date 인덱스-컬럼 동시 존재 시 `reset_index(drop=True)` 충돌 수정
 # MAGIC - v0417 (2025-04-17): **AutoML RandomForest 통합 + SQLAlchemy 2.x 호환**
 # MAGIC   - Databricks AutoML 검증 결과 반영: RF R²=0.72(삼성)/0.86(SK) vs EN R²=0.05/-1.19
 # MAGIC   - RandomForest 회귀 모델 추가 (AutoML 하이퍼파라미터: max_depth=8, n_estimators=400)
@@ -389,7 +393,10 @@ for ticker in TICKERS:
         # date가 인덱스이면 컬럼으로 꺼내서 merge 후 다시 인덱스 설정
         _date_is_index = mart.index.name == "date"
         if _date_is_index:
-            mart = mart.reset_index()
+            if "date" in mart.columns:
+                mart = mart.reset_index(drop=True)
+            else:
+                mart = mart.reset_index()
         mart = mart.merge(sent, on="date", how="left")
         if _date_is_index:
             mart = mart.set_index("date")
@@ -1574,10 +1581,12 @@ def calculate_dynamic_ensemble(
     feature_mart: pd.DataFrame,
     horizon: int = 20,
     rf_pred: float | None = None,
+    use_elasticnet: bool = True,
 ) -> dict:
     """
     TimesFM(추세)과 회귀모델(RF+ElasticNet) 예측을 동적으로 결합합니다.
 
+    v0418: `use_elasticnet=False`로 설정하면 RF 단독 회귀 시나리오를 실행합니다.
     v0417: RandomForest 예측이 제공되면 회귀 컴포넌트로 RF를 사용하고,
     ElasticNet은 보조 참조로 활용합니다. RF가 없으면 기존 ElasticNet만 사용.
 
@@ -1597,6 +1606,8 @@ def calculate_dynamic_ensemble(
         예측 기간 (기본값: 20)
     rf_pred : float | None
         RandomForest T+{horizon} 점 예측 (v0417, None이면 ElasticNet 단독 사용)
+    use_elasticnet : bool
+        ElasticNet 블렌딩 사용 여부 (v0418, False면 RF 단독 회귀)
 
     Returns
     -------
@@ -1613,10 +1624,14 @@ def calculate_dynamic_ensemble(
     """
     last_price = feature_mart["close"].iloc[-1]
 
+    # v0418: use_elasticnet=False → RF 단독 시나리오
     # v0417: RF가 있으면 회귀 컴포넌트로 RF를 주력 사용 (70% RF + 30% ElasticNet)
     # → AutoML 결과: RF R²=0.72~0.86 >> ElasticNet R²≈0.05
     if rf_pred is not None:
-        regression_pred = 0.7 * rf_pred + 0.3 * elasticnet_pred
+        if use_elasticnet:
+            regression_pred = 0.7 * rf_pred + 0.3 * elasticnet_pred
+        else:
+            regression_pred = rf_pred
     else:
         regression_pred = elasticnet_pred
 
@@ -1698,7 +1713,7 @@ def calculate_dynamic_ensemble(
 ensemble_results = {}
 
 print("=" * 70)
-print("동적 가중치 앙상블 (Dynamic Weighting Ensemble) — v0417 RF 통합")
+print("동적 가중치 앙상블 (Dynamic Weighting Ensemble) — v0418 RF 통합")
 print("=" * 70)
 
 for ticker in TICKERS:
@@ -1742,6 +1757,65 @@ for ticker in TICKERS:
     print(
         f"  뉴스 감성: avg={result['avg_sentiment']:+.3f}, 뉴스급증={result['news_vol_surge']:.1f}x"
     )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 5-0.5. ElasticNet 시나리오 분석 — RF-only vs RF+EN 블렌딩
+# MAGIC
+# MAGIC > ElasticNet R²≈0.05(삼성)/—1.19(SK)로 매우 낮아, RF 단독 회귀가 나은지 비교합니다.
+# MAGIC > `use_elasticnet=False`로 RF-only 앙상블을 실행해 기본(0.7RF+0.3EN) 대비 차이를 확인합니다.
+
+# COMMAND ----------
+
+# DBTITLE 1,ElasticNet 시나리오 비교: RF+EN vs RF-only
+print("=" * 80)
+print("  ElasticNet 시나리오 분석: RF+EN 블렌딩 vs RF-only")
+print("=" * 80)
+print(f"\n  {'종목':<12} {'시나리오':<20} {'앙상블 T+20':>14} {'변동률':>10} {'신뢰도':>8}")
+print(f"  {'─' * 68}")
+
+for ticker in TICKERS:
+    if ticker not in feature_marts or ticker not in rf_predictions:
+        continue
+    name = TICKER_NAMES[ticker]
+    last_p = feature_marts[ticker]["close"].iloc[-1]
+
+    # 시나리오 A: RF+EN 블렌딩 (기존, use_elasticnet=True)
+    res_a = ensemble_results[ticker]
+    pred_a = res_a["ensemble_path"][-1]
+    chg_a = (pred_a - last_p) / last_p * 100
+
+    # 시나리오 B: RF-only (use_elasticnet=False)
+    res_b = calculate_dynamic_ensemble(
+        ticker=ticker,
+        timesfm_point=timesfm_predictions[ticker],
+        timesfm_q10=timesfm_pi[ticker][0],
+        timesfm_q90=timesfm_pi[ticker][1],
+        elasticnet_pred=elasticnet_predictions[ticker],
+        feature_mart=feature_marts[ticker],
+        horizon=HORIZON,
+        rf_pred=rf_predictions[ticker],
+        use_elasticnet=False,
+    )
+    pred_b = res_b["ensemble_path"][-1]
+    chg_b = (pred_b - last_p) / last_p * 100
+
+    diff = pred_b - pred_a
+    diff_pct = (pred_b - pred_a) / pred_a * 100
+
+    conf_a = res_a["confidence"]
+    conf_b = res_b["confidence"]
+    print(f"  {name:<12} {'A: 0.7RF+0.3EN':<20} {pred_a:>12,.0f}원 {chg_a:>+8.2f}% {conf_a:>6.0f}")
+    print(f"  {'':<12} {'B: RF-only':<20} {pred_b:>12,.0f}원 {chg_b:>+8.2f}% {conf_b:>6.0f}")
+    print(f"  {'':<12} {'차이 (B-A)':<20} {diff:>+12,.0f}원 {diff_pct:>+8.3f}%")
+    print()
+
+print("  [해석]")
+print("  - ElasticNet R²≈0.05(삼성)/−1.19(SK)로 예측력이 매우 낮음")
+print("  - RF R²=0.719(삼성)/0.860(SK)로 비선형 패턴 포착에 압도적 우위")
+print("  - 시나리오 차이가 미미하면: EN의 30% 기여가 노이즈 수준 → RF-only 권장")
+print("  - 시나리오 차이가 크면: EN이 정규화 역할 수행 → 블렌딩 유지 고려")
 
 # COMMAND ----------
 
@@ -2031,19 +2105,15 @@ except Exception as e:
 
 # COMMAND ----------
 
-# DBTITLE 1,Azure OpenAI 클라이언트
-from openai import AzureOpenAI  # noqa: E402
+# DBTITLE 1,Azure OpenAI 클라이언트 (gpt-5.4-mini — Responses API)
+from openai import OpenAI  # noqa: E402
 
-OPENAI_DEPLOYMENT = "gpt-4.1-mini"
-OPENAI_API_VERSION = "2025-03-01-preview"
-
-_openai_endpoint = vault.get_secret("azure-openai-endpoint")
 _openai_key = vault.get_secret("azure-openai-key")
-openai_client = AzureOpenAI(
-    azure_endpoint=_openai_endpoint,
+openai_client = OpenAI(
     api_key=_openai_key,
-    api_version=OPENAI_API_VERSION,
+    base_url="https://aoai-3dt-team1.openai.azure.com/openai/v1/",
 )
+OPENAI_FINAL_MODEL = "gpt-5.4-mini"
 
 # COMMAND ----------
 
@@ -2092,26 +2162,21 @@ for ticker in TICKERS:
 """
 
     try:
-        response = openai_client.chat.completions.create(
-            model=OPENAI_DEPLOYMENT,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "당신은 반도체 주식 전문 퀀트 애널리스트입니다. "
-                        "동적 가중치 앙상블 전략의 결과를 바탕으로 "
-                        "투자 인사이트를 제공합니다. 뉴스 감성 데이터가 "
-                        "앙상블 가중치에 미치는 영향을 AI 슈퍼사이클 "
-                        "관점에서 해석하세요. 수치 근거를 포함하고, "
-                        "리스크도 균형있게 언급하세요."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=1200,
+        response = openai_client.responses.create(
+            model=OPENAI_FINAL_MODEL,
+            instructions=(
+                "당신은 반도체 주식 전문 퀀트 애널리스트입니다. "
+                "동적 가중치 앙상블 전략의 결과를 바탕으로 "
+                "투자 인사이트를 제공합니다. 뉴스 감성 데이터가 "
+                "앙상블 가중치에 미치는 영향을 AI 슈퍼사이클 "
+                "관점에서 해석하세요. 수치 근거를 포함하고, "
+                "리스크도 균형있게 언급하세요."
+            ),
+            input=prompt,
+            max_output_tokens=1200,
             temperature=0.4,
         )
-        analysis = response.choices[0].message.content
+        analysis = response.output_text
         print(f"\n{'═' * 70}")
         print(f"  {name} — AI 앙상블 분석")
         print(f"{'═' * 70}")
@@ -2278,5 +2343,5 @@ for mname in _model_order:
 # MAGIC | Step 3 | **Soft Switching** + 감성 가중치 + Interaction + Confidence | ✅ v0415 |
 # MAGIC | Step 4 | 시각화 + fact_ensemble_forecast DataFrame | ✅ v0415 |
 # MAGIC | Step 5-1 | **AI 중간 해석** (ElasticNet 결과, 앙상블 레짐, 키워드 상관) | ✅ v0416 |
-# MAGIC | Step 8 | AI 앙상블 전략 요약 (GPT-4.1-mini) | ✅ v0415 |
+# MAGIC | Step 8 | AI 앙상블 전략 요약 (**gpt-5.4-mini** Responses API) | ✅ v0418 |
 # MAGIC | Step 8-1 | **멀티모델 비교** (gpt-4.1-mini / 5.4-mini / 5.4 / 5.4-pro) | ✅ v0416 |

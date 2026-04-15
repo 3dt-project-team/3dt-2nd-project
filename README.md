@@ -20,7 +20,8 @@
 ├── notebooks/
 │   ├── 01_raw_to_curated.py      # Databricks: 뉴스 원문 클렌징
 │   ├── 02_curated_to_feature.py  # Databricks: 피처 엔지니어링
-│   ├── ensemble_strategy.py      # Databricks: Soft Switching 동적 가중치 앙상블 + RF+EN 블렌딩 + 뉴스 감성 (v0417)
+│   ├── ensemble_strategy.py      # Databricks: Soft Switching 동적 가중치 앙상블 + RF+EN 블렌딩 + 뉴스 감성 (v0418)
+│   ├── automl_best_trial.py      # Databricks: AutoML BestTrial RF 추론·평가·SHAP 분석
 │   ├── databricks_uv_example.py  # uv + vault_manager 연동 예시
 │   └── init_script_install_uv.sh # 클러스터 Init Script
 ├── tests/
@@ -62,3 +63,4 @@ uv run pre-commit install
 | [docs/ensemble_model_guide.md](docs/ensemble_model_guide.md) | 앙상블 모델 가이드 (가중치 규칙, 튜닝 이력) |
 | [docs/analysis_results.md](docs/analysis_results.md) | TimesFM vs 전통 모델 출력 분석 보고서 |
 | [docs/TimesFM_앙상블_튜닝_트러블슈팅.md](docs/TimesFM_앙상블_튜닝_트러블슈팅.md) | TimesFM & 통계 기준선 앙상블 모델 전 개발 히스토리 (분석→튜닝→트러블슈팅) |
+| [ref/모델_평가_GPT_비교.md](ref/모델_평가_GPT_비교.md) | Azure OpenAI 모델(4.1-mini/5.4-mini/5.4/5.4-pro) 성능·비용 비교 |
