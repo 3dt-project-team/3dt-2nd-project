@@ -370,22 +370,29 @@ Gold JOIN 기준: `date` (한국 영업일 기준으로 3개 Silver 통합)
 
 ### 4-2. 매크로 Gold (`gold_macro` 스키마)
 
+> ⚠️ 실제 테이블명이 데이터사전 설계와 다름 — `gold_macro` 스키마 사용
+
 | 테이블 | PK | 설명 |
 |---|---|---|
-| `gold_macro.dim_macro_metadatas` | `unified_id` | 지표 메타데이터 레지스트리 (설계: `dim_macro_series`) |
-| `gold_macro.fact_macro_all` | `base_date` | 매크로 통합 Wide 테이블 (설계: `fact_macro_daily`) |
-| `gold_macro.fact_yf_fx_fred_1y` | `standard_date` | Yahoo Finance + FX + FRED 1년 통합 |
-| `gold_macro.fact_kfinance` | `(base_date, ticker)` | 한국 금융 파생상품 |
-| `gold_macro.fact_semiconductor_trade` | `(base_date, hs_code)` | 반도체 수출입 통계 |
+| `gold_macro.dim_macro_metadatas` | `series_id` | 지표 메타데이터 (설계: `dim_macro_series`) |
+| `gold_macro.fact_macro_all` | `(series_id, trade_date)` | 매크로 통합 일별 (설계: `fact_macro_daily`) |
+| `gold_macro.fact_yf_fx_fred_1y` | `trade_date` | Yahoo Finance + FX + FRED 1년 통합 |
+| `gold_macro.fact_kfinance` | `trade_date` | 한국 금융 파생상품 (설계에 없던 신규 테이블) |
+| `gold_macro.fact_semiconductor_trade` | `(stat_year, stat_month, hs_code)` | 반도체 수출입 (설계: `fact_quant_customs`) |
 
 ### 4-3. 주가 Gold (`gold_equity` 스키마)
 
+> ⚠️ 스키마는 생성되었으나 테이블 미생성
+
 | 테이블 | PK | 설명 |
 |---|---|---|
-| `gold_equity.dim_equity` | `equity_id` | 종목 메타데이터 (seed 9개 종목) |
-| `gold_equity.fact_equity_ohlcv` | `(equity_id, trade_date)` | 일별 OHLCV |
-| `gold_equity.fact_equity_target` | `(equity_id, trade_date)` | ML 타겟 변수 (downside_flag, upside_flag, regime) |
-| `gold_equity.fact_equity_signals` | `(equity_id, trade_date, signal_name)` | 파생 기술 지표 |
+| `gold_equity.*` | - | **스키마만 존재, 테이블 미생성** |
+
+설계된 테이블 (미생성):
+- `dim_equity` — 종목 메타데이터
+- `fact_equity_ohlcv` — 일별 OHLCV
+- `fact_equity_target` — ML 타겟 변수 (downside_flag, upside_flag, regime)
+- `fact_equity_signals` — 파생 기술 지표
 
 ### 4-4. 퀀트 / ML Gold (`gold_ml` 스키마)
 
@@ -399,18 +406,14 @@ Gold JOIN 기준: `date` (한국 영업일 기준으로 3개 Silver 통합)
 | `gold_ml.gold_ml_feature_set` | `trade_date` | ML 통합 피처 세트 (설계에 없던 신규 테이블) |
 | `gold_ml.gold_quant_pcr_signals` | `trade_date` | PCR 퀀트 시그널 (설계: 보류 → 실제 생성) |
 
-### 4-5. 보고서 연동 뷰
+### 4-5. 보고서 연동 뷰 (미생성)
 
-> 2026-04-14 기준 6개 뷰 모두 생성됨
+> 설계된 뷰는 아직 미생성 상태
 
-| 뷰 | 스키마 | 소스 | 설명 |
-|---|---|---|---|
-| `v_forecast_latest` | `public` | `fact_ensemble_forecast` | 티커·기간별 최신 run 앙상블 예측 |
-| `v_daily_report_summary` | `public` | `v_forecast_latest` + 감성 + 매크로 | 일간 보고서 종합 |
-| `v_model_comparison_latest` | `public` | `v_forecast_latest` + `fact_stat_forecast` | 앙상블 vs 통계 기준선 비교 |
-| `v_news_sentiment_trend` | `gold_news` | `agg_market_sentiment_daily` | 일별 감성 + 7일 이동평균 |
-| `v_macro_latest` | `gold_macro` | `fact_yf_fx_fred_1y` | 최신 매크로 1행 스냅샷 (`standard_date` 기준) |
-| `v_quant_daily_signals` | `gold_ml` | sox + 메모리 + PCR LEFT JOIN | 퀀트 통합 시그널 (`signal_date` 컬럼) |
+| 뷰 | 소스 | 설명 |
+|---|---|---|
+| `v_quant_daily_signals` | gold_ml.* 테이블 LEFT JOIN | 퀀트 통합 시그널 (미생성) |
+| `v_daily_report_summary` | 전 데이터셋 일자 기준 통합 | 일간 정기 보고서 자동 생성용 (미생성) |
 
 ---
 
@@ -441,10 +444,7 @@ Gold JOIN 기준: `date` (한국 영업일 기준으로 3개 Silver 통합)
 
 | 스키마 | 테이블 | 상태 | 비고 |
 |---|---|---|---|
-| `gold_equity` | `dim_equity` | ✅ 생성됨 | 종목 메타데이터 (seed 9행) |
-| `gold_equity` | `fact_equity_ohlcv` | ✅ 생성됨 | 일별 OHLCV |
-| `gold_equity` | `fact_equity_target` | ✅ 생성됨 | ML 타겟 변수 |
-| `gold_equity` | `fact_equity_signals` | ✅ 생성됨 | 파생 기술 지표 |
+| `gold_equity` | (테이블 없음) | ⬜ 스키마만 생성 | 주가 Gold 미생성 |
 | `gold_macro` | `dim_macro_metadatas` | ✅ 생성됨 | 지표 메타 |
 | `gold_macro` | `fact_kfinance` | ✅ 생성됨 | 금융 파생상품 |
 | `gold_macro` | `fact_macro_all` | ✅ 생성됨 | 매크로 통합 |
@@ -468,7 +468,7 @@ Gold JOIN 기준: `date` (한국 영업일 기준으로 3개 Silver 통합)
 | 매크로 Gold | `dim_macro_series`, `fact_macro_daily`, `fact_macro_derived`, `fact_macro_fred` | `gold_macro.dim_macro_metadatas`, `fact_macro_all`, `fact_yf_fx_fred_1y` | ⚠️ 테이블명 불일치 |
 | kfinance Gold | `fact_kfinance` (미기재) | `gold_macro.fact_kfinance` | ❌ 데이터사전 누락 |
 | 반도체 Gold | `fact_quant_customs` | `gold_macro.fact_semiconductor_trade`, `gold_ml.gold_customs_semiconductor` | ⚠️ 이름·스키마 다름 |
-| 주가 Gold | `dim_equity`, `fact_equity_ohlcv` 등 | `gold_equity` 4개 테이블 모두 생성됨 | ✅ 생성됨 |
+| 주가 Gold | `dim_equity`, `fact_equity_ohlcv` 등 | `gold_equity` 스키마 있으나 테이블 **미생성** | ❌ 미생성 |
 | 퀀트 Gold | `fact_quant_sox_sync`, `fact_quant_memory_proxy`, `fact_quant_pcr` | `gold_ml`에 모두 존재 + `gold_quant_pcr_signals` 생성됨 | ✅ (PCR 보류 → 실제 생성) |
 | ML 피처 | 미기재 | `gold_ml.gold_ml_feature_set` | ❌ 데이터사전 누락 |
 | ML 예측 (public) | 미기재 | `fact_ensemble_forecast` (15컬럼, 160행), `fact_stat_forecast` (9컬럼) | ❌ 데이터사전 누락 |

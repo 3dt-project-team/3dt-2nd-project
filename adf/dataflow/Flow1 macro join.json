@@ -1,0 +1,167 @@
+{
+	"name": "Flow1 macro join",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"dataset": {
+						"referenceName": "yahoo_finance",
+						"type": "DatasetReference"
+					},
+					"name": "yfinance"
+				},
+				{
+					"dataset": {
+						"referenceName": "foreign_exchange",
+						"type": "DatasetReference"
+					},
+					"name": "fx"
+				},
+				{
+					"dataset": {
+						"referenceName": "fred",
+						"type": "DatasetReference"
+					},
+					"name": "fred"
+				}
+			],
+			"sinks": [
+				{
+					"dataset": {
+						"referenceName": "silver_join",
+						"type": "DatasetReference"
+					},
+					"name": "sink1"
+				}
+			],
+			"transformations": [
+				{
+					"name": "derivedColumn1"
+				},
+				{
+					"name": "derivedColumn2"
+				},
+				{
+					"name": "derivedColumn3"
+				},
+				{
+					"name": "pivot1"
+				},
+				{
+					"name": "pivot2"
+				},
+				{
+					"name": "select1"
+				},
+				{
+					"name": "join1"
+				},
+				{
+					"name": "join2"
+				},
+				{
+					"name": "derivedColumn4"
+				}
+			],
+			"scriptLines": [
+				"source(output(",
+				"          Date as string,",
+				"          Ticker as string,",
+				"          Name as string,",
+				"          Open as string,",
+				"          High as string,",
+				"          Low as string,",
+				"          Close as string,",
+				"          Volume as string",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false) ~> yfinance",
+				"source(output(",
+				"          date as string,",
+				"          base as string,",
+				"          quote as string,",
+				"          rate as string",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false) ~> fx",
+				"source(output(",
+				"          {관측일자} as string,",
+				"          {지표코드} as string,",
+				"          {금리값} as string,",
+				"          {수집일시} as string",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false) ~> fred",
+				"yfinance derive(date = toDate(Date),",
+				"          close_float = toFloat(Close),",
+				"          yfinance_collected_at_utc = currentUTC(),",
+				"          mapped_ticker = case(\r",
+				"    Ticker == 'NVDA', 'nvda',\r",
+				"    Ticker == 'TSM', 'tsm',\r",
+				"    Ticker == 'AMD', 'amd',\r",
+				"    Ticker == 'INTC', 'intc',\r",
+				"    Ticker == 'ASML', 'asml',\r",
+				"    Ticker == 'MU', 'mu',\r",
+				"    Ticker == 'WDC', 'wdc',\r",
+				"    Ticker == '^SOX', 'sox',\r",
+				"    Ticker == '005930.KS', 'samsung',\r",
+				"    Ticker == '000660.KS', 'skhynix',\r",
+				"    lower(replace(Ticker, '.KS', ''))\r",
+				")) ~> derivedColumn1",
+				"fx derive(date = toDate(date),",
+				"          usd_krw_rate = toFloat(rate),",
+				"          fx_collected_at_utc = currentUTC(),",
+				"          provider = 'Frankfurter') ~> derivedColumn2",
+				"fred derive(date = toDate({관측일자}),",
+				"          rate_float = toFloat({금리값}),",
+				"          fred_collected_at_utc = toTimestamp({수집일시},'yyyy-MM-dd HH:mm:ss') - toLong(32400000),",
+				"          indicator_lower = lower({지표코드}),",
+				"          provider = 'FRED') ~> derivedColumn3",
+				"derivedColumn1 pivot(groupBy(derivedColumn1@date,",
+				"          yfinance_collected_at_utc),",
+				"     pivotBy(mapped_ticker),",
+				"     {} = first(close_float),",
+				"     columnNaming: 'yfinance_$N$V_close',",
+				"     lateral: true) ~> pivot1",
+				"derivedColumn3 pivot(groupBy(date,",
+				"          fred_collected_at_utc),",
+				"     pivotBy(indicator_lower),",
+				"     {} = first(rate_float),",
+				"     columnNaming: 'fred_$N$V',",
+				"     lateral: true) ~> pivot2",
+				"derivedColumn2 select(mapColumn(",
+				"          date,",
+				"          usd_krw_rate,",
+				"          fx_collected_at_utc",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> select1",
+				"select1, pivot1 join(select1@date == pivot1@date,",
+				"     joinType:'outer',",
+				"     matchType:'exact',",
+				"     ignoreSpaces: false,",
+				"     broadcast: 'auto')~> join1",
+				"join1, pivot2 join(pivot1@date == pivot2@date,",
+				"     joinType:'outer',",
+				"     matchType:'exact',",
+				"     ignoreSpaces: false,",
+				"     broadcast: 'auto')~> join2",
+				"join2 derive(final_date = coalesce(select1@date, pivot1@date, pivot2@date)) ~> derivedColumn4",
+				"derivedColumn4 sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'parquet',",
+				"     partitionFileNames:['bronze_macro_join.parquet'],",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     partitionBy('hash', 1)) ~> sink1"
+			]
+		}
+	}
+}
