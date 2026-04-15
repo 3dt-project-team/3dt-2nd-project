@@ -62,10 +62,16 @@ def index():
         sentiment = db.query(MarketSentiment).order_by(MarketSentiment.base_date.desc()).first()
 
         # 2. 커뮤니티 게시글 최신순 조회
-        posts = db.query(CommunityPost).order_by(CommunityPost.created_at.desc()).all()
+        # 대댓글이 메인 피드에 따로 뜨지 않도록 parent_id가 없는(None) 글들만 가져옵니다.
+        # 각 글의 대댓글은 모델의 relationship을 통해 HTML 템플릿에서 post.replies로 접근합니다.
+        posts = (
+            db.query(CommunityPost)
+            .filter(CommunityPost.parent_id.is_(None))
+            .order_by(CommunityPost.created_at.desc())
+            .all()
+        )
 
         # 3. HTML 템플릿 렌더링
-        # is_admin 정보를 넘겨줘야 HTML에서 관리자 전용 UI를 표시할 수 있습니다.
         return render_template(
             "index.html",
             news_list=latest_news,
@@ -80,15 +86,21 @@ def index():
 
 
 # ----------------------------------------------------------------
-# [작성] 새로운 커뮤니티 게시글 등록
+# [작성] 새로운 커뮤니티 게시글 및 대댓글 등록
 # ----------------------------------------------------------------
 @web_bp.route("/post/new", methods=["POST"])
 def create_post():
     db = SessionLocal()
     try:
         content = request.form.get("content")
+        parent_id = request.form.get("parent_id")  # HTML 폼에서 전달된 부모 ID
+
         if content and content.strip():
-            new_post = CommunityPost(session_id=session["user_sid"], content=content.strip())
+            new_post = CommunityPost(
+                session_id=session["user_sid"],
+                content=content.strip(),
+                parent_id=parent_id if parent_id else None,  # 대댓글인 경우 부모 ID를 매핑
+            )
             db.add(new_post)
             db.commit()
         return redirect(url_for("web.index"))
