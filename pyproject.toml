@@ -13,6 +13,7 @@ dependencies = [
     "azure-storage-file-datalake>=12.19.0",  # ADLS Gen2 파일 접근
     "python-dotenv>=1.0.0",                  # 로컬 .env 파일 로드
     "flask>=3.0.0",
+    "gunicorn>=23.0.0",
     "psycopg[binary]>=3.2.0",               # PostgreSQL 네이티브 드라이버
     "sqlalchemy>=2.0.0",                     # PostgreSQL ORM / pandas read_sql 지원
     "aiohttp>=3.9.0",                       # 비동기 HTTP 클라이언트 (뉴스 본문 수집)
