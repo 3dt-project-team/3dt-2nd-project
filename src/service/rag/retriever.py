@@ -27,9 +27,9 @@ def get_recent_news(filters: QueryFilters) -> list[dict[str, Any]]:
     FROM gold_news.dim_news_display d
     LEFT JOIN gold_news.fact_feature_vector_store f
       ON d.news_id = f.news_id
-    WHERE (%s IS NULL OR UPPER(d.stock_keyword) LIKE '%%' || UPPER(%s) || '%%')
-      AND (%s IS NULL OR d.sentiment_class = %s)
-      AND (%s IS NULL OR d.category LIKE '%%' || %s || '%%')
+    WHERE (%s::text IS NULL OR UPPER(d.stock_keyword) LIKE '%%' || UPPER(%s::text) || '%%')
+      AND (%s::text IS NULL OR d.sentiment_class = %s::text)
+      AND (%s::text IS NULL OR d.category LIKE '%%' || %s::text || '%%')
     ORDER BY d.pub_date DESC
     LIMIT %s;
     """
@@ -87,9 +87,9 @@ def search_hybrid_news(
         FROM gold_news.fact_feature_vector_store f
         JOIN gold_news.dim_news_display d
           ON d.news_id = f.news_id
-        WHERE (%s IS NULL OR UPPER(d.stock_keyword) LIKE '%%' || UPPER(%s) || '%%')
-          AND (%s IS NULL OR d.sentiment_class = %s)
-          AND (%s IS NULL OR d.category LIKE '%%' || %s || '%%')
+        WHERE (%s::text IS NULL OR UPPER(d.stock_keyword) LIKE '%%' || UPPER(%s::text) || '%%')
+          AND (%s::text IS NULL OR d.sentiment_class = %s::text)
+          AND (%s::text IS NULL OR d.category LIKE '%%' || %s::text || '%%')
         ORDER BY f.summary_vec <=> %s::vector
         LIMIT %s
     )
@@ -137,7 +137,7 @@ def get_sentiment_snapshot(stock_code: str | None) -> list[dict[str, Any]]:
         main_aspect,
         daily_keywords
     FROM gold_news.agg_market_sentiment_daily
-    WHERE (%s IS NULL OR UPPER(stock_code) LIKE '%%' || UPPER(%s) || '%%')
+    WHERE (%s::text IS NULL OR UPPER(stock_code) LIKE '%%' || UPPER(%s::text) || '%%')
     ORDER BY base_date DESC
     LIMIT 1;
     """
@@ -159,7 +159,7 @@ def get_sentiment_trend(stock_code: str | None, limit_days: int) -> list[dict[st
         ) AS sentiment_ma7,
         daily_keywords
     FROM gold_news.agg_market_sentiment_daily
-    WHERE (%s IS NULL OR UPPER(stock_code) LIKE '%%' || UPPER(%s) || '%%')
+    WHERE (%s::text IS NULL OR UPPER(stock_code) LIKE '%%' || UPPER(%s::text) || '%%')
     ORDER BY base_date DESC
     LIMIT %s;
     """
@@ -251,7 +251,7 @@ def get_latest_forecast(ticker: str | None, horizon_day: int) -> list[dict[str, 
         regime_label,
         run_timestamp
     FROM public.fact_ensemble_forecast
-    WHERE (%s IS NULL OR ticker = %s)
+    WHERE (%s::text IS NULL OR ticker = %s::text)
       AND horizon_day = %s
     ORDER BY ticker, horizon_day, base_date DESC
     LIMIT 3;
@@ -270,7 +270,7 @@ def get_model_comparison(ticker: str | None) -> list[dict[str, Any]]:
             confidence_score,
             regime_label
         FROM public.fact_ensemble_forecast
-        WHERE (%s IS NULL OR ticker = %s)
+        WHERE (%s::text IS NULL OR ticker = %s::text)
         ORDER BY ticker, horizon_day, base_date DESC
     ),
     latest_stat AS (
@@ -286,7 +286,7 @@ def get_model_comparison(ticker: str | None) -> list[dict[str, Any]]:
                 ORDER BY run_timestamp DESC
             ) AS rn
         FROM public.fact_stat_forecast
-        WHERE (%s IS NULL OR ticker = %s)
+        WHERE (%s::text IS NULL OR ticker = %s::text)
     )
     SELECT
         e.ticker,

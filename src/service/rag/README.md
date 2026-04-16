@@ -1,6 +1,6 @@
 # SENSE RAG App
 
-`src/service/app`은 SENSE 프로젝트용 설명형 RAG 서빙 프로토타입입니다.
+`src/service/rag`는 SENSE 프로젝트용 설명형 RAG 서빙 프로토타입입니다.
 
 이번 버전은 공유해주신 데이터 사전 기준으로 맞췄습니다. 핵심 원칙은 두 가지입니다.
 
@@ -59,15 +59,15 @@ Flask route에서 바로 붙일 수 있는 요청 파싱 / HTTP 응답 포맷 �
 
 웹 팀에서는 아래 함수만 붙이면 됩니다.
 
-- `src.service.app.handle_chat_request_payload`
-- `src.service.app.create_chat_http_response`
+- `src.service.rag.handle_chat_request_payload`
+- `src.service.rag.create_chat_http_response`
 
 예시:
 
 ```python
 from flask import jsonify, request
 
-from src.service.app import handle_chat_request_payload
+from src.service.rag import handle_chat_request_payload
 
 
 @web_bp.route("/api/chat", methods=["POST"])
@@ -91,7 +91,7 @@ def api_chat():
 ## 로컬 스모크 테스트
 
 ```bash
-.\.venv\Scripts\python.exe -c "from src.service.app import create_chat_http_response; r=create_chat_http_response('SK하이닉스 하락 리스크 근거 기사와 매크로 신호를 요약해줘'); print(r['answer'])"
+.\.venv\Scripts\python.exe -c "from src.service.rag import create_chat_http_response; r=create_chat_http_response('SK하이닉스 하락 리스크 근거 기사와 매크로 신호를 요약해줘'); print(r['answer'])"
 ```
 
 ## 필요한 환경변수
@@ -136,7 +136,7 @@ def api_chat():
 - `SENSE_ANSWER_TEMPERATURE`
 - `SENSE_DEFAULT_HORIZON_DAY`
 
-앱 전용 예제 파일은 `src/service/app/.env.example`에 있습니다.
+앱 전용 예제 파일은 `src/service/rag/.env.example`에 있습니다.
 
 ## 다음 확장 포인트
 

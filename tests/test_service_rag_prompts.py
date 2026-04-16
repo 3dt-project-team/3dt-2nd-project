@@ -1,5 +1,5 @@
-from src.service.app.prompts import build_user_prompt, render_context_snapshot
-from src.service.app.schemas import QueryFilters, QueryRoute, RetrievalBundle
+from src.service.rag.prompts import build_user_prompt, render_context_snapshot
+from src.service.rag.schemas import QueryFilters, QueryRoute, RetrievalBundle
 
 
 def make_bundle() -> RetrievalBundle:

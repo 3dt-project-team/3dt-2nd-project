@@ -30,6 +30,7 @@ class NewsDisplay(Base):
     sentiment_class = Column(String(10))
     pub_date = Column(Date)
     original_url = Column(Text)
+    stock_keyword = Column(Text)
 
 
 # 2. 시장 감성 집계 (gold_news.agg_market_sentiment_daily)
