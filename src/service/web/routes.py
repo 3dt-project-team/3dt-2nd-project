@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 
 from flask import jsonify, redirect, render_template, request, session, url_for
@@ -90,6 +91,62 @@ TARGET_STOCKS = [
     },
 ]
 
+REGIME_LABEL_KR_MAP = {
+    "trend": "상승",
+    "mean_rev": "횡보",
+    "mean reversion": "횡보",
+    "neutral": "횡보",
+    "bull": "상승",
+    "bear": "하락",
+    "pullback": "하락",
+    "breakout": "상승",
+    "risk_off": "하락",
+    "risk_on": "상승",
+    "risk": "하락",
+    "opportunity": "상승",
+    "mid": "횡보",
+    "high_vol": "횡보",
+    "high volatility": "횡보",
+    "high-vol": "횡보",
+}
+
+REGIME_RATE_FIELDS = [
+    ("risk_rate", "하락"),
+    ("opportunity_rate", "상승"),
+    ("neutral_rate", "횡보"),
+]
+
+
+def _to_korean_regime_text(value: str | None) -> str:
+    if not value:
+        return ""
+
+    translated = value
+    for src, dest in sorted(
+        REGIME_LABEL_KR_MAP.items(), key=lambda item: len(item[0]), reverse=True
+    ):
+        escaped = re.escape(src).replace(r"\ ", r"[\\s_\-]+")
+        translated = re.sub(escaped, dest, translated, flags=re.IGNORECASE)
+    return translated
+
+
+def _collect_regime_rates(forecast: EnsembleForecast | None) -> list[dict]:
+    if not forecast:
+        return []
+
+    rates = []
+    for field_name, label_kr in REGIME_RATE_FIELDS:
+        raw_value = getattr(forecast, field_name, None)
+        if raw_value is None:
+            continue
+
+        rate_value = float(raw_value)
+        if rate_value <= 1:
+            rate_value *= 100
+
+        rates.append({"label": label_kr, "value": rate_value})
+    return rates
+
 
 def find_stock_option(ticker: str) -> dict:
     for stock in TARGET_STOCKS:
@@ -167,6 +224,8 @@ def index():
             .all()
         )
         posts = [post for post in root_posts if post_matches_stock(post, selected_stock["aliases"])]
+        regime_label_ko = _to_korean_regime_text(forecast.regime_label if forecast else "")
+        regime_rates = _collect_regime_rates(forecast)
 
         return render_template(
             "index.html",
@@ -177,6 +236,8 @@ def index():
             selected_ticker=selected_ticker,
             selected_stock=selected_stock,
             stock_options=TARGET_STOCKS,
+            regime_label_ko=regime_label_ko,
+            regime_rates=regime_rates,
             current_user_sid=session.get("user_sid"),
             is_admin=session.get("is_admin", False),
         )
