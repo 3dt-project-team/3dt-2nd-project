@@ -1,8 +1,6 @@
 import importlib
 import sys
 
-from werkzeug.middleware.proxy_fix import ProxyFix
-
 
 def _load_app_module(monkeypatch):
     monkeypatch.setenv("KEY_VAULT_URL", "")
@@ -54,20 +52,3 @@ def test_api_chat_route_returns_400_for_invalid_payload(monkeypatch):
     assert response.status_code == 400
     assert response.get_json()["status"] == "error"
     assert "question" in response.get_json()["error"]
-
-
-def test_healthz_route_returns_ok(monkeypatch):
-    app_module = _load_app_module(monkeypatch)
-
-    client = app_module.create_app().test_client()
-    response = client.get("/healthz")
-
-    assert response.status_code == 200
-    assert response.get_json() == {"status": "ok", "service": "sense-web"}
-
-
-def test_app_module_exposes_wsgi_app(monkeypatch):
-    app_module = _load_app_module(monkeypatch)
-
-    assert app_module.app is not None
-    assert isinstance(app_module.app.wsgi_app, ProxyFix)

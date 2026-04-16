@@ -199,12 +199,6 @@ def api_chat():
     return jsonify(body), status
 
 
-@web_bp.route("/healthz")
-def healthz():
-    """Lightweight health endpoint for App Service health checks."""
-    return jsonify({"status": "ok", "service": "sense-web"}), 200
-
-
 @web_bp.route("/")
 def index():
     db = SessionLocal()
