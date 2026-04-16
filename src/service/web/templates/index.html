@@ -33,7 +33,9 @@
 
         <header class="page-header">
             <p class="eyebrow">A.I. 반도체 주식 인텔리전스</p>
-            <h1>📡 SENSE</h1>
+            <h1 class="sense-logo">
+                <span>S E N S E</span>
+            </h1>
             <p class="page-subtitle">
                 선택한 종목의 뉴스, 예측, 커뮤니티 인사이트를 하나의 화면에서 함께 확인할 수 있습니다.
             </p>
@@ -42,7 +44,7 @@
         <div class="content-wrapper">
             <aside class="analysis-side">
                 <section class="card">
-                    <h2>🔮 {{ selected_stock.name }} 예측 스냅샷</h2>
+                    <h2>🔮 20일 후 예측 스냅샷</h2>
                     <form class="forecast-selector" action="{{ url_for('web.index') }}" method="GET">
                         <label for="ticker-select">종목 선택</label>
                         <select id="ticker-select" name="ticker" onchange="this.form.submit()">
@@ -69,9 +71,17 @@
                                 <span class="value">{{ '%.1f'|format(fc.confidence_score) }}%</span>
                             </p>
                             <p class="stat-line">
-                                <span class="label">국면</span>
-                                <span class="value">{{ fc.regime_label }}</span>
+                                <span class="label">시장</span>
+                                <span class="value">{{ regime_label_ko or fc.regime_label }}</span>
                             </p>
+                            {% if regime_rates %}
+                                {% for item in regime_rates %}
+                                    <p class="stat-line">
+                                        <span class="label">{{ item.label }} rate</span>
+                                        <span class="value">{{ '%.1f'|format(item.value) }}%</span>
+                                    </p>
+                                {% endfor %}
+                            {% endif %}
                         </div>
                     {% else %}
                         <p class="empty-text">{{ selected_stock.name }} 예측 데이터를 불러오는 중입니다.</p>
@@ -89,6 +99,17 @@
                             <span class="label">평균 감성 점수</span>
                             <span class="value">{{ '%.2f'|format(st.avg_sentiment) }}점</span>
                         </p>
+                        <div class="sentiment-gauge" data-sentiment="{{ '%.4f'|format(st.avg_sentiment) }}">
+                            <div class="gauge-track"></div>
+                            <div class="gauge-center-line"></div>
+                            <div class="gauge-needle"></div>
+                            <div class="gauge-value">{{ '%.2f'|format(st.avg_sentiment) }}</div>
+                            <div class="gauge-scale">
+                                <span>-1</span>
+                                <span>0</span>
+                                <span>+1</span>
+                            </div>
+                        </div>
                     {% else %}
                         <p class="empty-text">심리 데이터를 불러오는 중입니다.</p>
                     {% endif %}
@@ -425,6 +446,23 @@
                 sendMessage();
             }
         });
+
+        function renderSentimentGauge() {
+            const gauges = document.querySelectorAll(".sentiment-gauge");
+            gauges.forEach((gauge) => {
+                const raw = Number.parseFloat(gauge.dataset.sentiment || "0");
+                const clamped = Math.max(-1, Math.min(1, Number.isFinite(raw) ? raw : 0));
+                const positionPercent = ((clamped + 1) / 2) * 100;
+
+                gauge.style.setProperty("--gauge-pos", `${positionPercent}%`);
+                const valueNode = gauge.querySelector(".gauge-value");
+                if (valueNode) {
+                    valueNode.textContent = clamped.toFixed(2);
+                }
+            });
+        }
+
+        renderSentimentGauge();
     </script>
 </body>
 </html>
