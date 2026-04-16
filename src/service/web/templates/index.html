@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>반도체 인사이트 커뮤니티</title>
+    <link rel="stylesheet" href="{{ url_for('web.static', filename='css/style.css') }}">
+    <style>
+        /* 관리자 영역 상단 고정 */
+        .admin-top-bar { position: absolute; top: 20px; right: 20px; z-index: 100; }
+        .admin-btn-toggle { background: #6c757d; color: white; border: none; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; opacity: 0.8; }
+        .admin-login-box { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); margin-top: 5px; display: none; }
+        .admin-login-box.active { display: block; }
+        .admin-status { background: rgba(40, 167, 69, 0.1); color: #28a745; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 0.8rem; display: flex; align-items: center; gap: 10px; }
+        
+        /* 챗봇 스타일 */
+        .msg.bot { background: #f0f4f8; padding: 10px; border-radius: 10px; border-bottom-left-radius: 0; }
+        .msg.user { background: #e3f2fd; padding: 10px; border-radius: 10px; border-bottom-right-radius: 0; align-self: flex-end; }
+
+        /* 대댓글(답글) 관련 스타일 */
+        .btn-reply { background: none; border: none; color: #0078d4; cursor: pointer; font-size: 0.85rem; padding: 0; margin-left: 10px; }
+        .btn-reply:hover { text-decoration: underline; }
+        
+        .replies-container { margin-left: 35px; margin-top: 10px; border-left: 2px solid #eee; padding-left: 15px; }
+        .reply-card { background: #fcfcfc; border: 1px solid #f0f0f0; border-radius: 8px; padding: 10px; margin-bottom: 8px; font-size: 0.9rem; }
+        .reply-form { margin: 10px 0 20px 35px; background: #f9f9f9; padding: 10px; border-radius: 8px; display: none; }
+        .reply-form textarea { width: 100%; height: 60px; border: 1px solid #ddd; border-radius: 4px; padding: 8px; margin-bottom: 5px; resize: none; }
+        .reply-form button { background: #0078d4; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; float: right; }
+    </style>
+</head>
+<body>
+
+    <div class="main-container" style="position: relative;">
+        <div class="admin-top-bar">
+            {% if is_admin %}
+                <div class="admin-status">
+                    <span>🟢 Admin Mode</span>
+                    <a href="{{ url_for('web.admin_logout') }}" style="color: #d9534f; text-decoration: none; font-size: 0.7rem;">[로그아웃]</a>
+                </div>
+            {% else %}
+                <button class="admin-btn-toggle" onclick="document.getElementById('admin-box').classList.toggle('active')">Admin Login</button>
+                <div id="admin-box" class="admin-login-box">
+                    <form action="{{ url_for('web.admin_login') }}" method="POST" style="display: flex; flex-direction: column; gap: 8px;">
+                        <input type="password" name="password" placeholder="비밀번호" style="padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
+                        <button type="submit" style="background: #0078d4; color: white; border: none; padding: 5px; border-radius: 4px; cursor: pointer;">인증</button>
+                    </form>
+                </div>
+            {% endif %}
+        </div>
+
+        <header>
+            <h1>Semiconductor Insight</h1>
+            <p>실시간 분석 및 전문가 커뮤니티</p>
+        </header>
+
+        <div class="content-wrapper">
+            <aside class="analysis-side">
+                <div class="card">
+                    <h2>📊 주가 예측 결과</h2>
+                    {% if fc %}
+                        <div class="forecast-info">
+                            <h3>{{ fc.ticker }}</h3>
+                            <p class="price">예측가: <span>{{ fc.final_pred }}</span>원</p>
+                            <p>신뢰도: {{ fc.confidence_score }} | 국면: {{ fc.regime_label }}</p>
+                        </div>
+                    {% else %}
+                        <p>데이터 로딩 중...</p>
+                    {% endif %}
+                </div>
+
+                <div class="card">
+                    <h2>📰 주요 반도체 뉴스</h2>
+                    <ul class="news-list">
+                        {% for news in news_list %}
+                            <li>
+                                <a href="{{ news.original_url }}" target="_blank">{{ news.display_title }}</a>
+                                <span class="sentiment {{ news.sentiment_class }}">{{ news.sentiment_class }}</span>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </aside>
+
+            <main class="community-main">
+                <div class="card post-box">
+                    <h2>💬 인사이트 공유</h2>
+                    <form action="{{ url_for('web.create_post') }}" method="POST">
+                        <textarea name="content" placeholder="반도체 시장 의견을 나눠주세요." required></textarea>
+                        <button type="submit">게시하기</button>
+                    </form>
+                </div>
+
+                <div class="post-feed">
+                    {% for post in posts %}
+                        <div id="post-group-{{ post.id }}">
+                            <div class="card post-card" id="post-{{ post.id }}">
+                                <div class="post-header">
+                                    <span class="author">익명 ({{ post.session_id[:8] }})</span>
+                                    <span class="date">{{ post.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                    {% if post.session_id == current_user_sid or is_admin %}
+                                        <button class="btn-delete" onclick="deletePost({{ post.id }})">삭제</button>
+                                    {% endif %}
+                                </div>
+                                <div class="post-content">{{ post.content }}</div>
+                                <div class="post-actions">
+                                    {% set likes = post.reactions | selectattr("reaction_type", "equalto", "like") | list | length %}
+                                    {% set dislikes = post.reactions | selectattr("reaction_type", "equalto", "dislike") | list | length %}
+                                    <button class="btn-react" onclick="sendReaction({{ post.id }}, 'like')">👍 <span id="likes-{{ post.id }}">{{ likes }}</span></button>
+                                    <button class="btn-react" onclick="sendReaction({{ post.id }}, 'dislike')">👎 <span id="dislikes-{{ post.id }}">{{ dislikes }}</span></button>
+                                    <button class="btn-reply" onclick="toggleReplyForm({{ post.id }})">💬 답글</button>
+                                </div>
+                            </div>
+
+                            <div id="reply-form-{{ post.id }}" class="reply-form">
+                                <form action="{{ url_for('web.create_post') }}" method="POST">
+                                    <input type="hidden" name="parent_id" value="{{ post.id }}">
+                                    <textarea name="content" placeholder="이 글에 대한 답글을 남겨주세요." required></textarea>
+                                    <div style="overflow: hidden;"><button type="submit">답글 등록</button></div>
+                                </form>
+                            </div>
+
+                            {% if post.replies %}
+                                <div class="replies-container">
+                                    {% for reply in post.replies %}
+                                        <div class="reply-card" id="post-{{ reply.id }}">
+                                            <div class="post-header">
+                                                <span class="author" style="font-weight: bold;">ㄴ 익명 ({{ reply.session_id[:8] }})</span>
+                                                <span class="date">{{ reply.created_at.strftime('%m-%d %H:%M') }}</span>
+                                                {% if reply.session_id == current_user_sid or is_admin %}
+                                                    <button class="btn-delete" style="font-size: 0.7rem; padding: 2px 5px;" onclick="deletePost({{ reply.id }})">삭제</button>
+                                                {% endif %}
+                                            </div>
+                                            <div class="post-content" style="margin-top: 5px;">{{ reply.content }}</div>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <div id="chatbot-container">
+        <div id="chat-window" class="hidden">
+            <div class="chat-header">🤖 반도체 RAG 챗봇</div>
+            <div id="chat-messages" style="display: flex; flex-direction: column; gap: 10px;"></div>
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="무엇이든 물어보세요..." onkeypress="if(event.keyCode==13) sendMessage()">
+                <button onclick="sendMessage()">전송</button>
+            </div>
+        </div>
+        <button id="chatbot-toggle" onclick="toggleChat()">💬</button>
+    </div>
+
+    <script>
+        // 답글 폼 열기/닫기
+        function toggleReplyForm(postId) {
+            const form = document.getElementById(`reply-form-${postId}`);
+            form.style.display = (form.style.display === 'block') ? 'none' : 'block';
+        }
+
+        // 게시글 및 답글 삭제
+        function deletePost(postId) {
+            if (!confirm("삭제하시겠습니까?")) return;
+            fetch(`/post/${postId}/delete`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById(`post-${postId}`).style.opacity = '0.5';
+                        alert("삭제되었습니다. 페이지를 새로고침합니다.");
+                        location.reload(); // 대댓글 구조상 리로드 처리가 가장 깔끔합니다.
+                    }
+                });
+        }
+
+        // 좋아요/싫어요
+        function sendReaction(postId, action) {
+            fetch(`/post/${postId}/${action}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById(`likes-${postId}`).innerText = data.likes;
+                        document.getElementById(`dislikes-${postId}`).innerText = data.dislikes;
+                    }
+                });
+        }
+
+        function toggleChat() { document.getElementById('chat-window').classList.toggle('hidden'); }
+
+        function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const messages = document.getElementById('chat-messages');
+            const question = input.value.trim();
+            if (!question) return;
+
+            messages.innerHTML += `<div class="msg user"><b>나:</b> ${question}</div>`;
+            input.value = '';
+            messages.innerHTML += `<div class="msg bot"><b>Bot:</b> RAG 엔진 연동을 준비 중입니다...</div>`;
+            messages.scrollTop = messages.scrollHeight;
+        }
+    </script>
+</body>
+</html>

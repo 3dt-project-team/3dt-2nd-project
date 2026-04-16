@@ -97,6 +97,7 @@ celerybeat-schedule
 
 # Environments
 .env
+.azure-config/
 .venv
 env/
 venv/
@@ -179,3 +180,23 @@ CLAUDE.md
 
 .python_packages
 ref/
+
+
+# Python 관련 자동 생성 파일
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 가상 환경 (용량이 매우 크고 각자 설치해야 하므로 제외)
+.venv/
+venv/
+env/
+
+# 보안 및 설정 파일 (비밀번호나 API 키가 포함된 파일은 절대 올리지 않음)
+.env
+local_settings.py
+
+# 개발 도구 설정
+.vscode/
+.idea/
+.DS_Store

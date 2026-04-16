@@ -257,10 +257,18 @@ if not _df_gold.empty:
     # (B) 매크로 피처
     _macro_cols = [
         "usd_krw_rate",
-        "yfinance_nvda_close", "yfinance_amd_close", "yfinance_mu_close",
-        "yfinance_tsm_close", "yfinance_asml_close", "yfinance_sox_close",
-        "fred_dff", "fred_dgs10", "fred_dgs2", "fred_t10y2y",
-        "fred_dfii10", "fred_bamlh0a0hym2",
+        "yfinance_nvda_close",
+        "yfinance_amd_close",
+        "yfinance_mu_close",
+        "yfinance_tsm_close",
+        "yfinance_asml_close",
+        "yfinance_sox_close",
+        "fred_dff",
+        "fred_dgs10",
+        "fred_dgs2",
+        "fred_t10y2y",
+        "fred_dfii10",
+        "fred_bamlh0a0hym2",
     ]
     _macro_avail = [c for c in _macro_cols if c in _df_gold.columns]
     df_macro_gold = (
@@ -306,15 +314,28 @@ try:
     if not _df_sense.empty:
         _sense_derived_cols = [
             "date",
-            "NVDA_log_return", "NVDA_volatility_gk", "NVDA_volatility_5d",
-            "SOX_log_return", "SOX_volatility_5d",
-            "yield_spread", "yield_spread_change", "stagnation_pressure",
-            "usd_krw_change", "usd_krw_pct",
-            "risk_off_flag", "risk_off_composite", "macro_stress_score",
-            "fear_composite", "semi_risk_signal", "korea_sensitivity",
-            "global_risk_regime", "is_high_risk",
-            "semi_export_yoy", "semi_export_mom",
-            "dram_supply_pressure", "nand_supply_pressure",
+            "NVDA_log_return",
+            "NVDA_volatility_gk",
+            "NVDA_volatility_5d",
+            "SOX_log_return",
+            "SOX_volatility_5d",
+            "yield_spread",
+            "yield_spread_change",
+            "stagnation_pressure",
+            "usd_krw_change",
+            "usd_krw_pct",
+            "risk_off_flag",
+            "risk_off_composite",
+            "macro_stress_score",
+            "fear_composite",
+            "semi_risk_signal",
+            "korea_sensitivity",
+            "global_risk_regime",
+            "is_high_risk",
+            "semi_export_yoy",
+            "semi_export_mom",
+            "dram_supply_pressure",
+            "nand_supply_pressure",
         ]
         _available = [c for c in _sense_derived_cols if c in _df_sense.columns]
         df_sense_macro = _df_sense[_available].copy()
@@ -406,9 +427,12 @@ try:
 
         # 금액 단위 조정 (USD → 억 USD)
         dollar_cols = [
-            c for c in df_semi_agg.columns
-            if c.startswith("semi_") and ("exp" in c or "imp" in c or "net" in c)
-            and "mom" not in c and "ratio" not in c
+            c
+            for c in df_semi_agg.columns
+            if c.startswith("semi_")
+            and ("exp" in c or "imp" in c or "net" in c)
+            and "mom" not in c
+            and "ratio" not in c
         ]
         for col in dollar_cols:
             df_semi_agg[col] = df_semi_agg[col] / 1e8
@@ -447,8 +471,7 @@ print("=" * 60)
 
 if not df_sense_macro.empty:
     print(
-        f"\n[sense_macro 리스크 시그널]  "
-        f"{df_sense_macro.shape[1]} 피처, {len(df_sense_macro)} 일"
+        f"\n[sense_macro 리스크 시그널]  {df_sense_macro.shape[1]} 피처, {len(df_sense_macro)} 일"
     )
     print(f"  기간: {df_sense_macro.index.min().date()} ~ {df_sense_macro.index.max().date()}")
     print(f"  피처: {list(df_sense_macro.columns)[:10]}...")
@@ -476,6 +499,7 @@ print("\n" + "=" * 60)
 # MAGIC # 2. 통합 피처 마트 구성
 
 # COMMAND ----------
+
 
 # DBTITLE 1,통합 피처 마트 구성
 def build_feature_mart(df_equity, ticker, df_sense_macro, df_semiconductor, df_macro_gold):
@@ -521,6 +545,7 @@ for ticker in TICKERS:
 # MAGIC # 3. 교차 검증 파생 변수 생성
 
 # COMMAND ----------
+
 
 # DBTITLE 1,교차 검증 파생 변수 (sense_macro × semiconductor)
 def create_derived_features(df):

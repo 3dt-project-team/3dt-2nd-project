@@ -196,20 +196,33 @@ try:
     _sense_derived_cols = [
         "date",
         # 변동성/리스크
-        "NVDA_log_return", "NVDA_volatility_gk", "NVDA_volatility_5d",
-        "SOX_log_return", "SOX_volatility_5d",
+        "NVDA_log_return",
+        "NVDA_volatility_gk",
+        "NVDA_volatility_5d",
+        "SOX_log_return",
+        "SOX_volatility_5d",
         # 금리
-        "yield_spread", "yield_spread_change", "stagnation_pressure",
+        "yield_spread",
+        "yield_spread_change",
+        "stagnation_pressure",
         # 환율
-        "usd_krw_change", "usd_krw_pct",
+        "usd_krw_change",
+        "usd_krw_pct",
         # 리스크 시그널
-        "risk_off_flag", "risk_off_composite", "macro_stress_score",
-        "fear_composite", "semi_risk_signal", "korea_sensitivity",
-        "global_risk_regime", "is_high_risk",
+        "risk_off_flag",
+        "risk_off_composite",
+        "macro_stress_score",
+        "fear_composite",
+        "semi_risk_signal",
+        "korea_sensitivity",
+        "global_risk_regime",
+        "is_high_risk",
         # 수출 모멘텀
-        "semi_export_yoy", "semi_export_mom",
+        "semi_export_yoy",
+        "semi_export_mom",
         # 공급 압력
-        "dram_supply_pressure", "nand_supply_pressure",
+        "dram_supply_pressure",
+        "nand_supply_pressure",
     ]
     _available = [c for c in _sense_derived_cols if c in df_sense.columns]
     df_sense_derived = df_sense[_available].copy()
@@ -244,9 +257,15 @@ for ticker in TICKERS:
 
     # 매크로/해외주가 컬럼 병합 (date, close, 메타/비수치 컬럼 제외)
     _exclude = {
-        "date", close_col,
-        "요일", "주말여부", "한국_휴장일_여부", "미국_휴장일_여부",
-        "fx_collected_at_utc", "yfinance_collected_at_utc", "fred_collected_at_utc",
+        "date",
+        close_col,
+        "요일",
+        "주말여부",
+        "한국_휴장일_여부",
+        "미국_휴장일_여부",
+        "fx_collected_at_utc",
+        "yfinance_collected_at_utc",
+        "fred_collected_at_utc",
     }
     for c in df_gold_macro.columns:
         if c not in _exclude:
@@ -858,9 +877,7 @@ def _deep_mark_fitted(obj, _visited=None):
 
     # SimpleImputer._fill_dtype 누락 복원 (1.4.2 → 1.8.0)
     if isinstance(obj, SimpleImputer) and not hasattr(obj, "_fill_dtype"):
-        obj._fill_dtype = (
-            obj.statistics_.dtype if hasattr(obj, "statistics_") else np.float64
-        )
+        obj._fill_dtype = obj.statistics_.dtype if hasattr(obj, "statistics_") else np.float64
 
     # 모든 속성을 순회하며 하위 estimator 재귀 탐색
     for attr_val in vars(obj).values():
@@ -1100,6 +1117,7 @@ print(f"\nTimesFM 데이터 소스: {_tfm_source}")
 # COMMAND ----------
 
 # DBTITLE 1,Soft Switching 가중치 보간 함수
+
 
 def _rsi_weight_adjustment(rsi: float) -> float:
     """
@@ -1371,6 +1389,7 @@ def compute_confidence_score(
 
 # DBTITLE 1,동적 앙상블 실행
 
+
 def calculate_dynamic_ensemble(
     ticker: str,
     timesfm_point: np.ndarray,
@@ -1471,6 +1490,7 @@ def calculate_dynamic_ensemble(
         "news_vol_surge": news_vol_surge,
     }
 
+
 # COMMAND ----------
 
 # DBTITLE 1,앙상블 실행
@@ -1515,8 +1535,7 @@ for ticker in TICKERS:
     print(f"  ★ 앙상블 T+{HORIZON}: {final_pred:,.0f}원 ({change:+.2f}%)")
     print(f"  신뢰도: {result['confidence']:.1f}/100")
     print(
-        f"  뉴스 감성: avg={result['avg_sentiment']:+.3f}, "
-        f"뉴스급증={result['news_vol_surge']:.1f}x"
+        f"  뉴스 감성: avg={result['avg_sentiment']:+.3f}, 뉴스급증={result['news_vol_surge']:.1f}x"
     )
 
 # COMMAND ----------
@@ -1584,6 +1603,7 @@ except Exception as e:
 # COMMAND ----------
 
 # DBTITLE 1,시각화 함수
+
 
 def plot_dynamic_ensemble(result: dict, ticker_name: str, save_path: str | None = None):
     """
@@ -1696,6 +1716,7 @@ def plot_dynamic_ensemble(result: dict, ticker_name: str, save_path: str | None 
 
     display(fig)  # noqa: F821
     plt.close(fig)
+
 
 # COMMAND ----------
 
@@ -1830,7 +1851,7 @@ for ticker in TICKERS:
 [모델 예측]
 - TimesFM(추세): {timesfm_predictions[ticker][-1]:,.0f}원
 - AutoML UC(회귀): {automl_predictions[ticker]:,.0f}원
-  (R²={0.817 if '005930' in ticker else 0.770:.3f})
+  (R²={0.817 if "005930" in ticker else 0.770:.3f})
 - 앙상블 최종: {final_pred:,.0f}원 ({change_pct:+.2f}%)
 
 [레짐 판별]
@@ -1920,9 +1941,9 @@ if _silver_loaded:
         g_close.columns = ["date", "close"]
         g_close = g_close.sort_values("date").reset_index(drop=True)
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"  {ticker_name} — Silver vs Gold 비교")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(
             f"  Silver: {len(s_close)}일, "
             f"{s_close['date'].iloc[0].date()} ~ {s_close['date'].iloc[-1].date()}"
@@ -1931,12 +1952,12 @@ if _silver_loaded:
             f"  Gold:   {len(g_close)}일, "
             f"{g_close['date'].iloc[0].date()} ~ {g_close['date'].iloc[-1].date()}"
         )
-        _s_ret = (s_close['close'].iloc[-1] / s_close['close'].iloc[0] - 1) * 100
+        _s_ret = (s_close["close"].iloc[-1] / s_close["close"].iloc[0] - 1) * 100
         print(
             f"  Silver: {s_close['close'].iloc[0]:,.0f} → "
             f"{s_close['close'].iloc[-1]:,.0f} ({_s_ret:+.1f}%)"
         )
-        _g_ret = (g_close['close'].iloc[-1] / g_close['close'].iloc[0] - 1) * 100
+        _g_ret = (g_close["close"].iloc[-1] / g_close["close"].iloc[0] - 1) * 100
         print(
             f"  Gold:   {g_close['close'].iloc[0]:,.0f} → "
             f"{g_close['close'].iloc[-1]:,.0f} ({_g_ret:+.1f}%)"
@@ -1949,21 +1970,16 @@ if _silver_loaded:
         print(f"\n  ★ Silver 마지막 날짜: {s_end.date()}")
         print(f"  ★ Gold   마지막 날짜: {g_end.date()}")
         if date_diff != 0:
-            print(f"  ★ 날짜 차이: {date_diff}일 — "
-                  f"Gold가 {abs(date_diff)}일 더 최신!")
+            print(f"  ★ 날짜 차이: {date_diff}일 — Gold가 {abs(date_diff)}일 더 최신!")
         print(f"  ★ 데이터 길이 차이: Silver {len(s_close)}일 vs Gold {len(g_close)}일")
 
         # 공통 날짜 merge
         merged = pd.merge(s_close, g_close, on="date", suffixes=("_silver", "_gold"), how="inner")
         if len(merged) > 0:
             diff = (
-                (merged["close_silver"] - merged["close_gold"]).abs()
-                / merged["close_gold"] * 100
+                (merged["close_silver"] - merged["close_gold"]).abs() / merged["close_gold"] * 100
             )
-            print(
-                f"  공통 기간 가격 차이: 평균 {diff.mean():.3f}%, "
-                f"최대 {diff.max():.3f}%"
-            )
+            print(f"  공통 기간 가격 차이: 평균 {diff.mean():.3f}%, 최대 {diff.max():.3f}%")
             if diff.mean() < 0.01:
                 print("  → 동일 yfinance 데이터 — 가격 자체는 같음")
 
@@ -1983,10 +1999,7 @@ if _silver_loaded:
                 f"    {last60['close'].iloc[0]:,.0f} → "
                 f"{last60['close'].iloc[-1]:,.0f} ({ret:+.1f}%)"
             )
-            print(
-                f"    기울기: {slope:+,.1f}원/일, 변동성: {std:.2f}%/일, "
-                f"상승/하락: {up}/{down}"
-            )
+            print(f"    기울기: {slope:+,.1f}원/일, 변동성: {std:.2f}%/일, 상승/하락: {up}/{down}")
 
         # --- 시각화 ---
         fig, axes = plt.subplots(1, 2, figsize=(16, 5))
@@ -2013,14 +2026,14 @@ if _silver_loaded:
         display(fig)  # noqa: F821
         plt.close(fig)
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("  ★ 최종 결론")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     print(
         f"  Silver 마지막: {df_silver['s_date'].max().date()}, "
         f"Gold 마지막: {df_gold_macro['date'].max().date()}"
     )
-    _days_gap = (df_gold_macro['date'].max() - df_silver['s_date'].max()).days
+    _days_gap = (df_gold_macro["date"].max() - df_silver["s_date"].max()).days
     if _days_gap > 0:
         print(
             f"  Gold가 {_days_gap}일 더 최신 — "
