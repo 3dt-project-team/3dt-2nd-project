@@ -344,8 +344,21 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [ ] 예측 결과 Azure Database for PostgreSQL 적재
 - [ ] PostgreSQL `pgvector` 확장 + 하이브리드 검색 구현
 - [ ] Power BI 시각화 대시보드 (XAI 피처 중요도 포함)
-- [ ] Web App + AI Agent RAG 서빙
+- [x] Web App + AI Agent RAG 서빙 — **sense-web v1.2 Production 배포 완료** ✅
 - [ ] 최종 파이프라인 End-to-End 검증
+
+#### SENSE 웹 대시보드 배포 이력
+| 버전 | 날짜 | 내용 |
+|------|------|------|
+| v1.0 | 4/15 | Flask + RAG 챗봇 초기 배포. ACR `sense3dtacr`, Azure App Service `sense-web` (Standard S1, koreacentral) |
+| v1.1 | 4/16 | Bold 렌더링 수정, 하단 고지문 추가 (PR #99) |
+| v1.2 | 4/16 | **한/영 병기 레이블** (Forecast/Sentiment/News/Community/Regime/Confidence), **Plain Language 챗봇** (`[한마디로 / Plain Language]` 섹션, 전문용어 한국어 병기), Dockerfile + .dockerignore 추가 (PR #100) |
+
+**인프라**:
+- ACR: `sense3dtacr.azurecr.io/sense-web:v1.2` (python:3.11-slim, gunicorn gthread)
+- App Service: `sense-web` / Staging Slot → Blue-Green Swap 배포
+- 인증: Managed Identity → ACR Pull + Key Vault Secrets User (`pg-connection-string`)
+- 앱 설정: `KEY_VAULT_URL`, `WEBSITES_PORT=8000`
 
 ---
 
