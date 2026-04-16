@@ -296,6 +296,11 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - [x] AutoML RandomForest 통합 — Databricks AutoML 검증 (삼성 R²=0.72, SK R²=0.86) 기반 RF 모델 추가 (v0417)
 - [x] 회귀 컴포넌트 블렌딩 — `regression_pred = 0.7*RF + 0.3*EN` AutoML 하이퍼파라미터 적용 (v0417)
 - [x] SQLAlchemy 2.x 호환성 — `engine.connect()` + `conn.commit()` 패턴 (3개 파일) (v0417)
+- [x] AI 최종 모델 전환 — Section 8 gpt-4.1-mini → **gpt-5.4-mini** (Responses API) (v0418)
+- [x] ElasticNet 시나리오 분석 — `use_elasticnet` 플래그 + RF+EN vs RF-only 비교 셀 (v0418)
+- [x] Date 인덱스 충돌 수정 — `reset_index(drop=True)` 조건 분기 적용 (v0418)
+- [x] AutoML BestTrial 노트북 — `automl_best_trial.py` Databricks 노트북 신규 (v0418)
+- [x] GPT 모델 비교 평가 — `ref/모델_평가_GPT_비교.md` 성능/가격/품질 분석 문서 (v0418)
 
 > ⚠️ **v0413 실행 결과 발견 이슈 → v0414 대응:**
 > - SK하이닉스 ElasticNet R²=−0.33 → **v0414: 로그수익률 타겟으로 스케일 차이 해소**
@@ -309,7 +314,8 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 > - `timesfm_inference_lite.py` — TimesFM 간소화 아카이브
 > - `statistical_baseline_analysis.py` — 전통 모델 메인 (Full Feature)
 > - `statistical_baseline_analysis_lite.py` — 전통 모델 간소화 아카이브
-> - `ensemble_strategy.py` — 동적 가중치 앙상블 (v0413 신규, v0415 감성, v0416 키워드, v0417 AutoML RF 통합)
+> - `ensemble_strategy.py` — 동적 가중치 앙상블 (v0413 신규, v0415 감성, v0416 키워드, v0417 AutoML RF, v0418 gpt-5.4-mini)
+> - `automl_best_trial.py` — AutoML BestTrial RF 추론/평가/SHAP 분석 (v0418 신규)
 > - `correlation_analysis.py` — 원본 상관분석 (복원)
 
 #### XGBoost/LightGBM 분류 (ML Studio)
@@ -324,6 +330,13 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 #### 앙상블 합의 판정
 - [x] 동적 가중치 앙상블 (`ensemble_strategy.py`) — TimesFM(추세) × ElasticNet(회귀) 후처리 결합 (v0413)
 - [x] AutoML RandomForest 통합 — RF+EN 블렌딩 회귀 컴포넌트 (v0417, Issue #88)
+- [x] UC 모델 재학습 — Gold Layer 피처 통일, Samsung R²=0.817/SK R²=0.770 (v0419)
+- [x] ElasticNet 제거 + UC BestTrial 단독 — Samsung R²=0.9266, SK R²=0.7097 (v0419)
+- [x] 앙상블 가중치 최적화 — base 0.45/0.55, clip [0.25, 0.75] (v0419)
+- [x] sklearn 1.4→1.8 호환성 패치 — `_deep_mark_fitted()` SimpleImputer 재귀 수정 (v0419)
+- [x] TimesFM 3단계 fallback — ADLS feature/timesfm_forecast → memory → simulation (v0419)
+- [x] Silver vs Gold 비교 실험 셀 — 시점 차이가 TimesFM context 변화 근본 원인 확인 (v0419)
+- [x] 3개 노트북 Gold Layer 통일 — automl_best_trial, ensemble_strategy, timesfm_inference (v0419)
 - [ ] XGBoost 확률 통합 — 하방 리스크 확률을 앙상블 가중치에 반영
 - [ ] RAG 연동 — XReg Attribution 기반 예측 근거 자동 생성
 
@@ -356,3 +369,6 @@ gh project create --owner 3dt-project-team --title "3dt-2nd-project 칸반"
 - **TimesFM 앙상블 모델 분석 기록**: [TimesFM_앙상블_튜닝_트러블슈팅.md](TimesFM_앙상블_튜닝_트러블슈팅.md) — v0412~v0414 개발 히스토리, 6가지 이슈 트러블슈팅, 파라미터 튜닝
 - **v0415 뉴스 감성 통합**: Gold Layer `v_news_sentiment_trend` 뷰 활용, 5개 감성 파생 피처, Soft Switching 감성 가중치, Interaction 규칙 확장, GPT 프롬프트 AI 슈퍼사이클 스토리라인
 - **v0416 키워드 파생변수 + 멀티모델**: `daily_keywords` JSONB 6종 파생변수, 교호작용 4종, Spearman/Pearson 교차검증 상관분석, AI 중간 해석 3셀, GPT-5.4 계열 Responses API 멀티모델 비교, `display(fig)` 전환
+- **v0418 AI 최종 모델 + BestTrial**: Section 8 gpt-5.4-mini 전환 (속도 2.87s, Input $0.25/1M), ElasticNet 시나리오 분석 플래그, Date 인덱스 충돌 수정, `automl_best_trial.py` UC 모델 추론/SHAP 노트북, `ref/모델_평가_GPT_비교.md` 문서
+- **v0419 UC 재학습 + Gold Layer 통일 + ElasticNet 제거**: UC 모델 Gold Layer 피처로 재학습 (Samsung R²=0.8165→0.9266, SK R²=0.7703→0.7097), ElasticNet 완전 제거 (R²≈0.05/−1.19), `ensemble_strategy.py` v0419 TimesFM(0.45)+UC(0.55) 앙상블 (clip [0.25, 0.75], RSI ±0.20, vol ±0.15, sentiment ±0.10), sklearn 1.4→1.8 `_deep_mark_fitted()` 재귀 패치, TimesFM 3단계 fallback (ADLS→memory→simulation), Silver vs Gold 비교 실험 셀 추가, 3개 노트북 Gold Layer 데이터 소스 통일
+- **ML 파이프라인 자동화 (§8·§10)**: `notebooks/03_ml_feature_build.py` 신규 생성 — Gold Layer 3개 테이블 JOIN, RSI/ATR/이격도 기술 지표, 5일 타겟 변수 (upside_flag/downside_flag/regime_label), `gold_ml.gold_ml_feature_set` UPSERT, MLflow git_commit 태그 등록. `adf/pipeline/Pipeline_Daily_SENSE_Predict.json` — 수집(2개)→raw_to_curated→curated_to_feature→ml_feature_build→statistical_baseline→ensemble_predict 7단계 순차 파이프라인. `adf/trigger/tr_daily_sense_predict.json` — 매일 16:30 KST ScheduleTrigger

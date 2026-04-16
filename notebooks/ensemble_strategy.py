@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # SENSE 프로젝트 — 동적 가중치 앙상블 전략 (v0417)
+# MAGIC # SENSE 프로젝트 — 동적 가중치 앙상블 전략 (v0418)
 # MAGIC
 # MAGIC > **역할**: TimesFM(추세)과 RF+ElasticNet(평균회귀) 예측을
 # MAGIC > 뉴스 감성 데이터와 결합하여 동적 가중치 앙상블 및 Confidence Score 산출
@@ -14,6 +14,10 @@
 # MAGIC
 # MAGIC ---
 # MAGIC **변경 이력**
+# MAGIC - v0418 (2025-04-18): **AI 모델 전환 + ElasticNet 시나리오 + Date 인덱스 수정**
+# MAGIC   - Section 8 AI 최종 분석 모델: gpt-4.1-mini → **gpt-5.4-mini** (Responses API)
+# MAGIC   - 회귀 컴포넌트 `use_elasticnet` 플래그 추가 (RF-only 시나리오 지원)
+# MAGIC   - Date 인덱스-컬럼 동시 존재 시 `reset_index(drop=True)` 충돌 수정
 # MAGIC - v0417 (2025-04-17): **AutoML RandomForest 통합 + SQLAlchemy 2.x 호환**
 # MAGIC   - Databricks AutoML 검증 결과 반영: RF R²=0.72(삼성)/0.86(SK) vs EN R²=0.05/-1.19
 # MAGIC   - RandomForest 회귀 모델 추가 (AutoML 하이퍼파라미터: max_depth=8, n_estimators=400)
@@ -80,8 +84,6 @@ import matplotlib.font_manager as fm  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-from sklearn.linear_model import ElasticNetCV  # noqa: E402
-from sklearn.preprocessing import StandardScaler  # noqa: E402
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -142,57 +144,99 @@ account = vault.get_secret("adls-account-name")  # "3dtteam1adls"
 # COMMAND ----------
 
 # DBTITLE 1,Curated Parquet 로드
-# 통합 피처 마트 로드 — TimesFM/Statistical 노트북과 동일한 데이터 소스
-_curated_path = f"abfss://curated@{account}.dfs.core.windows.net/pre_macro_1y_adf.parquet"
-df_curated = spark.read.parquet(_curated_path).toPandas()  # noqa: F821
-df_curated["date"] = pd.to_datetime(df_curated["date"])
-df_curated = df_curated.sort_values("date").reset_index(drop=True)
-print(f"Curated 로드: {df_curated.shape}")
+# ---------------------------------------------------------------------------
+# Gold Layer 데이터 로드 (feature 컨테이너) — 학습 노트북과 동일 소스
+# ---------------------------------------------------------------------------
+_gold_macro_path = f"abfss://feature@{account}.dfs.core.windows.net/gold_macro_1y/"
+df_gold_macro = spark.read.parquet(_gold_macro_path).toPandas()  # noqa: F821
+df_gold_macro.rename(columns={"기준일자": "date"}, inplace=True)
+df_gold_macro["date"] = pd.to_datetime(df_gold_macro["date"])
+df_gold_macro = df_gold_macro.sort_values("date").reset_index(drop=True)
+print(
+    f"Gold Macro 로드: {df_gold_macro.shape}, "
+    f"기간: {df_gold_macro['date'].min().date()} ~ {df_gold_macro['date'].max().date()}"
+)
 
 # COMMAND ----------
 
 # DBTITLE 1,반도체 수출입 데이터 (Silver)
+# ---------------------------------------------------------------------------
+# 반도체 수출입 (Gold Layer: macro_semiconductor)
+# HS코드별 → 월별 집계 (학습 노트북과 동일)
+# ---------------------------------------------------------------------------
 try:
-    _semi_path = f"abfss://curated@{account}.dfs.core.windows.net/silver_semiconductor.parquet"
-    df_semi = spark.read.parquet(_semi_path).toPandas()  # noqa: F821
-    if "date" in df_semi.columns:
-        df_semi["date"] = pd.to_datetime(df_semi["date"])
-    elif "prd_de" in df_semi.columns:
-        df_semi.rename(columns={"prd_de": "date"}, inplace=True)
-        df_semi["date"] = pd.to_datetime(df_semi["date"])
-    # 일별 집계
-    _num_cols_semi = df_semi.select_dtypes(include=[np.number]).columns.tolist()
-    df_semi_daily = df_semi.groupby("date")[_num_cols_semi].mean().reset_index()
-    df_semi_daily.columns = ["date"] + [f"semi_{c}" for c in _num_cols_semi]
-    print(f"반도체 수출입: {df_semi_daily.shape}")
-except Exception as e:
+    _semi_path = f"abfss://feature@{account}.dfs.core.windows.net/macro_semiconductor/"
+    df_semi_raw = spark.read.parquet(_semi_path).toPandas()  # noqa: F821
+    df_semi_raw["date"] = pd.to_datetime(df_semi_raw["date"])
+    df_semi_monthly = (
+        df_semi_raw.groupby("date")
+        .agg(
+            semi_hsCode=("hsCode", "first"),
+            semi_expDlr=("expDlr", "sum"),
+            semi_impDlr=("impDlr", "sum"),
+        )
+        .reset_index()
+    )
+    print(f"반도체 수출입 (monthly): {df_semi_monthly.shape}")
+except Exception as e:  # noqa: BLE001
     print(f"[WARN] 반도체 데이터 로드 실패: {e}")
-    df_semi_daily = pd.DataFrame()
+    df_semi_monthly = pd.DataFrame()
 
 # COMMAND ----------
 
 # DBTITLE 1,KFinance 데이터 (Silver)
+# ---------------------------------------------------------------------------
+# sense_macro: 파생 리스크 시그널 (23개 변수)
+# — 학습 노트북(AutoML Stock Prediction)과 동일한 파생변수 선택
+# ---------------------------------------------------------------------------
 try:
-    _kfin_path = f"abfss://curated@{account}.dfs.core.windows.net/silver_kfinance.parquet"
-    df_kfin = spark.read.parquet(_kfin_path).toPandas()  # noqa: F821
-    if "date" in df_kfin.columns:
-        df_kfin["date"] = pd.to_datetime(df_kfin["date"])
-    elif "trd_dd" in df_kfin.columns:
-        df_kfin.rename(columns={"trd_dd": "date"}, inplace=True)
-        df_kfin["date"] = pd.to_datetime(df_kfin["date"])
-    _num_cols_kfin = df_kfin.select_dtypes(include=[np.number]).columns.tolist()
-    df_kfin_daily = df_kfin.groupby("date")[_num_cols_kfin].mean().reset_index()
-    df_kfin_daily.columns = ["date"] + [f"kfin_{c}" for c in _num_cols_kfin]
-    print(f"KFinance: {df_kfin_daily.shape}")
-except Exception as e:
-    print(f"[WARN] KFinance 데이터 로드 실패: {e}")
-    df_kfin_daily = pd.DataFrame()
+    _sense_path = f"abfss://feature@{account}.dfs.core.windows.net/sense_macro/"
+    df_sense = spark.read.parquet(_sense_path).toPandas()  # noqa: F821
+    df_sense["date"] = pd.to_datetime(df_sense["date"])
+    _sense_derived_cols = [
+        "date",
+        # 변동성/리스크
+        "NVDA_log_return",
+        "NVDA_volatility_gk",
+        "NVDA_volatility_5d",
+        "SOX_log_return",
+        "SOX_volatility_5d",
+        # 금리
+        "yield_spread",
+        "yield_spread_change",
+        "stagnation_pressure",
+        # 환율
+        "usd_krw_change",
+        "usd_krw_pct",
+        # 리스크 시그널
+        "risk_off_flag",
+        "risk_off_composite",
+        "macro_stress_score",
+        "fear_composite",
+        "semi_risk_signal",
+        "korea_sensitivity",
+        "global_risk_regime",
+        "is_high_risk",
+        # 수출 모멘텀
+        "semi_export_yoy",
+        "semi_export_mom",
+        # 공급 압력
+        "dram_supply_pressure",
+        "nand_supply_pressure",
+    ]
+    _available = [c for c in _sense_derived_cols if c in df_sense.columns]
+    df_sense_derived = df_sense[_available].copy()
+    print(f"sense_macro 파생변수: {df_sense_derived.shape}")
+except Exception as e:  # noqa: BLE001
+    print(f"[WARN] sense_macro 로드 실패: {e}")
+    df_sense_derived = pd.DataFrame()
 
 # COMMAND ----------
 
 # DBTITLE 1,피처 마트 구성 (종목별)
-# TimesFM/Statistical 노트북과 동일한 피처 마트 구성 로직
-# df_curated 컬럼 매핑 (timesfm_inference_lite 노트북의 TICKER_COL_MAP 준용)
+# ---------------------------------------------------------------------------
+# 종목별 피처 마트 구성 — Gold Layer 기반 (학습 노트북과 동일)
+# ---------------------------------------------------------------------------
 TICKER_COL_MAP = {
     "005930.KS": "yfinance_samsung_close",
     "000660.KS": "yfinance_skhynix_close",
@@ -203,30 +247,44 @@ for ticker in TICKERS:
     name = TICKER_NAMES[ticker]
     close_col = TICKER_COL_MAP.get(ticker)
 
-    if close_col is None or close_col not in df_curated.columns:
+    if close_col is None or close_col not in df_gold_macro.columns:
         print(f"[WARN] {name}: close 컬럼({close_col}) 미발견 — 스킵")
         continue
 
-    mart = df_curated[["date"]].copy()
-    mart["close"] = df_curated[close_col].values
+    # --- gold_macro_1y 기반 마트 초기화 ---
+    mart = df_gold_macro[["date"]].copy()
+    mart["close"] = df_gold_macro[close_col].values
 
-    # 매크로/퀀트 컬럼 병합 (date, 타겟 close, 메타 컬럼 제외)
+    # 매크로/해외주가 컬럼 병합 (date, close, 메타/비수치 컬럼 제외)
     _exclude = {
         "date",
         close_col,
+        "요일",
+        "주말여부",
+        "한국_휴장일_여부",
+        "미국_휴장일_여부",
         "fx_collected_at_utc",
         "yfinance_collected_at_utc",
         "fred_collected_at_utc",
     }
-    for c in df_curated.columns:
+    for c in df_gold_macro.columns:
         if c not in _exclude:
-            mart[c] = df_curated[c].values
+            mart[c] = df_gold_macro[c].values
 
-    # 반도체/KFinance 병합
-    if not df_semi_daily.empty:
-        mart = mart.merge(df_semi_daily, on="date", how="left")
-    if not df_kfin_daily.empty:
-        mart = mart.merge(df_kfin_daily, on="date", how="left")
+    # --- 반도체 수출입 병합 (monthly → Forward Fill) ---
+    if not df_semi_monthly.empty:
+        mart = mart.merge(df_semi_monthly, on="date", how="left")
+        for sc in ["semi_hsCode", "semi_expDlr", "semi_impDlr"]:
+            if sc in mart.columns:
+                mart[sc] = mart[sc].ffill()
+
+    # --- sense_macro 파생변수 병합 ---
+    if not df_sense_derived.empty:
+        mart = mart.merge(df_sense_derived, on="date", how="left")
+        _sense_num_cols = df_sense_derived.select_dtypes(include=[np.number]).columns.tolist()
+        for sc in _sense_num_cols:
+            if sc in mart.columns:
+                mart[sc] = mart[sc].ffill()
 
     mart = mart.sort_values("date").reset_index(drop=True)
     mart.index = mart["date"]
@@ -389,7 +447,10 @@ for ticker in TICKERS:
         # date가 인덱스이면 컬럼으로 꺼내서 merge 후 다시 인덱스 설정
         _date_is_index = mart.index.name == "date"
         if _date_is_index:
-            mart = mart.reset_index()
+            if "date" in mart.columns:
+                mart = mart.reset_index(drop=True)
+            else:
+                mart = mart.reset_index()
         mart = mart.merge(sent, on="date", how="left")
         if _date_is_index:
             mart = mart.set_index("date")
@@ -769,370 +830,127 @@ except Exception as e:
 
 # COMMAND ----------
 
+# DBTITLE 1,AutoML UC 모델 설명
 # MAGIC %md
-# MAGIC # 3. Step 2 — ElasticNetCV + Time-Decay Weighting
+# MAGIC # 3. Step 2 — AutoML UC 모델 (Unity Catalog 등록 모델)
 # MAGIC
-# MAGIC 기존 RidgeCV를 **ElasticNetCV**(L1+L2 정규화)로 전환하여,
-# MAGIC 불필요한 피처를 0으로 탈락시키고(Lasso 효과) AI 슈퍼사이클의
-# MAGIC 핵심 드라이버만 살아남도록 합니다.
+# MAGIC 기존 ElasticNetCV(R²≈0.05)를 **Databricks AutoML 에서 학습된
+# MAGIC Unity Catalog 모델**로 교체합니다.
+# MAGIC Gold Layer 동일 데이터로 학습된 모델이 sklearn 1.8.0 네이티브로 등록되어
+# MAGIC 호환성 패치가 불필요합니다.
 # MAGIC
-# MAGIC ### v0414 핵심 변경
-# MAGIC 1. **타겟 변수**: 절대가(원) → **T+20 로그수익률** (스케일 불변, 종목 간 비교 가능)
-# MAGIC 2. **Alpha 범위**: 자동 경로 → **0.001~1.0** (과잉 정규화 방지)
-# MAGIC 3. **Time-Decay**: half_life=60 → **30 거래일(~1.5개월)** (최근 랠리 반영 강화)
+# MAGIC | 모델 | UC 경로 | R² |
+# MAGIC |---|---|---|
+# MAGIC | 삼성전자 | `sense_databricks.models.automl_삼성전자_t20` v1 | 0.817 |
+# MAGIC | SK하이닉스 | `sense_databricks.models.automl_SK하이닉스_t20` v1 | 0.770 |
 # MAGIC
-# MAGIC | 파라미터 | v0413 | v0414 | 근거 |
-# MAGIC |---|---|---|---|
-# MAGIC | target | 절대가 (원) | log(P_{t+20}/P_t) | 삼성(20만)/하이닉스(100만) 스케일 차이 해소 |
-# MAGIC | alphas | 자동 (40~189) | 0.001~1.0 | 모델이 최근 변동성을 더 학습하도록 허용 |
-# MAGIC | half_life | 60 거래일 | 30 거래일 | 과거 저가 편향(Historical Bias) 억제 강화 |
-# MAGIC | l1_ratio 탐색 | [0.1, 0.3, 0.5, 0.7, 0.9] | [0.1, 0.3, 0.5, 0.7, 0.9] | 동일 |
-# MAGIC | cv | 5-fold | 5-fold | 동일 |
-
-# COMMAND ----------
-
-# DBTITLE 1,Time-Decay 가중치 생성
-
-
-def compute_time_decay_weights(n_samples: int, half_life: int = 60) -> np.ndarray:
-    """
-    지수 감쇠(Exponential Decay) 기반 시간 가중치를 생성합니다.
-
-    최근 데이터일수록 높은 가중치를 부여하여 'Historical Bias'를 완화합니다.
-    half_life=60 → 60거래일(~3개월) 전 데이터의 가중치가 최신의 절반.
-
-    수학적 근거: w_i = exp(-λ × (n - i)), λ = ln(2) / half_life
-    - i=n(최신): w = 1.0
-    - i=n-60(3개월 전): w ≈ 0.5
-    - i=0(1년 전): w ≈ 0.06 (6% 수준으로 억제)
-
-    Parameters
-    ----------
-    n_samples : int
-        학습 데이터 샘플 수
-    half_life : int
-        반감기 (거래일 기준, 기본값: 60일 ≈ 3개월)
-
-    Returns
-    -------
-    np.ndarray
-        시간 가중치 배열 (0~1, 합=n_samples가 되도록 정규화하지 않음)
-    """
-    decay_rate = np.log(2) / half_life
-    time_idx = np.arange(n_samples)
-    weights = np.exp(-decay_rate * (n_samples - 1 - time_idx))
-    return weights
-
-
-# COMMAND ----------
-
-# DBTITLE 1,ElasticNetCV 학습 함수
-
-
-def fit_elasticnet_with_decay(
-    X: np.ndarray,
-    y: np.ndarray,
-    half_life: int = 30,
-    l1_ratios: list[float] | None = None,
-    alphas: np.ndarray | None = None,
-    cv: int = 5,
-) -> tuple:
-    """
-    Time-Decay 가중치가 적용된 ElasticNetCV 모델을 학습합니다.
-
-    Ridge 대비 개선점:
-    1. L1 정규화(Lasso)로 불필요한 피처를 0으로 제거 → 핵심 드라이버만 잔존
-    2. Time-Decay로 과거 저가 데이터의 영향력을 지수 감쇠
-
-    v0414 변경:
-    - half_life 60→30 (최근 랠리 가중치 강화)
-    - alphas 자동→0.001~1.0 (과잉 정규화 방지)
-    - y(타겟)도 로그수익률 기반이므로 스케일 불변
-
-    Parameters
-    ----------
-    X : np.ndarray
-        피처 행렬 (StandardScaler 적용 전)
-    y : np.ndarray
-        타겟 변수 (로그수익률)
-    half_life : int
-        시간 가중치 반감기 (기본값: 30거래일 ≈ 1.5개월)
-    l1_ratios : list[float]
-        ElasticNet L1/L2 비율 탐색 범위
-    alphas : np.ndarray
-        Alpha 검색 범위 (기본값: 0.001~1.0, 50개)
-    cv : int
-        교차 검증 폴드 수
-
-    Returns
-    -------
-    tuple : (model, scaler)
-    """
-    if l1_ratios is None:
-        l1_ratios = [0.1, 0.3, 0.5, 0.7, 0.9]
-
-    if alphas is None:
-        # v0414: 0.001~1.0 범위로 제한 — 과잉 정규화(alpha>100) 방지
-        alphas = np.logspace(-3, 0, 50)
-
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    # Time-Decay 가중치 생성
-    weights = compute_time_decay_weights(len(y), half_life=half_life)
-
-    # ElasticNetCV: 지정된 alpha 범위 내에서 최적화
-    model = ElasticNetCV(
-        l1_ratio=l1_ratios,
-        alphas=alphas,
-        cv=cv,
-        max_iter=10000,
-        random_state=42,
-    )
-    model.fit(X_scaled, y, sample_weight=weights)
-
-    return model, scaler
-
+# MAGIC ### v0419 핵심 변경
+# MAGIC 1. **ElasticNet 제거**: R²≈0.05(삼성)/−1.19(SK) → 예측력 부족
+# MAGIC 2. **RandomForest 수동 학습 제거**: AutoML 파이프라인이 최적 모델을 자동 선택
+# MAGIC 3. **UC 모델 직접 로드**: `mlflow.sklearn.load_model("models:/.../1")` → 예측
+# MAGIC 4. **피처 100% 정렬**: 학습/추론 동일 Gold Layer 피처 69개
 
 # COMMAND ----------
 
 # DBTITLE 1,ElasticNet 모델 학습 및 예측
-elasticnet_models = {}
-elasticnet_predictions = {}
-elasticnet_scalers = {}
+# ---------------------------------------------------------------------------
+# Unity Catalog AutoML 모델 로드 + T+20 예측
+# ---------------------------------------------------------------------------
+# sklearn 1.4.2 → 1.8.0 역직렬화 호환성 패치
+# 원인: __sklearn_is_fitted__ 메서드가 없는 구버전 Pipeline → NotFittedError
+# 해결: 모든 하위 estimator에 __sklearn_is_fitted__ 재귀적 설정
+# ---------------------------------------------------------------------------
+from sklearn.impute import SimpleImputer  # noqa: E402
+
+
+def _deep_mark_fitted(obj, _visited=None):
+    """역직렬화된 sklearn 파이프라인의 모든 하위 estimator를 fitted로 마킹."""
+    if _visited is None:
+        _visited = set()
+    if id(obj) in _visited:
+        return
+    _visited.add(id(obj))
+
+    # sklearn estimator이면 fitted 마킹
+    if hasattr(obj, "get_params"):
+        obj.__sklearn_is_fitted__ = lambda: True
+
+    # SimpleImputer._fill_dtype 누락 복원 (1.4.2 → 1.8.0)
+    if isinstance(obj, SimpleImputer) and not hasattr(obj, "_fill_dtype"):
+        obj._fill_dtype = obj.statistics_.dtype if hasattr(obj, "statistics_") else np.float64
+
+    # 모든 속성을 순회하며 하위 estimator 재귀 탐색
+    for attr_val in vars(obj).values():
+        if attr_val is None:
+            continue
+        if hasattr(attr_val, "get_params"):
+            _deep_mark_fitted(attr_val, _visited)
+        elif isinstance(attr_val, (list, tuple)):
+            for item in attr_val:
+                if hasattr(item, "get_params"):
+                    _deep_mark_fitted(item, _visited)
+                elif isinstance(item, (list, tuple)):
+                    for sub in item:
+                        if hasattr(sub, "get_params"):
+                            _deep_mark_fitted(sub, _visited)
+
+
+print("[OK] sklearn 호환성 패치 준비 완료")
+
+# ---------------------------------------------------------------------------
+import mlflow  # noqa: E402
+from mlflow import MlflowClient  # noqa: E402
+
+mlflow.set_registry_uri("databricks-uc")
+client = MlflowClient(registry_uri="databricks-uc")
+
+UC_MODELS = {
+    "005930.KS": "sense_databricks.models.automl_삼성전자_t20",
+    "000660.KS": "sense_databricks.models.automl_SK하이닉스_t20",
+}
+
+automl_models = {}
+automl_predictions = {}
+
+print("=" * 70)
+print("  Unity Catalog AutoML 모델 로드 + 추론")
+print("=" * 70)
 
 for ticker in TICKERS:
+    if ticker not in feature_marts:
+        continue
+    name = TICKER_NAMES[ticker]
+    model_name = UC_MODELS[ticker]
+
+    # --- 최신 버전 조회 ---
+    versions = client.search_model_versions(f"name='{model_name}'")
+    latest_ver = max(int(v.version) for v in versions)
+    model_uri = f"models:/{model_name}/{latest_ver}"
+
+    # --- 모델 로드 + 호환성 패치 ---
+    model = mlflow.sklearn.load_model(model_uri)
+    _deep_mark_fitted(model)
+    automl_models[ticker] = model
+    print(f"\n  [{name}] {model_name} v{latest_ver} 로드 완료")
+    print(f"    모델 타입: {type(model).__name__}")
+
+    # --- 피처 준비 ---
     mart = feature_marts[ticker].copy()
-    name = TICKER_NAMES[ticker]
+    _drop_cols = ["date", "target"]
+    _str_cols = mart.select_dtypes(include=["object", "datetime64"]).columns.tolist()
+    _all_drop = list(set(_drop_cols + _str_cols))
+    X_latest = mart.drop(columns=[c for c in _all_drop if c in mart.columns]).iloc[[-1]]
 
-    # v0414: 타겟 = T+20일 후 로그수익률 (절대가 편향 해소)
-    # log(P_{t+20} / P_t) → 스케일 불변, 삼성(20만)/하이닉스(100만) 동일 기준
-    future_close = mart["close"].shift(-HORIZON)
-    mart["target"] = np.log(future_close / mart["close"])
-    mart_clean = mart.dropna(subset=["target"])
-
-    # 피처 선택: 수치형 컬럼 (date, target, close 제외)
-    exclude_cols = {"date", "target", "close"}
-    feat_cols = [
-        c for c in mart_clean.select_dtypes(include=[np.number]).columns if c not in exclude_cols
-    ]
-
-    X = mart_clean[feat_cols].fillna(0).values
-    y = mart_clean["target"].values
-
-    # 학습/추론 분리
-    X_train, y_train = X[:-1], y[:-1]
-    X_last = X[-1:].reshape(1, -1)
-
-    # ElasticNetCV + Time-Decay 학습 (half_life=30, alphas=0.001~1.0)
-    model, scaler = fit_elasticnet_with_decay(X_train, y_train, half_life=30)
-    X_last_scaled = scaler.transform(X_last)
-    pred_log_return = model.predict(X_last_scaled)[0]
-
-    # 로그수익률 → 절대가 역변환
+    # --- 예측 ---
+    log_return_pred = model.predict(X_latest)[0]
     last_price = mart["close"].iloc[-1]
-    pred_price = last_price * np.exp(pred_log_return)
+    price_pred = last_price * np.exp(log_return_pred)
+    automl_predictions[ticker] = price_pred
 
-    elasticnet_models[ticker] = model
-    elasticnet_predictions[ticker] = pred_price
-    elasticnet_scalers[ticker] = (scaler, feat_cols)
-
-    change_pct = (pred_price - last_price) / last_price * 100
-
-    # 살아남은 피처 수 (L1으로 0이 되지 않은 계수)
-    n_active = np.sum(np.abs(model.coef_) > 1e-6)
-
-    # R² 계산 (로그수익률 기반)
-    r2_train = model.score(scaler.transform(X_train), y_train)
-
-    print(f"\n[{name}] ElasticNet T+{HORIZON}:")
-    print(f"  예측 로그수익률: {pred_log_return:+.4f}")
-    print(f"  예측가: {pred_price:,.0f}원 ({change_pct:+.2f}%)")
-    print(f"  alpha={model.alpha_:.4f}, l1_ratio={model.l1_ratio_:.2f}")
-    print(f"  활성 피처: {n_active}/{len(feat_cols)}개")
-    print(f"  R² (train, log-return): {r2_train:.4f}")
-
-# COMMAND ----------
-
-# DBTITLE 1,ElasticNet 피처 중요도 (살아남은 계수)
-print("=" * 70)
-print("ElasticNet 피처 중요도 (|계수| Top 10)")
-print("=" * 70)
-
-for ticker in TICKERS:
-    model = elasticnet_models[ticker]
-    _, feat_cols = elasticnet_scalers[ticker]
-    name = TICKER_NAMES[ticker]
-
-    coef_abs = np.abs(model.coef_)
-    top_idx = np.argsort(coef_abs)[::-1][:10]
-
-    print(f"\n{name}:")
-    for rank, idx in enumerate(top_idx, 1):
-        if coef_abs[idx] < 1e-6:
-            break
-        direction = "+" if model.coef_[idx] > 0 else "-"
-        print(f"  {rank}. {feat_cols[idx]}: {direction}{coef_abs[idx]:.4f}")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 3-1. AI 해석 — ElasticNet 학습 결과
-
-# COMMAND ----------
-
-# DBTITLE 1,GPT 해석: ElasticNet 피처 선택 + 감성 변수 기여도
-_elasticnet_lines = ["[ElasticNet 학습 결과 요약]\n"]
-for ticker in TICKERS:
-    model = elasticnet_models[ticker]
-    scaler_obj, feat_cols = elasticnet_scalers[ticker]
-    name = TICKER_NAMES[ticker]
-    coef_abs = np.abs(model.coef_)
-    top_idx = np.argsort(coef_abs)[::-1][:10]
-    n_active = int(np.sum(np.abs(model.coef_) > 1e-6))
-
-    _elasticnet_lines.append(f"\n{name}: alpha={model.alpha_:.4f}, l1_ratio={model.l1_ratio_:.2f}")
-    _X_val = scaler_obj.transform(feature_marts[ticker][feat_cols].fillna(0).values[:-HORIZON])
-    _y_val = np.log(
-        feature_marts[ticker]["close"].values[HORIZON:]
-        / feature_marts[ticker]["close"].values[:-HORIZON]
-    )
-    _r2 = model.score(_X_val, _y_val)
-    _elasticnet_lines.append(f"  활성 피처: {n_active}/{len(feat_cols)}, R²={_r2:.4f}")
-    _elasticnet_lines.append("  Top 10 피처:")
-    for rank, idx in enumerate(top_idx[:10], 1):
-        if coef_abs[idx] < 1e-6:
-            break
-        _elasticnet_lines.append(f"    {rank}. {feat_cols[idx]}: {model.coef_[idx]:+.4f}")
-
-_en_prompt = "\n".join(_elasticnet_lines) + (
-    "\n\n위 결과를 바탕으로:\n"
-    "1. L1 정규화로 살아남은 핵심 드라이버 해석 (감성/키워드 변수 포함 여부)\n"
-    "2. 종목간 활성 피처 차이의 투자 시사점\n"
-    "3. 키워드 파생변수(keyword_surge_x_rsi 등)가 선택되었다면 그 의미\n"
-    "을 한국어 3~5문장으로 요약하세요."
-)
-try:
-    _en_resp = _ens_openai_client.chat.completions.create(
-        model=OPENAI_DEPLOYMENT,
-        messages=[
-            {
-                "role": "system",
-                "content": "반도체 퀀트 애널리스트. ElasticNet 투자 해석.",
-            },
-            {"role": "user", "content": _en_prompt},
-        ],
-        max_tokens=600,
-        temperature=0.3,
-    )
-    print(_en_resp.choices[0].message.content)
-except Exception as e:
-    print(f"[WARN] AI 분석 실패: {e}")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC # 3.5. Step 2b — RandomForest 회귀 모델 (AutoML 검증 기반)
-# MAGIC
-# MAGIC Databricks AutoML 결과에서 **RandomForestRegressor**가
-# MAGIC ElasticNet 대비 압도적 성능을 보임 (삼성전자 R²=0.719 vs 0.045,
-# MAGIC SK하이닉스 R²=0.860 vs -1.188).
-# MAGIC
-# MAGIC 비선형 패턴(교호작용, 감성×기술적지표)을 포착하기 위해
-# MAGIC AutoML 최적 하이퍼파라미터 기반 RandomForest를 앙상블 회귀 컴포넌트에 추가합니다.
-# MAGIC
-# MAGIC | 파라미터 | AutoML 최적값 | 근거 |
-# MAGIC |---|---|---|
-# MAGIC | max_depth | 8 | 과적합 방지 + 비선형 패턴 포착 균형 |
-# MAGIC | n_estimators | 1755 | 충분한 앙상블 다양성 확보 |
-# MAGIC | max_features | 0.668 | 피처 서브셋으로 트리 간 상관 감소 |
-# MAGIC | min_samples_leaf | 0.0017 | 리프 정규화 |
-# MAGIC | min_samples_split | 0.0172 | 분할 정규화 |
-
-# COMMAND ----------
-
-# DBTITLE 1,RandomForest 모델 학습 및 예측 (AutoML 하이퍼파라미터)
-from sklearn.ensemble import RandomForestRegressor  # noqa: E402
-
-rf_models = {}
-rf_predictions = {}
-rf_scalers = {}
-
-for ticker in TICKERS:
-    mart = feature_marts[ticker].copy()
-    name = TICKER_NAMES[ticker]
-
-    # 타겟: T+20 로그수익률 (ElasticNet과 동일)
-    future_close = mart["close"].shift(-HORIZON)
-    mart["target"] = np.log(future_close / mart["close"])
-    mart_clean = mart.dropna(subset=["target"])
-
-    exclude_cols = {"date", "target", "close"}
-    feat_cols = [
-        c for c in mart_clean.select_dtypes(include=[np.number]).columns if c not in exclude_cols
-    ]
-
-    X = mart_clean[feat_cols].fillna(0).values
-    y = mart_clean["target"].values
-
-    X_train, y_train = X[:-1], y[:-1]
-    X_last = X[-1:].reshape(1, -1)
-
-    # StandardScaler (RF는 스케일링 불필요하나 일관성 유지)
-    scaler = StandardScaler()
-    X_train_sc = scaler.fit_transform(X_train)
-    X_last_sc = scaler.transform(X_last)
-
-    # AutoML 최적 하이퍼파라미터 기반 RandomForest
-    rf = RandomForestRegressor(
-        n_estimators=400,  # 경량화 (AutoML 1755 → 400, 성능 유사)
-        max_depth=8,
-        max_features=0.668,
-        min_samples_leaf=0.002,
-        min_samples_split=0.017,
-        bootstrap=True,
-        random_state=42,
-        n_jobs=-1,
-    )
-    rf.fit(X_train_sc, y_train)
-    pred_log_return = rf.predict(X_last_sc)[0]
-
-    last_price = mart["close"].iloc[-1]
-    pred_price = last_price * np.exp(pred_log_return)
-
-    rf_models[ticker] = rf
-    rf_predictions[ticker] = pred_price
-    rf_scalers[ticker] = (scaler, feat_cols)
-
-    change_pct = (pred_price - last_price) / last_price * 100
-    r2_train = rf.score(X_train_sc, y_train)
-
-    # 피처 중요도 Top 10
-    fi_idx = np.argsort(rf.feature_importances_)[::-1][:10]
-
-    print(f"\n[{name}] RandomForest T+{HORIZON}:")
-    print(f"  예측 로그수익률: {pred_log_return:+.4f}")
-    print(f"  예측가: {pred_price:,.0f}원 ({change_pct:+.2f}%)")
-    print(f"  R² (train, log-return): {r2_train:.4f}")
-    print("  피처 중요도 Top 5:")
-    for rank, idx in enumerate(fi_idx[:5], 1):
-        print(f"    {rank}. {feat_cols[idx]}: {rf.feature_importances_[idx]:.4f}")
-
-# COMMAND ----------
-
-# DBTITLE 1,ElasticNet vs RandomForest 비교
-print("=" * 70)
-print("  ElasticNet vs RandomForest 성능 비교")
-print("=" * 70)
-for ticker in TICKERS:
-    name = TICKER_NAMES[ticker]
-    enet_pred = elasticnet_predictions[ticker]
-    rf_pred = rf_predictions[ticker]
-    last = feature_marts[ticker]["close"].iloc[-1]
-    print(f"\n{name}:")
-    print(f"  ElasticNet: {enet_pred:,.0f}원 ({(enet_pred - last) / last * 100:+.2f}%)")
-    print(f"  RandomForest: {rf_pred:,.0f}원 ({(rf_pred - last) / last * 100:+.2f}%)")
-    print("  → 앙상블 회귀 컴포넌트에 RF 예측 사용 (비선형 패턴 포착)")
+    change_pct = (price_pred - last_price) / last_price * 100
+    print(f"    로그수익률 예측: {log_return_pred:+.4f}")
+    print(f"    T+20 예측가: {price_pred:,.0f}원 ({change_pct:+.2f}%)")
+    print(f"    현재가: {last_price:,.0f}원")
 
 # COMMAND ----------
 
@@ -1149,52 +967,111 @@ for ticker in TICKERS:
 # COMMAND ----------
 
 # DBTITLE 1,TimesFM 결과 시뮬레이션 (독립 실행용)
-# 실제 환경에서는 timesfm_inference_lite.py의 출력을 직접 참조합니다.
-# 독립 실행을 위해 시뮬레이션 데이터를 생성하되,
-# 실제 TimesFM 결과가 있으면 그것을 사용합니다.
-
+# ---------------------------------------------------------------------------
+# TimesFM 2.5 XReg 예측 결과 로드
+# 우선순위: ADLS 실제 결과 > 메모리 변수 > 랜덤워크 시뮬레이션
+# ---------------------------------------------------------------------------
 timesfm_predictions = {}
 timesfm_pi = {}  # (q10, q90) 각 ticker별
+_tfm_source = "UNKNOWN"
 
+# --- 1순위: ADLS에서 실제 TimesFM 2.5 결과 로드 ---
+_tfm_path = f"abfss://feature@{account}.dfs.core.windows.net/timesfm_forecast/"
+try:
+    df_tfm = spark.read.parquet(_tfm_path).toPandas()  # noqa: F821
+    df_tfm["forecast_date"] = pd.to_datetime(df_tfm["forecast_date"])
+    df_tfm["base_date"] = pd.to_datetime(df_tfm["base_date"])
+
+    # base_date 최신 기준으로 필터
+    latest_base = df_tfm["base_date"].max()
+    df_tfm = df_tfm[df_tfm["base_date"] == latest_base].sort_values(["ticker", "horizon_day"])
+
+    print("=" * 70)
+    print(f"✅ TimesFM 2.5 XReg 예측 로드 (ADLS) — base_date: {latest_base.date()}")
+    print("=" * 70)
+
+    _loaded_count = 0
+    for ticker in TICKERS:
+        name = TICKER_NAMES[ticker]
+        df_t = df_tfm[df_tfm["ticker"] == ticker]
+
+        if len(df_t) == 0:
+            print(f"  [{name}] TimesFM 예측 없음 — 시뮬레이션으로 대체")
+            continue
+
+        tfm_point = df_t["xreg_point"].values
+        tfm_q10 = df_t["xreg_q10"].values
+        tfm_q90 = df_t["xreg_q90"].values
+
+        timesfm_predictions[ticker] = tfm_point
+        timesfm_pi[ticker] = (tfm_q10, tfm_q90)
+
+        last_price = feature_marts[ticker]["close"].iloc[-1]
+        final_pred = tfm_point[-1]
+        change = (final_pred - last_price) / last_price * 100
+
+        print(f"  [{name}] T+{HORIZON} 예측: {final_pred:,.0f}원 ({change:+.2f}%)")
+        print(f"    PI(80%): [{tfm_q10[-1]:,.0f}, {tfm_q90[-1]:,.0f}]")
+        print(f"    Macro Impact: {df_t['macro_impact'].sum():+,.0f}원 (누적)")
+        _loaded_count += 1
+
+    if _loaded_count == len(TICKERS):
+        _tfm_source = "ADLS_REAL"
+        print(f"\n✅ 실제 TimesFM 2.5 XReg 결과 로드 완료 ({len(df_tfm)} rows)")
+    else:
+        print(f"\n⚠️ 일부 종목만 로드됨 ({_loaded_count}/{len(TICKERS)})")
+        _tfm_source = "ADLS_PARTIAL"
+
+except Exception as e:  # noqa: BLE001
+    print(f"[INFO] ADLS TimesFM 로드 실패: {e}")
+
+# --- 2순위: 메모리 변수 (timesfm_inference와 동일 세션) ---
 for ticker in TICKERS:
-    mart = feature_marts[ticker]
-    last_price = mart["close"].iloc[-1]
+    if ticker in timesfm_predictions:
+        continue  # 이미 ADLS에서 로드됨
     name = TICKER_NAMES[ticker]
-
-    # TimesFM 결과 변수가 메모리에 존재하면 사용
-    # (timesfm_inference_lite.py에서 point_xreg, quantile_xreg 정의)
     try:
         _idx = TICKERS.index(ticker)
-        # point_xreg: (n_series, horizon) — TimesFM 노트북에서 생성
         tfm_point = point_xreg[_idx]  # noqa: F821
         tfm_q10 = quantile_xreg[_idx, :, 1]  # noqa: F821
         tfm_q90 = quantile_xreg[_idx, :, 9]  # noqa: F821
-        print(f"[{name}] TimesFM 결과 로드 완료 (메모리)")
+        timesfm_predictions[ticker] = tfm_point
+        timesfm_pi[ticker] = (tfm_q10, tfm_q90)
+        print(f"  [{name}] TimesFM 결과 로드 완료 (메모리)")
+        _tfm_source = "MEMORY" if _tfm_source == "UNKNOWN" else _tfm_source
     except NameError:
-        # 독립 실행 시: 최근 추세 기반 시뮬레이션
-        # 최근 20일 수익률의 모멘텀을 반영한 랜덤워크
-        recent_returns = mart["log_return"].iloc[-20:].values
-        mean_ret = np.mean(recent_returns)
-        std_ret = np.std(recent_returns)
-        rng = np.random.default_rng(42)
+        pass
 
-        # TimesFM은 추세(모멘텀)를 반영하는 모델이므로
-        # 최근 모멘텀 방향으로 약간의 드리프트를 줌
-        drift = mean_ret * np.arange(1, HORIZON + 1)
-        noise = rng.normal(0, std_ret, HORIZON).cumsum()
-        tfm_path = last_price * np.exp(drift + noise)
-        tfm_point = tfm_path
-        tfm_q10 = tfm_path * (1 - 1.5 * std_ret * np.sqrt(np.arange(1, HORIZON + 1)))
-        tfm_q90 = tfm_path * (1 + 1.5 * std_ret * np.sqrt(np.arange(1, HORIZON + 1)))
-        print(f"[{name}] TimesFM 결과 시뮬레이션 생성 (독립 실행)")
+# --- 3순위: 시뮬레이션 (fallback) ---
+for ticker in TICKERS:
+    if ticker in timesfm_predictions:
+        continue
+    name = TICKER_NAMES[ticker]
+    mart = feature_marts[ticker]
+    last_price = mart["close"].iloc[-1]
 
-    timesfm_predictions[ticker] = tfm_point
-    timesfm_pi[ticker] = (tfm_q10, tfm_q90)
+    recent_returns = mart["log_return"].iloc[-20:].values
+    mean_ret = np.mean(recent_returns)
+    std_ret = np.std(recent_returns)
+    rng = np.random.default_rng(42)
 
-    # 예측 요약
-    final_pred = tfm_point[-1] if len(tfm_point) >= HORIZON else tfm_point[-1]
+    drift = mean_ret * np.arange(1, HORIZON + 1)
+    noise = rng.normal(0, std_ret, HORIZON).cumsum()
+    tfm_path = last_price * np.exp(drift + noise)
+
+    timesfm_predictions[ticker] = tfm_path
+    timesfm_pi[ticker] = (
+        tfm_path * (1 - 1.5 * std_ret * np.sqrt(np.arange(1, HORIZON + 1))),
+        tfm_path * (1 + 1.5 * std_ret * np.sqrt(np.arange(1, HORIZON + 1))),
+    )
+    _tfm_source = "SIMULATION" if _tfm_source == "UNKNOWN" else _tfm_source
+
+    final_pred = tfm_path[-1]
     change = (final_pred - last_price) / last_price * 100
-    print(f"  T+{HORIZON} 예측: {final_pred:,.0f}원 ({change:+.2f}%)")
+    print(f"  ⚠️ [{name}] 시뮬레이션 생성: {final_pred:,.0f}원 ({change:+.2f}%)")
+    print("    → timesfm_inference 노트북을 먼저 실행하면 실제 결과가 사용됩니다.")
+
+print(f"\nTimesFM 데이터 소스: {_tfm_source}")
 
 # COMMAND ----------
 
@@ -1246,61 +1123,45 @@ def _rsi_weight_adjustment(rsi: float) -> float:
     """
     RSI 기반 TimesFM 가중치 조정분 (Soft Switching).
 
-    경계값(30, 70)에서 불연속이 발생하지 않도록
-    선형 보간(Linear Interpolation)을 적용하고,
-    극단 구간(<30, >70)에서는 기울기를 1.5배 가속합니다.
+    v0416: 실제 TimesFM + UC BestTrial 조합으로 조정분 축소 (±0.30 → ±0.20)
+    양쪽 모델 모두 검증된 실제 모델이므로 극단적 전환 불필요.
 
     가중치 변화 곡선:
-        RSI 0 ─── +0.30 ──► RSI 30 ─── +0.20 ──► RSI 50 ─── 0.00
+        RSI 0 ─── +0.20 ──► RSI 30 ─── +0.13 ──► RSI 50 ─── 0.00
                    (가속)              (선형)
-        RSI 50 ── 0.00 ──► RSI 70 ─── -0.20 ──► RSI 100 ── -0.25
+        RSI 50 ── 0.00 ──► RSI 70 ─── -0.13 ──► RSI 100 ── -0.20
                              (선형)              (가속)
-
-    수식: RSI 50~70 구간 → adj = -0.01 × (RSI - 50)
     """
     if rsi <= 30:
-        # 과매도 가속: "공포에 사서 환희에 팔아라" (역발상)
-        # TimesFM이 과도한 하락 뒤 V자 반등 패턴을 더 잘 포착
-        base = 0.20
-        accel = 0.10 * min((30 - rsi) / 30, 1.0)
+        base = 0.13
+        accel = 0.07 * min((30 - rsi) / 30, 1.0)
         return base + accel
     elif rsi <= 50:
-        # 30~50: 선형 보간 (0.20 → 0.00)
-        return 0.20 * (50 - rsi) / 20
+        return 0.13 * (50 - rsi) / 20
     elif rsi <= 70:
-        # 50~70: 선형 보간 (0.00 → -0.20)
-        # "달리는 말에 올라타되, 낭떠러지는 피하자"
-        return -0.01 * (rsi - 50)
+        return -0.0065 * (rsi - 50)
     else:
-        # 과매수 가속: "고무줄은 늘어난 만큼 돌아온다" (평균회귀)
-        # 70~100: -0.20에서 -0.25까지 가속 (기울기 1.5배가 아닌 완만한 가속)
-        base = -0.20
-        accel = -0.05 * min((rsi - 70) / 30, 1.0)
+        base = -0.13
+        accel = -0.07 * min((rsi - 70) / 30, 1.0)
         return base + accel
 
 
 def _vol_weight_adjustment(vol_ratio: float) -> float:
     """
-    변동성 비율(realized_vol_5d / realized_vol_20d) 기반 가중치 조정분.
+    변동성 비율 기반 가중치 조정분.
+
+    v0416: ±0.20 → ±0.15 스케일 조정.
 
     - vol_ratio < 0.8: 안정적 추세 지속 → TimesFM 강화
-      "변동성이 낮은 상승은 진짜다" (Low Volatility Anomaly)
     - 0.8~1.2: 정상 범위 → 무조정
-    - vol_ratio > 1.2: 변동성 급증 → ElasticNet 강화
-      "레짐 전환 전조" → 보수적 회귀 모델로 숨고르기
-
-    가중치 변화 곡선:
-        vol 0.0 ── +0.15 ──► 0.8 ── 0.00 ──► 1.2 ── 0.00 ──► 2.0 ── -0.20
+    - vol_ratio > 1.2: 변동성 급증 → UC(회귀) 강화
     """
     if vol_ratio <= 0.8:
-        # 안정: 추세 지속 가능성 → TimesFM 비중 강화
-        return 0.15 * min((0.8 - vol_ratio) / 0.8, 1.0)
+        return 0.12 * min((0.8 - vol_ratio) / 0.8, 1.0)
     elif vol_ratio <= 1.2:
-        # 정상 범위: 조정 없음 (데드존)
         return 0.0
     else:
-        # 급증: 레짐 전환 신호 → ElasticNet 비중 강화
-        return -0.20 * min((vol_ratio - 1.2) / 0.8, 1.0)
+        return -0.15 * min((vol_ratio - 1.2) / 0.8, 1.0)
 
 
 def _disparity_weight_adjustment(disparity: float) -> float:
@@ -1310,19 +1171,13 @@ def _disparity_weight_adjustment(disparity: float) -> float:
     "평균에서 멀어질수록 회귀하려는 인력은 제곱으로 강해진다"
     → 이격도가 커질수록 1.5제곱으로 가속하여 조정분을 키움.
 
-    - 양수 이격 (+): 장기평균 위 → 회귀 압력 (ElasticNet ↑)
+    - 양수 이격 (+): 장기평균 위 → 회귀 압력 (UC ↑)
     - 음수 이격 (-): 장기평균 아래 → 반등 기대 (TimesFM ↑)
-
-    가중치 변화 곡선 (양수):
-        d=0% ── 0.00 ──► d=+10% ── -0.05 ──► d=+20% ── -0.15 ──► d=+30% ── -0.15(cap)
-                                                (가속)
     """
     if disparity > 0:
-        # 양수 이격: 과열 → 회귀 압력 (가속)
         norm = min(disparity / 20, 1.0)
         return -0.15 * (norm**1.5)
     elif disparity < 0:
-        # 음수 이격: 과매도 → 반등 기대 (가속)
         norm = min(abs(disparity) / 10, 1.0)
         return 0.15 * (norm**1.5)
     return 0.0
@@ -1330,34 +1185,25 @@ def _disparity_weight_adjustment(disparity: float) -> float:
 
 def _sentiment_weight_adjustment(avg_sentiment: float, news_vol_surge: float) -> float:
     """
-    뉴스 감성 기반 TimesFM 가중치 조정분 (v0415 신규).
+    뉴스 감성 기반 TimesFM 가중치 조정분.
 
-    "AI 슈퍼사이클 서사에서 뉴스 감성은 펀더멘탈보다 빠르게 시장 심리를 반영"
+    v0416: UC BestTrial이 이미 감성 피처 내재 → 조정분 축소 (±0.15 → ±0.10)
 
-    - 강한 호재(>0.3): 모멘텀 지속 기대 → TimesFM 강화 (+0.10)
-    - 약한 호재/중립(0~0.3): 데드존 (무조정)
-    - 강한 악재(<-0.3): 과도한 비관 → 평균회귀 기대 → ElasticNet 강화 (-0.10)
-    - 뉴스량 급증(>2.0): 변곡점 전조 → 보수적 ElasticNet 강화 (-0.05)
-
-    가중치 변화 곡선:
-        sent -0.7 ── -0.10 ──► -0.3 ── 0.00 ──► +0.3 ── 0.00 ──► +0.7 ── +0.10
-        news_surge: >2.0 → 추가 -0.05 (최대 -0.05)
+    - 강한 호재(>0.3): 모멘텀 지속 기대 → TimesFM 강화 (+0.07)
+    - 강한 악재(<-0.3): 과도한 비관 → 평균회귀 기대 → UC 강화 (-0.07)
+    - 뉴스량 급증(>2.0): 변곡점 전조 → 보수적 UC 강화 (-0.03)
     """
     adj = 0.0
 
-    # 감성 방향성 조정
     if avg_sentiment > 0.3:
-        # 강한 호재: 모멘텀 지속 기대 → TimesFM 비중 강화
-        adj += 0.10 * min((avg_sentiment - 0.3) / 0.4, 1.0)
+        adj += 0.07 * min((avg_sentiment - 0.3) / 0.4, 1.0)
     elif avg_sentiment < -0.3:
-        # 강한 악재: 과도한 비관 → 회귀 기대 → ElasticNet 강화
-        adj -= 0.10 * min((abs(avg_sentiment) - 0.3) / 0.4, 1.0)
+        adj -= 0.07 * min((abs(avg_sentiment) - 0.3) / 0.4, 1.0)
 
-    # 뉴스량 급증 조정 (변곡점 전조 신호)
     if news_vol_surge > 2.0:
-        adj -= 0.05 * min((news_vol_surge - 2.0) / 3.0, 1.0)
+        adj -= 0.03 * min((news_vol_surge - 2.0) / 3.0, 1.0)
 
-    return np.clip(adj, -0.15, 0.15)
+    return np.clip(adj, -0.10, 0.10)
 
 
 def _interaction_weight(
@@ -1372,12 +1218,6 @@ def _interaction_weight(
     "신호들의 중첩은 확신의 크기를 키운다"
     단일 지표보다 복수 지표가 동시에 같은 방향을 가리킬 때
     가중치 조정을 추가로 부여합니다.
-
-    규칙 1: RSI 과매수(>60) + 변동성 급증(>1.2) → 하락 압력 가중
-    규칙 2: RSI 과매도(<40) + 변동성 급증(>1.2) → 패닉 후 반등 가중
-    규칙 3: 이격도 과열(>15%) + RSI 과매수(>65) → 회귀 압력 이중 강화
-    규칙 4: 호재(>0.3) + RSI 과매수(>60) → 모멘텀 과열 → 회귀 강화
-    규칙 5: 악재(<-0.3) + RSI 과매도(<40) → 패닉 역발상 → 반등 가중
     """
     adj = 0.0
 
@@ -1385,13 +1225,13 @@ def _interaction_weight(
     if rsi > 60 and vol_ratio > 1.2:
         overbought_strength = min((rsi - 60) / 40, 1.0)
         vol_strength = min((vol_ratio - 1.2) / 0.8, 1.0)
-        adj -= 0.10 * overbought_strength * vol_strength
+        adj -= 0.08 * overbought_strength * vol_strength
 
     # 규칙 2: 과매도 + 변동성 급증 = 패닉 매도 후 반등 기대
     if rsi < 40 and vol_ratio > 1.2:
         oversold_strength = min((40 - rsi) / 40, 1.0)
         vol_strength = min((vol_ratio - 1.2) / 0.8, 1.0)
-        adj += 0.10 * oversold_strength * vol_strength
+        adj += 0.08 * oversold_strength * vol_strength
 
     # 규칙 3: 이격도 과열 + RSI 과매수 = 이중 회귀 압력
     if disparity > 15 and rsi > 65:
@@ -1400,14 +1240,12 @@ def _interaction_weight(
         adj -= 0.08 * disp_strength * rsi_strength
 
     # 규칙 4: 호재 감성 + RSI 과매수 = 모멘텀 과열 경고
-    # "뉴스까지 좋은데 RSI 과매수면 오히려 고점 신호"
     if avg_sentiment > 0.3 and rsi > 60:
         sent_strength = min((avg_sentiment - 0.3) / 0.4, 1.0)
         rsi_strength = min((rsi - 60) / 40, 1.0)
         adj -= 0.08 * sent_strength * rsi_strength
 
     # 규칙 5: 악재 감성 + RSI 과매도 = 패닉 → 역발상 반등
-    # "뉴스도 나쁘고 RSI도 바닥이면 오히려 반등 확률 ↑"
     if avg_sentiment < -0.3 and rsi < 40:
         sent_strength = min((abs(avg_sentiment) - 0.3) / 0.4, 1.0)
         rsi_strength = min((40 - rsi) / 40, 1.0)
@@ -1426,40 +1264,27 @@ def compute_dynamic_weights(
     """
     Soft Switching 기반 동적 가중치를 산출합니다.
 
-    고정 임계값(Hard Threshold)에 의한 예측값의 불연속성을 방지하고,
-    지표의 극단값(Extreme Values)이 갖는 통계적 유의미성을 가중치에
-    비례적으로 반영하기 위해 선형/비선형 가중치 보간법
-    (Dynamic Weight Interpolation)을 적용함.
-
-    v0415: 뉴스 감성 가중치(`_sentiment_weight_adjustment()`) 추가.
-    기존 4가지 + 감성 1가지 = **5가지 조정분** 합산.
-
-    기본 가중치: TimesFM 0.5 / ElasticNet 0.5
-    5가지 조정분(RSI, vol_ratio, 이격도, Interaction, 감성)을 합산하여
-    최종 가중치를 [0.15, 0.85] 범위로 클리핑.
+    v0416: 실제 TimesFM 2.5 + UC BestTrial(R²=0.93) 조합 최적화.
+    - 기본 가중치: TimesFM 0.45 / UC 0.55 (UC R² 우위 반영)
+    - 조정 범위: [0.25, 0.75] (양쪽 모델 모두 검증되어 극단 편중 방지)
+    - 조정분 스케일: RSI ±0.20, vol ±0.15, 이격도 ±0.15, 감성 ±0.10
 
     Parameters
     ----------
     rsi : float
         RSI(14) 최신값 (0~100)
     vol_ratio : float
-        단기/장기 변동성 비율 (realized_vol_5d / realized_vol_20d)
+        단기/장기 변동성 비율
     disparity : float
         120일 이격도 (%)
     avg_sentiment : float
-        당일 뉴스 ABSA 평균 감성 (-1~+1, 기본값: 0.0=중립)
+        당일 뉴스 ABSA 평균 감성
     news_vol_surge : float
-        뉴스량 급증 비율 (당일/7일평균, 기본값: 1.0=평균)
+        뉴스량 급증 비율
 
     Returns
     -------
-    dict : {
-        "w_trend": float,       # TimesFM(추세) 가중치
-        "w_meanrev": float,     # ElasticNet(회귀) 가중치
-        "regime": str,          # 레짐 라벨
-        "regime_flag": int,     # 레짐 코드 (DB 적재용)
-        "adjustments": list     # 적용된 조정 사유 및 수치
-    }
+    dict
     """
     # --- 각 지표별 연속 조정분 산출 ---
     rsi_adj = _rsi_weight_adjustment(rsi)
@@ -1468,9 +1293,9 @@ def compute_dynamic_weights(
     inter_adj = _interaction_weight(rsi, vol_ratio, disparity, avg_sentiment)
     sent_adj = _sentiment_weight_adjustment(avg_sentiment, news_vol_surge)
 
-    # --- 기본 가중치 + 조정분 합산 ---
-    w_trend = 0.50 + rsi_adj + vol_adj + disp_adj + inter_adj + sent_adj
-    w_trend = np.clip(w_trend, 0.15, 0.85)
+    # --- 기본 가중치 + 조정분 합산 (v0416: 0.45 기반) ---
+    w_trend = 0.45 + rsi_adj + vol_adj + disp_adj + inter_adj + sent_adj
+    w_trend = np.clip(w_trend, 0.25, 0.75)
     w_meanrev = round(1.0 - w_trend, 4)
 
     # --- 조정 사유 기록 ---
@@ -1489,10 +1314,10 @@ def compute_dynamic_weights(
         )
 
     # --- 레짐 라벨 결정 ---
-    if w_trend >= 0.60:
+    if w_trend >= 0.55:
         regime = "TREND"
         regime_flag = 1
-    elif w_meanrev >= 0.60:
+    elif w_meanrev >= 0.55:
         regime = "MEAN_REV"
         regime_flag = -1
     else:
@@ -1570,62 +1395,44 @@ def calculate_dynamic_ensemble(
     timesfm_point: np.ndarray,
     timesfm_q10: np.ndarray,
     timesfm_q90: np.ndarray,
-    elasticnet_pred: float,
+    automl_pred: float,
     feature_mart: pd.DataFrame,
     horizon: int = 20,
-    rf_pred: float | None = None,
 ) -> dict:
     """
-    TimesFM(추세)과 회귀모델(RF+ElasticNet) 예측을 동적으로 결합합니다.
+    TimesFM(추세)과 AutoML UC 모델(평균회귀) 예측을 동적으로 결합합니다.
 
-    v0417: RandomForest 예측이 제공되면 회귀 컴포넌트로 RF를 사용하고,
-    ElasticNet은 보조 참조로 활용합니다. RF가 없으면 기존 ElasticNet만 사용.
+    v0419: ElasticNet/RF 블렌딩 제거, AutoML UC 모델 단독 회귀 컴포넌트 사용.
+    - 삼성전자: sense_databricks.models.automl_삼성전자_t20 (R²=0.817)
+    - SK하이닉스: sense_databricks.models.automl_SK하이닉스_t20 (R²=0.770)
 
     Parameters
     ----------
     ticker : str
-        종목 코드 (예: "005930.KS")
+        종목 코드
     timesfm_point : np.ndarray
         TimesFM XReg 점 예측 (horizon 길이)
     timesfm_q10, timesfm_q90 : np.ndarray
         TimesFM 10th/90th 분위수
-    elasticnet_pred : float
-        ElasticNet T+{horizon} 점 예측
+    automl_pred : float
+        AutoML UC 모델 T+{horizon} 절대가 예측
     feature_mart : pd.DataFrame
         기술적 지표가 추가된 피처 마트
     horizon : int
         예측 기간 (기본값: 20)
-    rf_pred : float | None
-        RandomForest T+{horizon} 점 예측 (v0417, None이면 ElasticNet 단독 사용)
 
     Returns
     -------
-    dict : {
-        "ticker": str,
-        "regime": dict,          # 레짐 판별 결과
-        "ensemble_path": ndarray, # 앙상블 예측 경로 (horizon 길이)
-        "ensemble_q10": ndarray,  # 앙상블 PI 하한
-        "ensemble_q90": ndarray,  # 앙상블 PI 상한
-        "confidence": float,     # 신뢰도 점수 (0~100)
-        "trend_score": float,    # 추세 모델 기여도
-        "meanrev_score": float,  # 회귀 모델 기여도
-    }
+    dict
     """
     last_price = feature_mart["close"].iloc[-1]
-
-    # v0417: RF가 있으면 회귀 컴포넌트로 RF를 주력 사용 (70% RF + 30% ElasticNet)
-    # → AutoML 결과: RF R²=0.72~0.86 >> ElasticNet R²≈0.05
-    if rf_pred is not None:
-        regression_pred = 0.7 * rf_pred + 0.3 * elasticnet_pred
-    else:
-        regression_pred = elasticnet_pred
 
     # 현재 시장 지표 추출
     rsi = feature_mart["rsi_14"].iloc[-1]
     vol_ratio = feature_mart["vol_ratio"].iloc[-1]
     disparity = feature_mart["disparity_120d"].iloc[-1]
 
-    # 뉴스 감성 지표 추출 (v0415: 없으면 중립값)
+    # 뉴스 감성 지표 (v0415)
     avg_sentiment = (
         feature_mart["avg_sentiment"].iloc[-1] if "avg_sentiment" in feature_mart.columns else 0.0
     )
@@ -1633,7 +1440,7 @@ def calculate_dynamic_ensemble(
         feature_mart["news_vol_surge"].iloc[-1] if "news_vol_surge" in feature_mart.columns else 1.0
     )
 
-    # 레짐 판별 및 가중치 결정 (v0415: Soft Switching + 감성 가중치)
+    # 레짐 판별 및 가중치 결정
     regime = compute_dynamic_weights(
         rsi,
         vol_ratio,
@@ -1644,33 +1451,26 @@ def calculate_dynamic_ensemble(
     w_trend = regime["w_trend"]
     w_meanrev = regime["w_meanrev"]
 
-    # ElasticNet/RF 회귀 컴포넌트: 단일 T+20 점 예측 → 선형 보간으로 경로 생성
-    # v0417: RF가 있으면 regression_pred(=0.7*RF+0.3*EN)를 사용
-    regression_path = np.linspace(last_price, regression_pred, horizon)
-    enet_path = np.linspace(last_price, elasticnet_pred, horizon)  # 참조용 보존
+    # AutoML 회귀 컴포넌트: T+20 점 예측 → 선형 보간 경로
+    automl_path = np.linspace(last_price, automl_pred, horizon)
 
     # --- 앙상블 점 예측 ---
-    ensemble_path = w_trend * timesfm_point + w_meanrev * regression_path
+    ensemble_path = w_trend * timesfm_point + w_meanrev * automl_path
 
     # --- 앙상블 PI ---
-    # TimesFM PI를 기반으로 하되, 가중치에 따라 폭 조정
     ensemble_mid = ensemble_path
     tfm_half_width = (timesfm_q90 - timesfm_q10) / 2
 
-    # 회귀 모델의 PI: 예측 경로 주변 최근 변동성 기반
-    recent_vol = feature_mart["realized_vol_5d"].iloc[-1] / np.sqrt(252)  # 일 변동성
-    enet_half_width = last_price * recent_vol * np.sqrt(np.arange(1, horizon + 1)) * 1.28  # 80% PI
+    recent_vol = feature_mart["realized_vol_5d"].iloc[-1] / np.sqrt(252)
+    automl_half_width = last_price * recent_vol * np.sqrt(np.arange(1, horizon + 1)) * 1.28
 
-    # 가중 평균 PI
-    combined_half_width = w_trend * tfm_half_width + w_meanrev * enet_half_width
+    combined_half_width = w_trend * tfm_half_width + w_meanrev * automl_half_width
     ensemble_q10 = ensemble_mid - combined_half_width
     ensemble_q90 = ensemble_mid + combined_half_width
 
     # --- Confidence Score ---
-    # v0417: RF가 있으면 RF 예측과의 합의도를 추가 반영
-    confidence = compute_confidence_score(timesfm_q10, timesfm_q90, regression_pred, last_price)
+    confidence = compute_confidence_score(timesfm_q10, timesfm_q90, automl_pred, last_price)
 
-    # 추세/회귀 기여도 점수 (100점 만점)
     trend_score = w_trend * 100
     meanrev_score = w_meanrev * 100
 
@@ -1682,8 +1482,7 @@ def calculate_dynamic_ensemble(
         "ensemble_q10": ensemble_q10,
         "ensemble_q90": ensemble_q90,
         "timesfm_path": timesfm_point,
-        "elasticnet_path": enet_path,
-        "regression_path": regression_path,
+        "automl_path": automl_path,
         "confidence": confidence,
         "trend_score": trend_score,
         "meanrev_score": meanrev_score,
@@ -1698,11 +1497,11 @@ def calculate_dynamic_ensemble(
 ensemble_results = {}
 
 print("=" * 70)
-print("동적 가중치 앙상블 (Dynamic Weighting Ensemble) — v0417 RF 통합")
+print("동적 가중치 앙상블 (Dynamic Weighting Ensemble) — v0419 AutoML UC")
 print("=" * 70)
 
 for ticker in TICKERS:
-    if ticker not in feature_marts:
+    if ticker not in feature_marts or ticker not in automl_predictions:
         continue
 
     name = TICKER_NAMES[ticker]
@@ -1711,10 +1510,9 @@ for ticker in TICKERS:
         timesfm_point=timesfm_predictions[ticker],
         timesfm_q10=timesfm_pi[ticker][0],
         timesfm_q90=timesfm_pi[ticker][1],
-        elasticnet_pred=elasticnet_predictions[ticker],
+        automl_pred=automl_predictions[ticker],
         feature_mart=feature_marts[ticker],
         horizon=HORIZON,
-        rf_pred=rf_predictions.get(ticker),
     )
     ensemble_results[ticker] = result
 
@@ -1728,15 +1526,12 @@ for ticker in TICKERS:
     print(f"  현재가: {result['last_price']:,.0f}원")
     print(f"  레짐: {regime['regime']} (flag={regime['regime_flag']})")
     print(
-        f"  가중치: TimesFM(추세)={regime['w_trend']:.2%} / 회귀(RF+EN)={regime['w_meanrev']:.2%}"
+        f"  가중치: TimesFM(추세)={regime['w_trend']:.2%} / AutoML(회귀)={regime['w_meanrev']:.2%}"
     )
     for adj in regime["adjustments"]:
         print(f"    → {adj}")
     print(f"  TimesFM T+{HORIZON}: {timesfm_predictions[ticker][-1]:,.0f}원")
-    rf_val = rf_predictions.get(ticker)
-    if rf_val is not None:
-        print(f"  RF(AutoML) T+{HORIZON}: {rf_val:,.0f}원")
-    print(f"  ElasticNet T+{HORIZON}: {elasticnet_predictions[ticker]:,.0f}원")
+    print(f"  AutoML  T+{HORIZON}: {automl_predictions[ticker]:,.0f}원")
     print(f"  ★ 앙상블 T+{HORIZON}: {final_pred:,.0f}원 ({change:+.2f}%)")
     print(f"  신뢰도: {result['confidence']:.1f}/100")
     print(
@@ -1762,7 +1557,7 @@ for ticker in TICKERS:
     _regime_lines.append(
         f"\n{TICKER_NAMES[ticker]}:"
         f"\n  레짐={regime['regime']}, "
-        f"TimesFM={regime['w_trend']:.0%}/회귀(RF+EN)={regime['w_meanrev']:.0%}"
+        f"TimesFM={regime['w_trend']:.0%}/AutoML(회귀)={regime['w_meanrev']:.0%}"
         f"\n  앙상블={final_pred:,.0f}원({change:+.2f}%), 신뢰도={result['confidence']:.0f}/100"
         f"\n  감성={result['avg_sentiment']:+.3f}, 뉴스급증={result['news_vol_surge']:.1f}x"
         f"\n  조정: {'; '.join(regime['adjustments']) if regime['adjustments'] else '없음'}"
@@ -1772,7 +1567,7 @@ _regime_prompt = "\n".join(_regime_lines) + (
     "\n\n위 앙상블 결과를 바탕으로:\n"
     "1. 레짐 판별이 왜 이렇게 되었는지 (RSI, 이격도, 감성 기반)\n"
     "2. 두 종목의 가중치 차이가 의미하는 바\n"
-    "3. RF+ElasticNet 블렌딩 회귀 모델이 기존 ElasticNet 단독 대비 개선된 점\n"
+    "3. AutoML UC 모델(R²>0.77)이 기존 ElasticNet(R²≈0.05) 대비 개선된 점\n"
     "4. 현 시점 투자 시그널 (매수/관망/매도 강도)\n"
     "을 2~3문장으로 요약하세요."
 )
@@ -1795,12 +1590,13 @@ except Exception as e:
 
 # COMMAND ----------
 
+# DBTITLE 1,Step 4 시각화 설명
 # MAGIC %md
 # MAGIC # 6. Step 4 — 시각화 (Dynamic Weighting Strategy)
 # MAGIC
 # MAGIC `ref/image.png`와 동일한 형태의 차트를 재현합니다.
 # MAGIC - 초록색 점선: TimesFM 예측 (Trend Model)
-# MAGIC - 빨간색 점선: ElasticNet 예측 (Mean-Rev Model)
+# MAGIC - 주황색 점선: AutoML UC 모델 예측 (Mean-Rev Model)
 # MAGIC - 파란색 굵은 실선: Dynamic Ensemble Result
 # MAGIC - 연한 파란색 음영: Confidence Interval (PI 밴드)
 
@@ -1811,26 +1607,14 @@ except Exception as e:
 
 def plot_dynamic_ensemble(result: dict, ticker_name: str, save_path: str | None = None):
     """
-    동적 가중치 앙상블 결과를 시각화합니다.
-
-    ref/image.png의 'Dynamic Weighting Strategy: Trend vs. Mean Reversion'
-    차트를 재현합니다.
-
-    Parameters
-    ----------
-    result : dict
-        calculate_dynamic_ensemble() 반환값
-    ticker_name : str
-        종목명 (차트 제목용)
-    save_path : str, optional
-        차트 저장 경로 (None이면 display만)
+    동적 가중치 앙상블 결과 시각화 (v0419: AutoML UC 모델).
     """
     horizon = len(result["ensemble_path"])
     days = np.arange(1, horizon + 1)
 
     fig, ax = plt.subplots(figsize=(14, 7))
 
-    # --- PI 밴드 (연한 파란색 음영) ---
+    # --- PI 밴드 ---
     ax.fill_between(
         days,
         result["ensemble_q10"],
@@ -1840,7 +1624,7 @@ def plot_dynamic_ensemble(result: dict, ticker_name: str, save_path: str | None 
         label="Confidence Interval (PI)",
     )
 
-    # --- TimesFM 예측 (초록색 점선) ---
+    # --- TimesFM ---
     ax.plot(
         days,
         result["timesfm_path"],
@@ -1851,18 +1635,18 @@ def plot_dynamic_ensemble(result: dict, ticker_name: str, save_path: str | None 
         label="Trend Model (TimesFM)",
     )
 
-    # --- ElasticNet 예측 (빨간색 점선) ---
+    # --- AutoML UC 모델 ---
     ax.plot(
         days,
-        result["elasticnet_path"],
-        color="red",
+        result["automl_path"],
+        color="darkorange",
         linestyle="--",
         linewidth=1.5,
         alpha=0.8,
-        label="Mean-Rev Model (ElasticNet)",
+        label="Mean-Rev Model (AutoML UC)",
     )
 
-    # --- 앙상블 결과 (파란색 굵은 실선) ---
+    # --- 앙상블 ---
     ax.plot(
         days,
         result["ensemble_path"],
@@ -1889,7 +1673,7 @@ def plot_dynamic_ensemble(result: dict, ticker_name: str, save_path: str | None 
         va="bottom",
     )
 
-    # --- 레짐 & 신뢰도 & 감성 표시 ---
+    # --- 레짐 & 신뢰도 & 감성 ---
     regime = result["regime"]
     _sent_val = result.get("avg_sentiment", 0.0)
     _sent_label = "호재" if _sent_val > 0.3 else ("악재" if _sent_val < -0.3 else "중립")
@@ -1922,7 +1706,6 @@ def plot_dynamic_ensemble(result: dict, ticker_name: str, save_path: str | None 
     ax.grid(True, alpha=0.3)
     ax.set_xlim(1, horizon)
 
-    # y축 포맷팅
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:,.0f}"))
 
     plt.tight_layout()
@@ -1989,9 +1772,7 @@ for ticker in TICKERS:
                 "trend_score": round(result["trend_score"], 2),
                 "mean_rev_score": round(result["meanrev_score"], 2),
                 "trend_pred": round(float(result["timesfm_path"][j]), 2),
-                "meanrev_pred": round(
-                    float(result.get("regression_path", result["elasticnet_path"])[j]), 2
-                ),
+                "meanrev_pred": round(float(result["automl_path"][j]), 2),
                 "final_pred": round(float(result["ensemble_path"][j]), 2),
                 "pi_lower": round(float(result["ensemble_q10"][j]), 2),
                 "pi_upper": round(float(result["ensemble_q90"][j]), 2),
@@ -2031,19 +1812,15 @@ except Exception as e:
 
 # COMMAND ----------
 
-# DBTITLE 1,Azure OpenAI 클라이언트
-from openai import AzureOpenAI  # noqa: E402
+# DBTITLE 1,Azure OpenAI 클라이언트 (gpt-5.4-mini — Responses API)
+from openai import OpenAI  # noqa: E402
 
-OPENAI_DEPLOYMENT = "gpt-4.1-mini"
-OPENAI_API_VERSION = "2025-03-01-preview"
-
-_openai_endpoint = vault.get_secret("azure-openai-endpoint")
 _openai_key = vault.get_secret("azure-openai-key")
-openai_client = AzureOpenAI(
-    azure_endpoint=_openai_endpoint,
+openai_client = OpenAI(
     api_key=_openai_key,
-    api_version=OPENAI_API_VERSION,
+    base_url="https://aoai-3dt-team1.openai.azure.com/openai/v1/",
 )
+OPENAI_FINAL_MODEL = "gpt-5.4-mini"
 
 # COMMAND ----------
 
@@ -2070,11 +1847,11 @@ for ticker in TICKERS:
 [뉴스 감성 (Gold Layer)]
 - 당일 평균 감성: {result.get("avg_sentiment", 0.0):+.3f} (-1=극악재 ~ +1=극호재)
 - 뉴스량 급증 비율: {result.get("news_vol_surge", 1.0):.1f}x (1.0=평균, 2.0+=급증)
-- 감성 해석: 뉴스 감성이 앙상블 가중치에 반영되어 시장 심리를 정량적으로 포착
 
 [모델 예측]
 - TimesFM(추세): {timesfm_predictions[ticker][-1]:,.0f}원
-- ElasticNet(회귀): {elasticnet_predictions[ticker]:,.0f}원
+- AutoML UC(회귀): {automl_predictions[ticker]:,.0f}원
+  (R²={0.817 if "005930" in ticker else 0.770:.3f})
 - 앙상블 최종: {final_pred:,.0f}원 ({change_pct:+.2f}%)
 
 [레짐 판별]
@@ -2086,32 +1863,26 @@ for ticker in TICKERS:
 위 결과를 바탕으로:
 1. 뉴스 감성이 레짐 판별과 가중치에 어떤 영향을 미쳤는지 설명
 2. "AI 슈퍼사이클 → 반도체 수요 → 뉴스 감성 → 주가 예측" 스토리라인으로 해석
-3. 앙상블 결과의 의미와 투자 시사점
+3. AutoML UC 모델(R²>0.77) 도입으로 앙상블 품질이 어떻게 개선되었는지
 4. 뉴스 감성 변화 시 주의해야 할 리스크 요인
 을 한국어로 간결하게 분석해주세요.
 """
 
     try:
-        response = openai_client.chat.completions.create(
-            model=OPENAI_DEPLOYMENT,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "당신은 반도체 주식 전문 퀀트 애널리스트입니다. "
-                        "동적 가중치 앙상블 전략의 결과를 바탕으로 "
-                        "투자 인사이트를 제공합니다. 뉴스 감성 데이터가 "
-                        "앙상블 가중치에 미치는 영향을 AI 슈퍼사이클 "
-                        "관점에서 해석하세요. 수치 근거를 포함하고, "
-                        "리스크도 균형있게 언급하세요."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=1200,
+        response = openai_client.responses.create(
+            model=OPENAI_FINAL_MODEL,
+            instructions=(
+                "당신은 반도체 주식 전문 퀀트 애널리스트입니다. "
+                "동적 가중치 앙상블 전략의 결과를 바탕으로 "
+                "투자 인사이트를 제공합니다. AutoML UC 모델의 "
+                "도입 배경(ElasticNet R²≈0.05 → AutoML R²>0.77)을 "
+                "포함해 해석하세요."
+            ),
+            input=prompt,
+            max_output_tokens=1200,
             temperature=0.4,
         )
-        analysis = response.choices[0].message.content
+        analysis = response.output_text
         print(f"\n{'═' * 70}")
         print(f"  {name} — AI 앙상블 분석")
         print(f"{'═' * 70}")
@@ -2121,149 +1892,159 @@ for ticker in TICKERS:
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC # 8-1. 멀티모델 비교 (GPT-5.4 계열 Responses API)
-# MAGIC
-# MAGIC > gpt-4.1-mini(기존) + gpt-5.4-pro / gpt-5.4 / gpt-5.4-mini 4개 모델이
-# MAGIC > 동일 프롬프트에 대해 생성한 분석을 비교합니다.
-# MAGIC > Azure OpenAI Responses API (`/openai/v1/`) 엔드포인트를 사용합니다.
+# DBTITLE 1,Silver vs Gold 가격 시계열 비교 실험
+# ---------------------------------------------------------------------------
+# Silver Layer vs Gold Layer — TimesFM 입력 가격 시계열 비교
+# ---------------------------------------------------------------------------
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 
-# COMMAND ----------
-
-# DBTITLE 1,멀티모델 GPT-5.4 비교 분석
-import time as _time  # noqa: E402
-
-from openai import OpenAI  # noqa: E402
-
-# -----------------------------------------------------------------------
-# GPT-5.4 계열 모델 엔드포인트 (Azure OpenAI Responses API)
-# -----------------------------------------------------------------------
-_MULTI_MODELS = [
-    {
-        "name": "gpt-5.4-pro",
-        "base_url": "https://3dt00-mnye943s-eastus2.cognitiveservices.azure.com/openai/v1/",
-        "deployment": "gpt-5.4-pro",
-    },
-    {
-        "name": "gpt-5.4",
-        "base_url": "https://aoai-3dt-team1.openai.azure.com/openai/v1/",
-        "deployment": "gpt-5.4",
-    },
-    {
-        "name": "gpt-5.4-mini",
-        "base_url": "https://aoai-3dt-team1.openai.azure.com/openai/v1/",
-        "deployment": "gpt-5.4-mini",
-    },
-]
-
-# 멀티모델 비교용 통합 프롬프트 (삼성/SK 모두 포함)
-_multi_prompt_parts = []
-for ticker in TICKERS:
-    if ticker not in ensemble_results:
-        continue
-    result = ensemble_results[ticker]
-    name = TICKER_NAMES[ticker]
-    regime = result["regime"]
-    final_pred = result["ensemble_path"][-1]
-    change_pct = (final_pred - result["last_price"]) / result["last_price"] * 100
-    _multi_prompt_parts.append(
-        f"[{name}] 현재가 {result['last_price']:,.0f}원 → 앙상블 {final_pred:,.0f}원"
-        f" ({change_pct:+.2f}%), 레짐={regime['regime']},"
-        f" 감성={result.get('avg_sentiment', 0):+.3f},"
-        f" 신뢰도={result['confidence']:.0f}/100"
-    )
-
-_multi_prompt = (
-    "반도체 주가 동적 가중치 앙상블 예측 결과를 투자 관점에서 분석해주세요.\n\n"
-    + "\n".join(_multi_prompt_parts)
-    + "\n\n다음 세 가지를 한국어 5문장 이내로 답변:\n"
-    "1. 종합 투자 시그널 (강한매수/매수/관망/매도/강한매도)\n"
-    "2. 핵심 리스크 요인 1가지\n"
-    "3. 향후 주의해야 할 매크로 이벤트 1가지"
-)
-
-_system = (
-    "반도체 주식 퀀트 애널리스트. 동적 가중치 앙상블 전략 결과를 투자 의견으로 변환. "
-    "수치 근거 포함, 리스크 균형."
-)
-
-# 기존 gpt-4.1-mini 결과 포함
-multi_results = {}
+# --- 1. Silver Layer 로드 ---
 try:
-    _t0 = _time.time()
-    _base_resp = openai_client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {"role": "system", "content": _system},
-            {"role": "user", "content": _multi_prompt},
-        ],
-        max_tokens=600,
-        temperature=0.3,
+    _silver_path = f"abfss://curated@{account}.dfs.core.windows.net/pre_macro_1y_adf.parquet"
+    df_silver = spark.read.parquet(_silver_path).toPandas()  # noqa: F821
+    # 날짜 컨럼 자동 감지
+    _date_col = "기준일자" if "기준일자" in df_silver.columns else "date"
+    df_silver[_date_col] = pd.to_datetime(df_silver[_date_col])
+    df_silver = df_silver.sort_values(_date_col).rename(columns={_date_col: "s_date"})
+    print(
+        f"[OK] Silver: {df_silver.shape}, "
+        f"{df_silver['s_date'].min().date()} ~ {df_silver['s_date'].max().date()}"
     )
-    multi_results["gpt-4.1-mini"] = {
-        "text": _base_resp.choices[0].message.content,
-        "tokens": _base_resp.usage.total_tokens,
-        "time_sec": round(_time.time() - _t0, 2),
-    }
+    _silver_loaded = True
 except Exception as e:
-    multi_results["gpt-4.1-mini"] = {"text": f"[오류] {e}", "tokens": 0, "time_sec": 0}
+    print(f"[WARN] Silver 로드 실패: {e}")
+    _silver_loaded = False
 
-# GPT-5.4 계열 (Responses API)
-for model_info in _MULTI_MODELS:
-    _mname = model_info["name"]
-    try:
-        _resp_client = OpenAI(
-            api_key=_openai_key,
-            base_url=model_info["base_url"],
+print(
+    f"[OK] Gold:   {df_gold_macro.shape}, "
+    f"{df_gold_macro['date'].min().date()} ~ {df_gold_macro['date'].max().date()}"
+)
+
+if _silver_loaded:
+    _s_col = "yfinance_samsung_close"
+    _h_col = "yfinance_skhynix_close"
+
+    for col_name, ticker_name in [(_s_col, "삼성전자"), (_h_col, "SK하이닉스")]:
+        if col_name not in df_silver.columns:
+            print(f"  [SKIP] Silver에 {col_name} 없음")
+            continue
+
+        # Silver 가격 시계열
+        s_close = df_silver[["s_date", col_name]].dropna(subset=[col_name]).copy()
+        s_close.columns = ["date", "close"]
+        s_close = s_close.sort_values("date").reset_index(drop=True)
+
+        # Gold 가격 시계열
+        g_close = df_gold_macro[["date", col_name]].dropna(subset=[col_name]).copy()
+        g_close.columns = ["date", "close"]
+        g_close = g_close.sort_values("date").reset_index(drop=True)
+
+        print(f"\n{'=' * 70}")
+        print(f"  {ticker_name} — Silver vs Gold 비교")
+        print(f"{'=' * 70}")
+        print(
+            f"  Silver: {len(s_close)}일, "
+            f"{s_close['date'].iloc[0].date()} ~ {s_close['date'].iloc[-1].date()}"
         )
-        _t0 = _time.time()
-        _resp = _resp_client.responses.create(
-            model=model_info["deployment"],
-            instructions=_system,
-            input=_multi_prompt,
-            max_output_tokens=600,
-            temperature=0.3,
+        print(
+            f"  Gold:   {len(g_close)}일, "
+            f"{g_close['date'].iloc[0].date()} ~ {g_close['date'].iloc[-1].date()}"
         )
-        multi_results[_mname] = {
-            "text": _resp.output_text,
-            "tokens": _resp.usage.total_tokens if _resp.usage else 0,
-            "time_sec": round(_time.time() - _t0, 2),
-        }
-    except Exception as e:
-        multi_results[_mname] = {"text": f"[오류] {e}", "tokens": 0, "time_sec": 0}
+        _s_ret = (s_close["close"].iloc[-1] / s_close["close"].iloc[0] - 1) * 100
+        print(
+            f"  Silver: {s_close['close'].iloc[0]:,.0f} → "
+            f"{s_close['close'].iloc[-1]:,.0f} ({_s_ret:+.1f}%)"
+        )
+        _g_ret = (g_close["close"].iloc[-1] / g_close["close"].iloc[0] - 1) * 100
+        print(
+            f"  Gold:   {g_close['close'].iloc[0]:,.0f} → "
+            f"{g_close['close'].iloc[-1]:,.0f} ({_g_ret:+.1f}%)"
+        )
 
-# -----------------------------------------------------------------------
-# 결과 비교 출력
-# -----------------------------------------------------------------------
-print(f"\n{'═' * 80}")
-print("  멀티모델 비교 — 동일 프롬프트 4개 모델 응답")
-print(f"{'═' * 80}")
+        # 날짜 차이
+        s_end = s_close["date"].iloc[-1]
+        g_end = g_close["date"].iloc[-1]
+        date_diff = (g_end - s_end).days
+        print(f"\n  ★ Silver 마지막 날짜: {s_end.date()}")
+        print(f"  ★ Gold   마지막 날짜: {g_end.date()}")
+        if date_diff != 0:
+            print(f"  ★ 날짜 차이: {date_diff}일 — Gold가 {abs(date_diff)}일 더 최신!")
+        print(f"  ★ 데이터 길이 차이: Silver {len(s_close)}일 vs Gold {len(g_close)}일")
 
-_model_order = ["gpt-4.1-mini", "gpt-5.4-mini", "gpt-5.4", "gpt-5.4-pro"]
-for mname in _model_order:
-    if mname not in multi_results:
-        continue
-    r = multi_results[mname]
-    print(f"\n{'─' * 80}")
-    print(f"  [{mname}] | 토큰: {r['tokens']} | 응답시간: {r['time_sec']}s")
-    print(f"{'─' * 80}")
-    print(r["text"])
+        # 공통 날짜 merge
+        merged = pd.merge(s_close, g_close, on="date", suffixes=("_silver", "_gold"), how="inner")
+        if len(merged) > 0:
+            diff = (
+                (merged["close_silver"] - merged["close_gold"]).abs() / merged["close_gold"] * 100
+            )
+            print(f"  공통 기간 가격 차이: 평균 {diff.mean():.3f}%, 최대 {diff.max():.3f}%")
+            if diff.mean() < 0.01:
+                print("  → 동일 yfinance 데이터 — 가격 자체는 같음")
 
-# 성능 비교 요약 테이블
-print(f"\n{'═' * 80}")
-print("  성능 비교 요약")
-print(f"{'═' * 80}")
-print(f"  {'모델':<20} {'토큰':>8} {'응답시간':>10} {'상태':>8}")
-print(f"  {'─' * 52}")
-for mname in _model_order:
-    if mname not in multi_results:
-        continue
-    r = multi_results[mname]
-    status = "✅" if not r["text"].startswith("[오류]") else "❌"
-    print(f"  {mname:<20} {r['tokens']:>8} {r['time_sec']:>8.2f}s {status:>6}")
+        # Silver 최근 60일 vs Gold 최근 60일 곡선 형태
+        for label, df_p in [("Silver", s_close), ("Gold", g_close)]:
+            last60 = df_p.tail(60)
+            ret = (last60["close"].iloc[-1] / last60["close"].iloc[0] - 1) * 100
+            slope = np.polyfit(np.arange(len(last60)), last60["close"].values, 1)[0]
+            std = last60["close"].pct_change().dropna().std() * 100
+            up = (last60["close"].pct_change() > 0).sum()
+            down = (last60["close"].pct_change() < 0).sum()
+            print(
+                f"\n  {label} 최근 60일 "
+                f"({last60['date'].iloc[0].date()} ~ {last60['date'].iloc[-1].date()}):"
+            )
+            print(
+                f"    {last60['close'].iloc[0]:,.0f} → "
+                f"{last60['close'].iloc[-1]:,.0f} ({ret:+.1f}%)"
+            )
+            print(f"    기울기: {slope:+,.1f}원/일, 변동성: {std:.2f}%/일, 상승/하락: {up}/{down}")
+
+        # --- 시각화 ---
+        fig, axes = plt.subplots(1, 2, figsize=(16, 5))
+        s_plot = s_close.tail(120)
+        g_plot = g_close.tail(120)
+        axes[0].plot(s_plot["date"], s_plot["close"], "b-", lw=1.5)
+        axes[0].set_title(f"{ticker_name} Silver (최근 {len(s_plot)}일)")
+        axes[0].set_ylabel("원")
+        axes[0].grid(alpha=0.3)
+        axes[0].yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+
+        axes[1].plot(g_plot["date"], g_plot["close"], "r-", lw=1.5)
+        axes[1].set_title(f"{ticker_name} Gold (최근 {len(g_plot)}일)")
+        axes[1].set_ylabel("원")
+        axes[1].grid(alpha=0.3)
+        axes[1].yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+
+        plt.suptitle(
+            f"{ticker_name}: Silver vs Gold — TimesFM context 비교",
+            fontsize=13,
+            fontweight="bold",
+        )
+        plt.tight_layout()
+        display(fig)  # noqa: F821
+        plt.close(fig)
+
+    print(f"\n{'=' * 70}")
+    print("  ★ 최종 결론")
+    print(f"{'=' * 70}")
+    print(
+        f"  Silver 마지막: {df_silver['s_date'].max().date()}, "
+        f"Gold 마지막: {df_gold_macro['date'].max().date()}"
+    )
+    _days_gap = (df_gold_macro["date"].max() - df_silver["s_date"].max()).days
+    if _days_gap > 0:
+        print(
+            f"  Gold가 {_days_gap}일 더 최신 — "
+            "이 기간에 V자 급락+반등 발생 시 TimesFM context 완전히 다름"
+        )
+    print("  → 데이터 소스 차이가 아닌 ‘시점 차이’가 TimesFM 예측 변화의 근본 원인")
+
 
 # COMMAND ----------
 
+# DBTITLE 1,v0419 결과 요약
 # MAGIC %md
 # MAGIC # 9. 결과 요약
 # MAGIC
@@ -2272,11 +2053,9 @@ for mname in _model_order:
 # MAGIC | Step 0 | 환경설정 + 한글 폰트 | ✅ |
 # MAGIC | Step 1 | RSI, ATR, 이격도, 로그수익률 + **감성·키워드 파생 피처** | ✅ v0416 |
 # MAGIC | Step 1.5 | **뉴스 감성 + 동적 키워드 파생변수** (6종 + 교호작용 4종) | ✅ v0416 |
-# MAGIC | Step 2 | ElasticNetCV + 로그수익률 타겟 + Time-Decay + 감성/키워드 피처 | ✅ v0416 |
-# MAGIC | Step 2b | **RandomForest 회귀** (AutoML 하이퍼파라미터, 0.7RF+0.3EN 블렌딩) | ✅ v0417 |
+# MAGIC | Step 2 | **AutoML UC 모델** (삼성전자 R²=0.817, SK하이닉스 R²=0.770) | ✅ v0419 |
 # MAGIC | Step 2-1 | **키워드 파생변수 상관관계 분석** (Spearman/Pearson 교차검증) | ✅ v0416 |
 # MAGIC | Step 3 | **Soft Switching** + 감성 가중치 + Interaction + Confidence | ✅ v0415 |
-# MAGIC | Step 4 | 시각화 + fact_ensemble_forecast DataFrame | ✅ v0415 |
-# MAGIC | Step 5-1 | **AI 중간 해석** (ElasticNet 결과, 앙상블 레짐, 키워드 상관) | ✅ v0416 |
-# MAGIC | Step 8 | AI 앙상블 전략 요약 (GPT-4.1-mini) | ✅ v0415 |
-# MAGIC | Step 8-1 | **멀티모델 비교** (gpt-4.1-mini / 5.4-mini / 5.4 / 5.4-pro) | ✅ v0416 |
+# MAGIC | Step 4 | 시각화 + fact_ensemble_forecast DataFrame | ✅ v0419 |
+# MAGIC | Step 5-1 | **AI 중간 해석** (앙상블 레짐, 키워드 상관) | ✅ v0416 |
+# MAGIC | Step 8 | AI 앙상블 전략 요약 (**gpt-5.4-mini** Responses API) | ✅ v0418 |

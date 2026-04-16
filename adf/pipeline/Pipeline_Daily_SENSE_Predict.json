@@ -1,0 +1,88 @@
+{
+	"name": "Pipeline_Daily_SENSE_Predict",
+	"properties": {
+		"description": "SENSE ML 예측 파이프라인 (Gold Layer 준비 완료 후 실행): ML 피처 빌드 → 통계 baseline → 앙상블 예측. 뉴스/매크로 수집·전처리는 pl_news_preprocessing 및 Lab1~4 파이프라인이 선행 처리.",
+		"activities": [
+			{
+				"name": "act_ml_feature_build",
+				"description": "Gold Layer 3개 테이블 병합 + 기술 지표·타겟 생성 → gold_ml.gold_ml_feature_set UPSERT",
+				"type": "DatabricksNotebook",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/03_ml_feature_build"
+				},
+				"linkedServiceName": {
+					"referenceName": "AzureDatabricks2",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "act_statistical_baseline",
+				"description": "통계 기준선 분석 (statistical_baseline_analysis)",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "act_ml_feature_build",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/statistical_baseline_analysis"
+				},
+				"linkedServiceName": {
+					"referenceName": "AzureDatabricks2",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "act_ensemble_predict",
+				"description": "앙상블 예측 실행 (RandomForest + ElasticNet 좌표 → 최종 시그널)",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "act_statistical_baseline",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Repos/3dt030@msacademy.msai.kr/3dt-2nd-project/notebooks/ensemble_strategy"
+				},
+				"linkedServiceName": {
+					"referenceName": "AzureDatabricks2",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"annotations": [],
+		"lastPublishTime": "2026-04-15T00:00:00"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}
