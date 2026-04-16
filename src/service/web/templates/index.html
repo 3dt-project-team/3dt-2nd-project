@@ -307,7 +307,11 @@
 
             const bubble = document.createElement("div");
             bubble.className = "msg-bubble";
-            bubble.textContent = text;
+            if (role === "bot") {
+                bubble.innerHTML = renderBotMarkdown(text);
+            } else {
+                bubble.textContent = text;
+            }
 
             wrapper.appendChild(labelNode);
             wrapper.appendChild(bubble);
@@ -319,6 +323,21 @@
             chatMessages.appendChild(wrapper);
             chatMessages.scrollTop = chatMessages.scrollHeight;
             return wrapper;
+        }
+
+        function escapeHtml(text) {
+            return String(text)
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#39;");
+        }
+
+        function renderBotMarkdown(text) {
+            const safe = escapeHtml(text ?? "");
+            // Minimal markdown support: **bold** only.
+            return safe.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
         }
 
         function buildSourcesNode(sources) {
