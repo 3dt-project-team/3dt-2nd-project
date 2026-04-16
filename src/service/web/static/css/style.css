@@ -505,6 +505,21 @@ h2 {
     z-index: 999;
 }
 
+.site-disclaimer {
+    max-width: 920px;
+    margin: 0 auto 18px;
+    padding: 0 20px;
+    color: #8b96a8;
+    text-align: center;
+    font-size: 0.76rem;
+    line-height: 1.55;
+    letter-spacing: 0.01em;
+}
+
+.site-disclaimer p {
+    margin: 0;
+}
+
 #chat-window {
     width: min(380px, calc(100vw - 32px));
     height: min(560px, calc(100vh - 120px));
@@ -695,6 +710,12 @@ h2 {
     #chatbot-container {
         right: 16px;
         bottom: 16px;
+    }
+
+    .site-disclaimer {
+        margin-bottom: 90px;
+        padding: 0 16px;
+        font-size: 0.72rem;
     }
 
     #chat-window {
