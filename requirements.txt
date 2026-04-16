@@ -1,8 +1,9 @@
-flask
-python-dotenv
-azure-identity
-azure-keyvault-secrets
-psycopg2-binary
-pip install -r requirements.txt
-pip freeze > requirements.txt
-pip install flask sqlalchemy "psycopg[binary]" azure-identity azure-keyvault-secrets python-dotenv
+Flask>=3.0.0
+gunicorn>=23.0.0
+python-dotenv>=1.0.0
+azure-core>=1.39.0
+azure-identity>=1.19.0
+azure-keyvault-secrets>=4.9.0
+SQLAlchemy>=2.0.0
+psycopg[binary]>=3.2.0
+openai>=2.31.0

@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Montserrat:wght@800&display=swap");
+
 :root {
     --bg: #f4f7fb;
     --surface: #ffffff;
@@ -61,8 +63,15 @@ a:hover {
 }
 
 .sense-logo {
-    font-family: "Times New Roman", Times, serif;
-    letter-spacing: 0.02em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 0;
+    font-family: "Montserrat", "Segoe UI", sans-serif;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    line-height: 1;
+    color: #0f6cbd;
 }
 
 .page-subtitle {
@@ -696,4 +705,5 @@ h2 {
     .chat-input-area button {
         height: 44px;
     }
+
 }
