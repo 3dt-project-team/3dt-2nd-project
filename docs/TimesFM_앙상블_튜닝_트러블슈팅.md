@@ -788,30 +788,122 @@ with conn.cursor() as cur:
 
 ---
 
-## 7. 李멸퀬 ?먮즺 & ?몄슜
+## Phase 4: v0415 → v0419 진화 (2025-04-15 ~ 2025-04-19)
 
-| 二쇱젣 | 李멸퀬臾명뿄 | ?섎? |
+### 6-1. v0415 — 뉴스 심리 지표 통합
+
+**변경 사항:**
+- \sense_macro\ 뉴스 심리 지표를 Feature Mart에 추가 (sentiment_score, positive_ratio 등)
+- sentiment 기반 가중치 조정 함수 \_adjust_for_sentiment()\ 신설
+- ±0.10 범위 clip, 긍/부정 뉴스 비율로 TimesFM↔통계 가중치 시프트
+
+**트러블슈팅:**
+- 뉴스 심리 지표 NaN 비율이 높아 fillna(0.5) 중립 기본값 적용
+- sentiment_score 범위가 [0,1]→[-1,1] 으로 소스마다 달라 정규화 통일
+
+### 6-2. v0416 — 키워드 분석 + Weight Scale 재조정
+
+**변경 사항:**
+- RSI 조정: ±0.20 → ±0.13 + 0.07 가속 (대칭 설계)
+- Vol 조정: +0.15/−0.20 → +0.12/−0.15
+- Interaction 규칙 5개로 확장 (sentiment×RSI 교차 규칙 추가)
+- 모든 weight 함수에 \0416\ 이력 주석 추가
+
+**트러블슈팅:**
+- 가중치 합산 시 clip 범위 [0.15, 0.85] → [0.25, 0.75] 로 축소하여 극단 편향 방지
+- interaction 규칙 간 중복 적용 문제 → 순서 고정 + 최종 clip으로 해결
+
+### 6-3. v0417 — AutoML RandomForest 도입
+
+**변경 사항:**
+- Databricks AutoML로 RandomForest 모델 학습 → Unity Catalog 모델 레지스트리 등록
+- \mlflow.sklearn.load_model()\ 으로 UC 모델 로딩 파이프라인 구축
+- ElasticNet 대비 R² 대폭 개선 (삼성 0.9266, SK 0.7097)
+
+**트러블슈팅:**
+- scikit-learn 버전 불일치 (Databricks 1.4 → 로컬 1.8): \__sklearn_tags__\ AttributeError
+- 해결: \_deep_mark_fitted()\ 재귀 함수로 모든 sub-estimator에 \__is_fitted__\ 마킹
+
+\\python
+def _deep_mark_fitted(estimator):
+    estimator.__is_fitted__ = True
+    for attr in vars(estimator):
+        sub = getattr(estimator, attr, None)
+        if hasattr(sub, 'fit'):
+            _deep_mark_fitted(sub)
+\
+### 6-4. v0418 — gpt-5.4-mini + Responses API
+
+**변경 사항:**
+- AI 해석 모델을 gpt-4.1-mini → gpt-5.4-mini 로 교체
+- OpenAI Responses API (\client.responses.create\) 채택
+- temperature=0.3 으로 재현성 확보
+
+**트러블슈팅:**
+- Responses API 응답 구조 변경: esponse.choices[0].message.content\ → esponse.output_text- API 호출 실패 시 graceful degradation (AI 해석 없이 수치만 출력)
+
+### 6-5. v0419 — UC 모델 재학습 + ElasticNet 완전 제거
+
+**변경 사항:**
+- Gold Layer 통합: \eature/\ 컨테이너 4개 폴더 (gold_macro_1y, macro_semiconductor, sense_macro, timesfm_forecast)
+- UC 모델을 Gold Layer 데이터로 재학습 → R² 유지 확인
+- ElasticNet 관련 코드 전면 제거 (R² ≈ 0.05 / −1.19)
+- 기본 가중치 비율: TimesFM 0.45 / UC BestTrial 0.55
+
+**Silver Layer vs Gold Layer 비교:**
+
+| 항목 | Silver (v0414) | Gold (v0419) |
+|---|---|---|
+| 데이터 소스 | curated/ 개별 CSV | feature/ 통합 Gold Layer |
+| Feature 수 | ~30개 | 69+ 개 |
+| 뉴스 심리 | 미포함 | sense_macro 통합 |
+| 매크로 지표 | 개별 로딩 | gold_macro_1y 통합 |
+| 모델 | ElasticNetCV | Databricks AutoML UC BestTrial |
+
+### 체크리스트 (v0419 기준)
+
+| 항목 | 상태 |
+|---|---|
+| Gold Layer 로딩 검증 | ✅ |
+| UC 모델 로딩 + _deep_mark_fitted | ✅ |
+| TimesFM 3-Tier 폴백 | ✅ |
+| 5개 Soft Switching 조정 | ✅ |
+| sentiment 가중치 조정 | ✅ |
+| gpt-5.4-mini Responses API | ✅ |
+| ElasticNet 코드 제거 | ✅ |
+| ruff lint 0 errors | ✅ |
+
+---
+
+## 7. 참고 문헌 & 인용
+
+| 주제 | 참고문헌 | 설명 |
 |---|---|---|
 | RSI | Wilder (1978) | New Concepts in Technical Trading Systems |
-| ATR | Wilder (1978) | 媛숈쓬 |
+| ATR | Wilder (1978) | 동일 |
 | Time-Decay | Hastie, Tibshirani, Friedman (2009) | The Elements of Statistical Learning |
 | Conformal Prediction | Vovk et al. (2005) | Algorithmic Learning in a Random World |
-| ElasticNet | Zou & Hastie (2005) | Regularization and Variable Selection via the Elastic Net |
 | Log-Return | Tsay (2010) | Analysis of Financial Time Series |
 | Ensemble Learning | Wolpert (1992) | Stacked Generalization |
+| AutoML | Databricks (2024) | AutoML User Guide |
+| Unity Catalog | Databricks (2024) | ML Model Registry on UC |
 
 ---
 
-## 8. 媛쒕컻 ?덉뒪?좊━
+## 8. 갱신 히스토리
 
-| 踰꾩쟾 | ?좎쭨 | 二쇱슂 蹂寃?| ?곹깭 |
+| 버전 | 일자 | 주요 변경 | 상태 |
 |---|---|---|---|
-| v0412 | 2025-04-12 | TimesFM 珥덇린 異붾줎 ?뚯씠?꾨씪??| ???꾨즺 |
-| v0413 | 2025-04-13 | ?숈쟻 媛以묒튂 ?숈긽釉?(Hard Threshold) | ??蹂묓빀 (PR #67) |
-| v0414 | 2025-04-13 | Soft Switching + 濡쒓렇?섏씡瑜?+ Interaction | ??PR #74 吏꾪뻾以?|
-| v0415 (誘몃옒) | TBD | Regime ?먯? + ?ㅼ쨷 ?몃씪?댁쫵 | ??怨꾪쉷?④퀎 |
+| v0412 | 2025-04-12 | TimesFM 초기 추론 파이프라인 | 개발 완료 |
+| v0413 | 2025-04-13 | 동적 가중치 동상률 (Hard Threshold) | 병합 (PR #67) |
+| v0414 | 2025-04-13 | Soft Switching + 로그수익률 + Interaction | PR #74 |
+| v0415 | 2025-04-15 | 뉴스 심리 지표 통합 + sentiment 가중치 | 병합 |
+| v0416 | 2025-04-16 | 키워드 분석 + Weight Scale 재조정 | 병합 |
+| v0417 | 2025-04-17 | AutoML RandomForest + UC 모델 등록 | 병합 |
+| v0418 | 2025-04-18 | gpt-5.4-mini + Responses API | 병합 |
+| v0419 | 2025-04-19 | Gold Layer 통합 + UC 재학습 + ElasticNet 제거 | PR #89 진행중 |
 
 ---
 
-**臾몄꽌 ?묒꽦**: SENSE ?꾨줈?앺듃 ?  
-**理쒖쥌 寃??*: 2025-04-14
+**문서 작성**: SENSE 프로젝트 팀
+**최종 갱신**: 2025-04-19

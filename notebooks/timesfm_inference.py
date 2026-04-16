@@ -177,6 +177,7 @@ print(f"Azure OpenAI 연결 완료 | 엔드포인트: {_openai_endpoint} | 배�
 
 # COMMAND ----------
 
+# DBTITLE 1,Gold Layer 주가 + 매크로 (feature/gold_macro_1y)
 TICKERS = ["005930.KS", "000660.KS"]
 TICKER_NAMES = {"005930.KS": "삼성전자", "000660.KS": "SK하이닉스"}
 HORIZON = 20
@@ -194,7 +195,7 @@ def safe_read_parquet(path, date_col=None, index_col=None):
             df[date_col] = pd.to_datetime(df[date_col])
         if index_col and index_col in df.columns:
             df = df.set_index(index_col).sort_index()
-        label = path.split("/")[-1]
+        label = path.split("/")[-1] or path.split("/")[-2]
         print(f"  [OK] {label}: {len(df)} rows, cols={list(df.columns)[:8]}...")
         return df
     except Exception as e:
@@ -203,26 +204,19 @@ def safe_read_parquet(path, date_col=None, index_col=None):
 
 
 # ---------------------------------------------------------------------------
-# 1-1. 주가 + 매크로 데이터 로드 (feature/curated 컨테이너 탐색)
+# 1-1. Gold Layer 주가 + 매크로 데이터 (feature/gold_macro_1y)
 # ---------------------------------------------------------------------------
-_gold_paths = [
-    f"abfss://feature@{account}.dfs.core.windows.net/gold_macro_1y.parquet",
-    f"abfss://curated@{account}.dfs.core.windows.net/gold_macro_1y.parquet",
-    f"abfss://curated@{account}.dfs.core.windows.net/pre_macro_1y_adf.parquet",
-]
+print("Gold Layer 데이터 로드")
+print("=" * 60)
 
-_df_gold = pd.DataFrame()
-for _path in _gold_paths:
-    _df_gold = safe_read_parquet(_path)
-    if not _df_gold.empty:
-        break
+_gold_path = f"abfss://feature@{account}.dfs.core.windows.net/gold_macro_1y/"
+_df_gold = safe_read_parquet(_gold_path)
 
 if not _df_gold.empty:
-    # 날짜 컬럼 자동감지
+    # 날짜 컬럼: 기준일자 → trade_date
     _date_candidates = ["기준일자", "trade_date", "date", "Date"]
     _date_col = next((c for c in _date_candidates if c in _df_gold.columns), None)
     if _date_col is None:
-        # datetime 타입 컬럼 탐색
         for c in _df_gold.columns:
             if "date" in c.lower() or "_dt" in c.lower() or "일자" in c:
                 _date_col = c
@@ -237,7 +231,7 @@ if not _df_gold.empty:
     if _date_col != "trade_date":
         _df_gold = _df_gold.rename(columns={_date_col: "trade_date"})
 
-    # (A) 주가 타겟
+    # (A) 주가 타겟 (휴장일/주말 필터링)
     _has_holidays = "주말여부" in _df_gold.columns and "한국_휴장일_여부" in _df_gold.columns
     _df_trading = (
         _df_gold[(~_df_gold["주말여부"]) & (~_df_gold["한국_휴장일_여부"])].copy()
@@ -298,167 +292,167 @@ else:
 
 # COMMAND ----------
 
+# DBTITLE 1,1-2. sense_macro 설명
 # MAGIC %md
-# MAGIC ## 1-2. 한국 금융 파생상품 피처 (silver_kfinance)
+# MAGIC ## 1-2. 매크로 리스크 시그널 (sense_macro)
+# MAGIC
+# MAGIC > `silver_kfinance` 대체 → `feature/sense_macro/` 파생 리스크 시그널 23종 사용
+# MAGIC > NVDA/SOX 변동성, 금리스프레드, 환율, 리스크 시그널, 수출 모멘텀
 
 # COMMAND ----------
 
+# DBTITLE 1,sense_macro 파생 리스크 시그널 (feature/sense_macro)
 # ---------------------------------------------------------------------------
-# 1-2. silver_kfinance.parquet → 한국 금융 파생상품 피처
-#  KOSPI200 옵션/워런트 월별 데이터 → 일별 Forward-Fill
-#  피처: ATM가, 활성계약수, 평균가, 최대유효행사가, 총가치
+# 1-2. sense_macro: 파생 리스크 시그널 (feature/sense_macro)
+#  NVDA/SOX 변동성, 금리스프레드, 환율, 리스크 시그널, 수출 모멘텀
+#  → silver_kfinance 대체 (학습 노트북과 동일 파생변수)
 # ---------------------------------------------------------------------------
-kfin_path = f"abfss://curated@{account}.dfs.core.windows.net/silver_kfinance.parquet"
-_df_kfin_raw = safe_read_parquet(kfin_path, date_col="date")
+try:
+    _sense_path = f"abfss://feature@{account}.dfs.core.windows.net/sense_macro/"
+    _df_sense = safe_read_parquet(_sense_path, date_col="date")
 
-if not _df_kfin_raw.empty:
-    # close_price를 숫자로 변환
-    _df_kfin_raw["close_price"] = pd.to_numeric(
-        _df_kfin_raw["close_price"], errors="coerce"
-    ).fillna(0)
+    if not _df_sense.empty:
+        _sense_derived_cols = [
+            "date",
+            "NVDA_log_return",
+            "NVDA_volatility_gk",
+            "NVDA_volatility_5d",
+            "SOX_log_return",
+            "SOX_volatility_5d",
+            "yield_spread",
+            "yield_spread_change",
+            "stagnation_pressure",
+            "usd_krw_change",
+            "usd_krw_pct",
+            "risk_off_flag",
+            "risk_off_composite",
+            "macro_stress_score",
+            "fear_composite",
+            "semi_risk_signal",
+            "korea_sensitivity",
+            "global_risk_regime",
+            "is_high_risk",
+            "semi_export_yoy",
+            "semi_export_mom",
+            "dram_supply_pressure",
+            "nand_supply_pressure",
+        ]
+        _available = [c for c in _sense_derived_cols if c in _df_sense.columns]
+        df_sense_macro = _df_sense[_available].copy()
+        df_sense_macro = df_sense_macro.rename(columns={"date": "trade_date"})
+        df_sense_macro = df_sense_macro.set_index("trade_date").sort_index().ffill().bfill()
 
-    # ticker에서 행사가 추출 (kfinance_201WC170 → 170)
-    _df_kfin_raw["strike"] = _df_kfin_raw["ticker"].str.extract(r"(\d+)$")[0].astype(float)
+        print(f"sense_macro 파생변수: {df_sense_macro.shape}")
+        print(f"  기간: {df_sense_macro.index.min()} ~ {df_sense_macro.index.max()}")
+        print(f"  컬럼: {list(df_sense_macro.columns)[:10]}...")
+        display(df_sense_macro.head())  # noqa: F821
+    else:
+        df_sense_macro = pd.DataFrame()
+        print("[WARN] sense_macro 데이터 없음")
+except Exception as e:  # noqa: BLE001
+    df_sense_macro = pd.DataFrame()
+    print(f"[WARN] sense_macro 로드 실패: {e}")
 
-    # 날짜별 집계 → 시장 레벨 피처
-    df_kfin_agg = (
-        _df_kfin_raw.groupby("date")
-        .agg(
-            # ATM(최고가) 옵션 가격 → 변동성 프록시
-            kfin_atm_price=("close_price", "max"),
-            # 활성 계약 수 (close_price > 0) → 시장 폭
-            kfin_active_count=("close_price", lambda x: (x > 0).sum()),
-            # 활성 옵션 평균 가격
-            kfin_mean_price=("close_price", lambda x: x[x > 0].mean() if (x > 0).any() else 0),
-            # 총 가치 합계 → 시장 활동 강도
-            kfin_total_value=("close_price", "sum"),
-            # 전체 종목 수
-            kfin_total_count=("close_price", "count"),
+# COMMAND ----------
+
+# DBTITLE 1,1-3. 반도체 수출입 설명
+# MAGIC %md
+# MAGIC ## 1-3. 반도체 수출입 피처 (macro_semiconductor)
+# MAGIC
+# MAGIC > `silver_semiconductor` 대체 → `feature/macro_semiconductor/` 사용
+# MAGIC > HS코드별 월별 수출/수입 → 일별 Forward-Fill
+
+# COMMAND ----------
+
+# DBTITLE 1,반도체 수출입 (feature/macro_semiconductor)
+# ---------------------------------------------------------------------------
+# 1-3. 반도체 수출입 (feature/macro_semiconductor)
+#  HS코드별 → 월별 집계 → 일별 Forward-Fill
+#  학습 노트북과 동일 소스 사용
+# ---------------------------------------------------------------------------
+try:
+    _semi_path = f"abfss://feature@{account}.dfs.core.windows.net/macro_semiconductor/"
+    _df_semi_raw = safe_read_parquet(_semi_path, date_col="date")
+
+    if not _df_semi_raw.empty:
+        # --- 날짜별 전체 집계 ---
+        _semi_total = (
+            _df_semi_raw.groupby("date")
+            .agg(semi_total_exp=("expDlr", "sum"), semi_total_imp=("impDlr", "sum"))
+            .reset_index()
         )
-        .reset_index()
-    )
+        _semi_total["semi_net_trade"] = (
+            _semi_total["semi_total_exp"] - _semi_total["semi_total_imp"]
+        )
 
-    # 최대 유효 행사가 (close > 0인 최고 행사가) → 시장 상한 기대
-    _active = _df_kfin_raw[_df_kfin_raw["close_price"] > 0]
-    _max_strike = _active.groupby("date")["strike"].max().reset_index()
-    _max_strike.columns = ["date", "kfin_max_strike"]
-    df_kfin_agg = df_kfin_agg.merge(_max_strike, on="date", how="left")
+        # --- DRAM (HS 8542321010) ---
+        _dram = (
+            _df_semi_raw[_df_semi_raw["hsCode"] == 8542321010]
+            .groupby("date")
+            .agg(semi_dram_exp=("expDlr", "sum"), semi_dram_imp=("impDlr", "sum"))
+            .reset_index()
+        )
 
-    # 활성 비율
-    df_kfin_agg["kfin_active_ratio"] = (
-        df_kfin_agg["kfin_active_count"] / df_kfin_agg["kfin_total_count"]
-    )
+        # --- Flash 메모리 (HS 8542321030) ---
+        _flash = (
+            _df_semi_raw[_df_semi_raw["hsCode"] == 8542321030]
+            .groupby("date")
+            .agg(semi_flash_exp=("expDlr", "sum"), semi_flash_imp=("impDlr", "sum"))
+            .reset_index()
+        )
 
-    # 월별 → 일별 Forward-Fill
-    df_kfin_agg = df_kfin_agg.set_index("date").sort_index()
-    all_bdays = pd.bdate_range(df_kfin_agg.index.min(), df_kfin_agg.index.max(), freq="B")
-    df_kfinance = df_kfin_agg.reindex(all_bdays).ffill().bfill()
-    df_kfinance.index.name = "trade_date"
+        # --- 복합구조칩 IC (HS 8542323000) ---
+        _mcp = (
+            _df_semi_raw[_df_semi_raw["hsCode"] == 8542323000]
+            .groupby("date")
+            .agg(semi_mcp_exp=("expDlr", "sum"))
+            .reset_index()
+        )
 
-    # 불필요 컬럼 제거
-    df_kfinance = df_kfinance.drop(columns=["kfin_total_count"], errors="ignore")
+        # 병합
+        df_semi_agg = _semi_total
+        for _sub in [_dram, _flash, _mcp]:
+            df_semi_agg = df_semi_agg.merge(_sub, on="date", how="left")
+        df_semi_agg = df_semi_agg.sort_values("date").reset_index(drop=True)
 
-    print(f"kfinance 피처: {df_kfinance.shape}")
-    print(f"  기간: {df_kfinance.index.min()} ~ {df_kfinance.index.max()}")
-    print(f"  컬럼: {list(df_kfinance.columns)}")
-    display(df_kfinance.head())  # noqa: F821
-else:
-    df_kfinance = pd.DataFrame()
-    print("[WARN] kfinance 데이터 없음")
+        # --- 파생 피처 ---
+        df_semi_agg["semi_dram_ratio"] = df_semi_agg["semi_dram_exp"] / df_semi_agg[
+            "semi_total_exp"
+        ].replace(0, np.nan)
+        df_semi_agg["semi_exp_mom"] = df_semi_agg["semi_total_exp"].pct_change()
+        df_semi_agg["semi_dram_mom"] = df_semi_agg["semi_dram_exp"].pct_change()
+        df_semi_agg["semi_trade_ratio"] = df_semi_agg["semi_total_exp"] / df_semi_agg[
+            "semi_total_imp"
+        ].replace(0, np.nan)
 
-# COMMAND ----------
+        # 금액 단위 조정 (USD → 억 USD)
+        dollar_cols = [
+            c
+            for c in df_semi_agg.columns
+            if c.startswith("semi_")
+            and ("exp" in c or "imp" in c or "net" in c)
+            and "mom" not in c
+            and "ratio" not in c
+        ]
+        for col in dollar_cols:
+            df_semi_agg[col] = df_semi_agg[col] / 1e8
 
-# MAGIC %md
-# MAGIC ## 1-3. 반도체 수출입 피처 (silver_semiconductor)
+        # 월별 → 일별 Forward-Fill
+        df_semi_agg = df_semi_agg.set_index("date").sort_index()
+        all_bdays = pd.bdate_range(df_semi_agg.index.min(), df_semi_agg.index.max(), freq="B")
+        df_semiconductor = df_semi_agg.reindex(all_bdays).ffill().bfill()
+        df_semiconductor.index.name = "trade_date"
 
-# COMMAND ----------
-
-# ---------------------------------------------------------------------------
-# 1-3. silver_semiconductor.parquet → 반도체 수출입 피처
-#  월별 HS코드별 수출/수입 → 일별 Forward-Fill
-#  피처: 총수출, 총수입, 무역수지, DRAM수출, Flash수출, MoM변화, DRAM비중
-# ---------------------------------------------------------------------------
-semi_path = f"abfss://curated@{account}.dfs.core.windows.net/silver_semiconductor.parquet"
-_df_semi_raw = safe_read_parquet(semi_path, date_col="date")
-
-if not _df_semi_raw.empty:
-    # --- 날짜별 전체 집계 ---
-    _semi_total = (
-        _df_semi_raw.groupby("date")
-        .agg(semi_total_exp=("expDlr", "sum"), semi_total_imp=("impDlr", "sum"))
-        .reset_index()
-    )
-    _semi_total["semi_net_trade"] = _semi_total["semi_total_exp"] - _semi_total["semi_total_imp"]
-
-    # --- DRAM (HS 8542321010) ---
-    _dram = (
-        _df_semi_raw[_df_semi_raw["hsCode"] == 8542321010]
-        .groupby("date")
-        .agg(semi_dram_exp=("expDlr", "sum"), semi_dram_imp=("impDlr", "sum"))
-        .reset_index()
-    )
-
-    # --- Flash 메모리 (HS 8542321030) ---
-    _flash = (
-        _df_semi_raw[_df_semi_raw["hsCode"] == 8542321030]
-        .groupby("date")
-        .agg(semi_flash_exp=("expDlr", "sum"), semi_flash_imp=("impDlr", "sum"))
-        .reset_index()
-    )
-
-    # --- 복합구조칩 IC (HS 8542323000, 최대 수출 품목) ---
-    _mcp = (
-        _df_semi_raw[_df_semi_raw["hsCode"] == 8542323000]
-        .groupby("date")
-        .agg(semi_mcp_exp=("expDlr", "sum"))
-        .reset_index()
-    )
-
-    # 병합
-    df_semi_agg = _semi_total
-    for _sub in [_dram, _flash, _mcp]:
-        df_semi_agg = df_semi_agg.merge(_sub, on="date", how="left")
-
-    df_semi_agg = df_semi_agg.sort_values("date").reset_index(drop=True)
-
-    # --- 파생 피처 ---
-    # DRAM 비중 (전체 반도체 수출 대비)
-    df_semi_agg["semi_dram_ratio"] = df_semi_agg["semi_dram_exp"] / df_semi_agg[
-        "semi_total_exp"
-    ].replace(0, np.nan)
-    # MoM 변화율 ()
-    df_semi_agg["semi_exp_mom"] = df_semi_agg["semi_total_exp"].pct_change()
-    df_semi_agg["semi_dram_mom"] = df_semi_agg["semi_dram_exp"].pct_change()
-    # 무역수지 비율 (수출/수입)
-    df_semi_agg["semi_trade_ratio"] = df_semi_agg["semi_total_exp"] / df_semi_agg[
-        "semi_total_imp"
-    ].replace(0, np.nan)
-
-    # 금액 단위 조정 (USD → 억 USD)
-    dollar_cols = [
-        c
-        for c in df_semi_agg.columns
-        if c.startswith("semi_")
-        and ("exp" in c or "imp" in c or "net" in c)
-        and "mom" not in c
-        and "ratio" not in c
-    ]
-    for col in dollar_cols:
-        df_semi_agg[col] = df_semi_agg[col] / 1e8  # 억달러 단위
-
-    # 월별 → 일별 Forward-Fill
-    df_semi_agg = df_semi_agg.set_index("date").sort_index()
-    all_bdays = pd.bdate_range(df_semi_agg.index.min(), df_semi_agg.index.max(), freq="B")
-    df_semiconductor = df_semi_agg.reindex(all_bdays).ffill().bfill()
-    df_semiconductor.index.name = "trade_date"
-
-    print(f"semiconductor 피처: {df_semiconductor.shape}")
-    print(f"  기간: {df_semiconductor.index.min()} ~ {df_semiconductor.index.max()}")
-    print(f"  컬럼: {list(df_semiconductor.columns)}")
-    display(df_semiconductor.head())  # noqa: F821
-else:
+        print(f"semiconductor 피처: {df_semiconductor.shape}")
+        print(f"  기간: {df_semiconductor.index.min()} ~ {df_semiconductor.index.max()}")
+        print(f"  컬럼: {list(df_semiconductor.columns)}")
+        display(df_semiconductor.head())  # noqa: F821
+    else:
+        df_semiconductor = pd.DataFrame()
+        print("[WARN] semiconductor 데이터 없음")
+except Exception as e:  # noqa: BLE001
     df_semiconductor = pd.DataFrame()
-    print("[WARN] semiconductor 데이터 없음")
+    print(f"[WARN] semiconductor 로드 실패: {e}")
 
 # COMMAND ----------
 
@@ -467,19 +461,22 @@ else:
 
 # COMMAND ----------
 
+# DBTITLE 1,Gold Layer 피처 요약
 # ---------------------------------------------------------------------------
-# 1-4. curated 피처 요약
+# 1-4. Gold Layer 피처 요약
 # ---------------------------------------------------------------------------
 print("=" * 60)
-print("SENSE Feature 요약 (curated 기반)")
+print("SENSE Feature 요약 (Gold Layer 기반)")
 print("=" * 60)
 
-if not df_kfinance.empty:
-    print(f"\n[한국 금융 파생상품]  {df_kfinance.shape[1]} 피처, {len(df_kfinance)} 일")
-    print(f"  기간: {df_kfinance.index.min().date()} ~ {df_kfinance.index.max().date()}")
-    print(f"  피처: {list(df_kfinance.columns)}")
+if not df_sense_macro.empty:
+    print(
+        f"\n[sense_macro 리스크 시그널]  {df_sense_macro.shape[1]} 피처, {len(df_sense_macro)} 일"
+    )
+    print(f"  기간: {df_sense_macro.index.min().date()} ~ {df_sense_macro.index.max().date()}")
+    print(f"  피처: {list(df_sense_macro.columns)[:10]}...")
 else:
-    print("\n[한국 금융] 데이터 없음")
+    print("\n[sense_macro] 데이터 없음")
 
 if not df_semiconductor.empty:
     print(f"\n[반도체 수출입]  {df_semiconductor.shape[1]} 피처, {len(df_semiconductor)} 일")
@@ -504,10 +501,11 @@ print("\n" + "=" * 60)
 # COMMAND ----------
 
 
-def build_feature_mart(df_equity, ticker, df_kfinance, df_semiconductor, df_macro_gold):
+# DBTITLE 1,통합 피처 마트 구성
+def build_feature_mart(df_equity, ticker, df_sense_macro, df_semiconductor, df_macro_gold):
     """
     종목별 통합 피처 마트를 date 기준으로 LEFT JOIN하여 구성합니다.
-    curated: kfinance(한국 금융) + semiconductor(수출입) + macro_gold(FRED/FX/피어주)
+    Gold Layer: sense_macro(리스크 시그널) + semiconductor(수출입) + macro_gold(FRED/FX/피어주)
     """
     df = df_equity[df_equity["ticker"] == ticker][["trade_date", "close"]].copy()
     df = df.set_index("trade_date").sort_index()
@@ -515,9 +513,9 @@ def build_feature_mart(df_equity, ticker, df_kfinance, df_semiconductor, df_macr
     # 수익률 파생
     df["return_1d"] = df["close"].pct_change()
 
-    # --- 한국 금융 파생상품 피처 ---
-    if not df_kfinance.empty:
-        df = df.join(df_kfinance, how="left")
+    # --- sense_macro 리스크 시그널 ---
+    if not df_sense_macro.empty:
+        df = df.join(df_sense_macro, how="left")
 
     # --- 반도체 수출입 피처 ---
     if not df_semiconductor.empty:
@@ -537,7 +535,7 @@ def build_feature_mart(df_equity, ticker, df_kfinance, df_semiconductor, df_macr
 feature_marts = {}
 for ticker in TICKERS:
     feature_marts[ticker] = build_feature_mart(
-        df_equity, ticker, df_kfinance, df_semiconductor, df_macro_gold
+        df_equity, ticker, df_sense_macro, df_semiconductor, df_macro_gold
     )
     print(f"{TICKER_NAMES[ticker]}: {feature_marts[ticker].shape}")
 
@@ -549,34 +547,33 @@ for ticker in TICKERS:
 # COMMAND ----------
 
 
+# DBTITLE 1,교차 검증 파생 변수 (sense_macro × semiconductor)
 def create_derived_features(df):
     """
     SENSE 3축 교차 검증 파생 변수 + 시차/변동성 피처를 생성합니다.
-    curated 데이터 기반: kfinance(금융 파생) × semiconductor(수출입)
+    Gold Layer 기반: sense_macro(리스크 시그널) × semiconductor(수출입)
     """
     out = df.copy()
 
-    # === 교호 작용 파생 변수 ===
+    # === sense_macro × semiconductor 교호작용 ===
 
-    # 금융 × 수출: 옵션 시장 활성도 × 수출 모멘텀
-    if "kfin_active_ratio" in out.columns and "semi_exp_mom" in out.columns:
-        out["finance_export_synergy"] = out["kfin_active_ratio"] * out["semi_exp_mom"].fillna(0)
+    # 리스크 복합 × 수출 모멘텀: 거시 리스크 + 수출 실적
+    if "risk_off_composite" in out.columns and "semi_exp_mom" in out.columns:
+        out["risk_export_synergy"] = out["risk_off_composite"] * out["semi_exp_mom"].fillna(0)
 
-    # 옵션 ATM가 × DRAM 수출: 시장 기대 × DRAM 실적
-    if "kfin_atm_price" in out.columns and "semi_dram_exp" in out.columns:
-        out["atm_dram_cross"] = (
-            out["kfin_atm_price"] / out["kfin_atm_price"].rolling(5, min_periods=1).mean()
-        ) * (out["semi_dram_exp"] / out["semi_dram_exp"].rolling(3, min_periods=1).mean())
+    # 공포 지수 × DRAM 수출: 시장 공포 + 실적
+    if "fear_composite" in out.columns and "semi_dram_exp" in out.columns:
+        out["fear_dram_cross"] = out["fear_composite"] * (
+            out["semi_dram_exp"]
+            / out["semi_dram_exp"].rolling(3, min_periods=1).mean().replace(0, np.nan)
+        )
 
-    # 무역수지 × 옵션 총가치: 실물 × 금융 복합 지표
-    if "semi_net_trade" in out.columns and "kfin_total_value" in out.columns:
-        out["trade_finance_compound"] = (
+    # 무역수지 × 매크로 스트레스: 실물 × 거시 복합
+    if "semi_net_trade" in out.columns and "macro_stress_score" in out.columns:
+        out["trade_stress_compound"] = (
             out["semi_net_trade"]
             / out["semi_net_trade"].abs().rolling(3, min_periods=1).mean().replace(0, np.nan)
-        ) * (
-            out["kfin_total_value"]
-            / out["kfin_total_value"].rolling(5, min_periods=1).mean().replace(0, np.nan)
-        )
+        ) * out["macro_stress_score"]
 
     # DRAM 비중 변화 × 주가 수익률: DRAM 의존도 신호
     if "semi_dram_ratio" in out.columns and "return_1d" in out.columns:
@@ -585,20 +582,17 @@ def create_derived_features(df):
             out["return_1d"].fillna(0)
         )
 
-    # 수출입 비율 × 최대행사가: 수출 강세 + 옵션 낙관 복합
-    if "semi_trade_ratio" in out.columns and "kfin_max_strike" in out.columns:
-        out["export_optimism_index"] = (
+    # 수출입 비율 × 반도체 리스크: 수출 강세 + 리스크 복합
+    if "semi_trade_ratio" in out.columns and "semi_risk_signal" in out.columns:
+        out["export_risk_index"] = (
             out["semi_trade_ratio"]
             / out["semi_trade_ratio"].rolling(3, min_periods=1).mean().replace(0, np.nan)
-        ) * (
-            out["kfin_max_strike"]
-            / out["kfin_max_strike"].rolling(5, min_periods=1).mean().replace(0, np.nan)
-        )
+        ) * (1 - out["semi_risk_signal"].fillna(0))
 
     # === 시차(Lag) 기반 피처 ===
-    if "kfin_atm_price" in out.columns:
-        out["kfin_atm_lag1"] = out["kfin_atm_price"].shift(1)
-        out["kfin_atm_delta_5d"] = out["kfin_atm_price"] - out["kfin_atm_price"].shift(5)
+    if "risk_off_composite" in out.columns:
+        out["risk_off_lag1"] = out["risk_off_composite"].shift(1)
+        out["risk_off_delta_5d"] = out["risk_off_composite"] - out["risk_off_composite"].shift(5)
 
     if "semi_total_exp" in out.columns:
         out["semi_exp_ma3"] = out["semi_total_exp"].rolling(3, min_periods=1).mean()
@@ -606,8 +600,8 @@ def create_derived_features(df):
     if "semi_dram_exp" in out.columns:
         out["semi_dram_ma3"] = out["semi_dram_exp"].rolling(3, min_periods=1).mean()
 
-    if "kfin_active_ratio" in out.columns:
-        out["kfin_active_ratio_ma5"] = out["kfin_active_ratio"].rolling(5, min_periods=1).mean()
+    if "fear_composite" in out.columns:
+        out["fear_composite_ma5"] = out["fear_composite"].rolling(5, min_periods=1).mean()
 
     # === 변동성 피처 ===
     out["realized_vol_5d"] = out["return_1d"].rolling(5, min_periods=1).std()
@@ -637,63 +631,56 @@ for ticker in TICKERS:
 
 # COMMAND ----------
 
+# DBTITLE 1,피처 상관관계 히트맵 (Spearman)
 _corr_cols = [
     "close",
     "return_1d",
-    "kfin_atm_price",
-    "kfin_max_strike",
-    "kfin_mean_price",
-    "kfin_active_ratio",
+    # sense_macro 리스크 시그널
+    "risk_off_composite",
+    "fear_composite",
+    "macro_stress_score",
+    "semi_risk_signal",
+    "korea_sensitivity",
+    "yield_spread",
+    # 반도체 수출입
     "semi_total_exp",
     "semi_dram_exp",
-    "semi_exp_mom",
+    "semi_dram_ratio",
+    "semi_trade_ratio",
+    # 매크로
     "usd_krw_rate",
     "yfinance_nvda_close",
-    "yfinance_tsm_close",
-    "yfinance_sox_close",
-    "export_optimism_index",
-    "finance_export_synergy",
+    "fred_dgs10",
+    "fred_t10y2y",
+    # 파생 변동성
     "realized_vol_5d",
     "vol_ratio",
     "gap_from_ma20",
 ]
 
-for ticker in TICKERS:
+fig, axes = plt.subplots(1, len(TICKERS), figsize=(12 * len(TICKERS), 10))
+if len(TICKERS) == 1:
+    axes = [axes]
+
+for idx, ticker in enumerate(TICKERS):
+    name = TICKER_NAMES[ticker]
     mart = feature_marts[ticker]
     avail = [c for c in _corr_cols if c in mart.columns]
-    corr_p = mart[avail].corr(method="pearson")
-    corr_s = mart[avail].corr(method="spearman")
+    if len(avail) < 3:
+        axes[idx].text(0.5, 0.5, f"{name}: 피처 부족", ha="center", va="center")
+        continue
+    corr = mart[avail].corr(method="spearman")
+    im = axes[idx].imshow(corr.values, cmap="RdBu_r", vmin=-1, vmax=1, aspect="auto")
+    axes[idx].set_xticks(range(len(avail)))
+    axes[idx].set_yticks(range(len(avail)))
+    axes[idx].set_xticklabels(avail, rotation=45, ha="right", fontsize=8)
+    axes[idx].set_yticklabels(avail, fontsize=8)
+    axes[idx].set_title(f"{name} Spearman 상관관계", fontsize=13, fontweight="bold")
+    fig.colorbar(im, ax=axes[idx], fraction=0.046, pad=0.04)
 
-    fig, axes_corr = plt.subplots(1, 2, figsize=(22, 10))
-    for ax_c, corr_mat, method in zip(axes_corr, [corr_p, corr_s], ["Pearson", "Spearman"]):
-        im = ax_c.imshow(corr_mat, cmap="RdBu_r", vmin=-1, vmax=1, aspect="auto")
-        ax_c.set_xticks(range(len(avail)))
-        ax_c.set_yticks(range(len(avail)))
-        ax_c.set_xticklabels(avail, rotation=45, ha="right", fontsize=7)
-        ax_c.set_yticklabels(avail, fontsize=7)
-        for r in range(len(avail)):
-            for cc in range(len(avail)):
-                ax_c.text(
-                    cc, r, f"{corr_mat.iloc[r, cc]:.2f}", ha="center", va="center", fontsize=6
-                )
-        plt.colorbar(im, ax=ax_c, shrink=0.8)
-        ax_c.set_title(f"{TICKER_NAMES[ticker]} — {method} 상관계수", fontsize=12)
-    plt.tight_layout()
-    plt.savefig(f"/tmp/timesfm_corr_{ticker}.png", dpi=150)
-    display(fig)  # noqa: F821
-    plt.close(fig)
-
-    # 타겟 vs 주요 피처 Spearman 순위
-    target_cols = [c for c in avail if c != "close"]
-    spearman_vs_target = (
-        mart[target_cols + ["close"]].corr(method="spearman")["close"].drop("close")
-    )
-    spearman_vs_target = spearman_vs_target.reindex(
-        spearman_vs_target.abs().sort_values(ascending=False).index
-    )
-    print(f"\n{TICKER_NAMES[ticker]} — Spearman |상관| 상위 10:")
-    for col, val in spearman_vs_target.head(10).items():
-        print(f"  {col}: {val:+.4f}")
+plt.tight_layout()
+display(fig)  # noqa: F821
+plt.close(fig)
 
 # COMMAND ----------
 
@@ -1759,6 +1746,27 @@ for i, ticker in enumerate(TICKERS):
 df_forecast = pd.DataFrame(forecast_rows)
 print(f"예측 결과: {len(df_forecast)} rows")
 print(df_forecast.head(10).to_string(index=False))
+
+# COMMAND ----------
+
+# DBTITLE 1,TimesFM 예측 결과 ADLS 저장 (앙상블 연동용)
+# ---------------------------------------------------------------------------
+# TimesFM 예측 결과를 ADLS에 저장 (ensemble_strategy 노트북에서 로드)
+# 경로: feature/timesfm_forecast/
+# ---------------------------------------------------------------------------
+_tfm_save_path = f"abfss://feature@{account}.dfs.core.windows.net/timesfm_forecast/"
+
+_df_save = df_forecast.copy()
+_df_save["forecast_date"] = _df_save["forecast_date"].astype(str)
+_df_save["base_date"] = _df_save["base_date"].astype(str)
+
+spark_df = spark.createDataFrame(_df_save)  # noqa: F821
+spark_df.write.mode("overwrite").parquet(_tfm_save_path)
+
+print(f"[OK] TimesFM 예측 결과 ADLS 저장: {_tfm_save_path}")
+print(f"  {len(df_forecast)} rows, base_date: {df_forecast['base_date'].iloc[0]}")
+print(f"  종목: {df_forecast['ticker'].unique().tolist()}")
+print(f"  컨럼: {list(df_forecast.columns)}")
 
 # COMMAND ----------
 
