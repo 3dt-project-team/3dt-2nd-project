@@ -81,6 +81,35 @@ a:hover {
     line-height: 1.6;
 }
 
+.en-label {
+    display: block;
+    font-size: 0.72em;
+    font-weight: 500;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-top: 1px;
+}
+
+h2 .en-section {
+    display: block;
+    font-size: 0.6em;
+    font-weight: 500;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.en-subtitle {
+    display: block;
+    font-size: 0.75em;
+    font-weight: 400;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: 2px;
+}
+
 .admin-top-bar {
     position: absolute;
     top: 28px;

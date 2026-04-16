@@ -32,7 +32,7 @@
         </div>
 
         <header class="page-header">
-            <p class="eyebrow">A.I. 반도체 주식 인텔리전스</p>
+            <p class="eyebrow">A.I. 반도체 주식 인텔리전스 <span class="en-subtitle">AI Stock Intelligence</span></p>
             <h1 class="sense-logo">
                 <span>S E N S E</span>
             </h1>
@@ -44,7 +44,7 @@
         <div class="content-wrapper">
             <aside class="analysis-side">
                 <section class="card">
-                    <h2>🔮 20일 후 예측 스냅샷</h2>
+                    <h2>🔮 20일 후 예측 스냅샷 <span class="en-section">Forecast</span></h2>
                     <form class="forecast-selector" action="{{ url_for('web.index') }}" method="GET">
                         <label for="ticker-select">종목 선택</label>
                         <select id="ticker-select" name="ticker" onchange="this.form.submit()">
@@ -59,7 +59,7 @@
                         <div class="forecast-info">
                             <h3>{{ selected_stock.name }}</h3>
                             <p class="stat-line">
-                                <span class="label">예측값({{ selected_stock.price_unit }})</span>
+                                <span class="label">예측값({{ selected_stock.price_unit }}) <span class="en-label">Forecast Price</span></span>
                                 {% if selected_stock.price_unit == '원' %}
                                     <span class="value">{{ '{:,.0f}'.format(fc.final_pred) }}원</span>
                                 {% else %}
@@ -67,11 +67,11 @@
                                 {% endif %}
                             </p>
                             <p class="stat-line">
-                                <span class="label">신뢰도(%)</span>
+                                <span class="label">신뢰도(%) <span class="en-label">Confidence</span></span>
                                 <span class="value">{{ '%.1f'|format(fc.confidence_score) }}%</span>
                             </p>
                             <p class="stat-line">
-                                <span class="label">시장</span>
+                                <span class="label">시장 <span class="en-label">Regime</span></span>
                                 <span class="value">{{ regime_label_ko or fc.regime_label }}</span>
                             </p>
                             {% if regime_rates %}
@@ -89,14 +89,14 @@
                 </section>
 
                 <section class="card">
-                    <h2>🧠 심리 스냅샷</h2>
+                    <h2>🧠 심리 스냅샷 <span class="en-section">Sentiment</span></h2>
                     {% if st %}
                         <p class="stat-line">
-                            <span class="label">날짜</span>
+                            <span class="label">날짜 <span class="en-label">Date</span></span>
                             <span class="value">{{ st.base_date }}</span>
                         </p>
                         <p class="stat-line">
-                            <span class="label">평균 감성 점수</span>
+                            <span class="label">평균 감성 점수 <span class="en-label">Avg. Sentiment</span></span>
                             <span class="value">{{ '%.2f'|format(st.avg_sentiment) }}점</span>
                         </p>
                         <div class="sentiment-gauge" data-sentiment="{{ '%.4f'|format(st.avg_sentiment) }}">
@@ -116,7 +116,7 @@
                 </section>
 
                 <section class="card">
-                    <h2>📰 반도체 시장 최신 뉴스</h2>
+                    <h2>📰 반도체 시장 최신 뉴스 <span class="en-section">News</span></h2>
                     {% if news_list %}
                         <ul class="news-list">
                             {% for news in news_list %}
@@ -139,7 +139,7 @@
 
             <main class="community-main">
                 <section class="card post-box">
-                    <h2>💬 {{ selected_stock.name }} 인사이트 공유</h2>
+                    <h2>💬 {{ selected_stock.name }} 인사이트 공유 <span class="en-section">Community</span></h2>
                     <form action="{{ url_for('web.create_post') }}" method="POST">
                         <textarea
                             name="content"
@@ -249,7 +249,7 @@
                 <button id="chat-send" type="button" onclick="sendMessage()">🚀 전송</button>
             </div>
         </div>
-        <button id="chatbot-toggle" type="button" onclick="toggleChat()">AI 💡</button>
+                <button id="chatbot-toggle" type="button" onclick="toggleChat()">AI 💡 <span class="en-label">Chat</span></button>
     </div>
 
     <script>
