@@ -1,0 +1,40 @@
+# 시크릿 / 환경 설정
+.env
+.env.*
+*.env
+
+# Python 빌드 산출물
+*.pyc
+*.pyo
+__pycache__/
+*.egg-info/
+dist/
+build/
+
+# 가상환경
+.venv/
+venv/
+
+# Git
+.git/
+.gitignore
+
+# 개발 전용 디렉토리 (배포 이미지에 불필요)
+notebooks/
+adf/
+docs/
+tests/
+ref/
+
+# 데이터 파일 (이미지 크기 방지)
+*.csv
+*.parquet
+*.jsonl
+
+# IDE
+.vscode/
+.idea/
+
+# pre-commit / 린트
+.pre-commit-config.yaml
+.secrets.baseline

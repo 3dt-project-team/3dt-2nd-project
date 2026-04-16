@@ -35,16 +35,17 @@
             <p class="eyebrow">A.I. 반도체 주식 인텔리전스</p>
             <h1>📡 SENSE</h1>
             <p class="page-subtitle">
-                선택한 종목의 뉴스, 예측, 커뮤니티 인사이트를 하나의 화면에서 함께 확인할 수 있습니다.
+                선택한 종목의 뉴스, 예측, 커뮤니티 인사이트를 하나의 화면에서 함께 확인할 수 있습니다.<br>
+                <span class="en-subtitle">Track news, forecasts &amp; community insights for semiconductor stocks — all in one place.</span>
             </p>
         </header>
 
         <div class="content-wrapper">
             <aside class="analysis-side">
                 <section class="card">
-                    <h2>🔮 {{ selected_stock.name }} 예측 스냅샷</h2>
+                    <h2>🔮 {{ selected_stock.name }} 예측 스냅샷<span class="en-section">Forecast Snapshot</span></h2>
                     <form class="forecast-selector" action="{{ url_for('web.index') }}" method="GET">
-                        <label for="ticker-select">종목 선택</label>
+                        <label for="ticker-select">종목 선택 <span class="en-label">/ Stock</span></label>
                         <select id="ticker-select" name="ticker" onchange="this.form.submit()">
                             {% for stock in stock_options %}
                                 <option value="{{ stock.ticker }}" {% if stock.ticker == selected_ticker %}selected{% endif %}>
@@ -57,7 +58,7 @@
                         <div class="forecast-info">
                             <h3>{{ selected_stock.name }}</h3>
                             <p class="stat-line">
-                                <span class="label">예측값({{ selected_stock.price_unit }})</span>
+                                <span class="label">예측값 <span class="en-label">Forecast</span> ({{ selected_stock.price_unit }})</span>
                                 {% if selected_stock.price_unit == '원' %}
                                     <span class="value">{{ '{:,.0f}'.format(fc.final_pred) }}원</span>
                                 {% else %}
@@ -65,11 +66,11 @@
                                 {% endif %}
                             </p>
                             <p class="stat-line">
-                                <span class="label">신뢰도(%)</span>
+                                <span class="label">신뢰도 <span class="en-label">Confidence</span> (%)</span>
                                 <span class="value">{{ '%.1f'|format(fc.confidence_score) }}%</span>
                             </p>
                             <p class="stat-line">
-                                <span class="label">국면</span>
+                                <span class="label">국면 <span class="en-label">Market Regime</span></span>
                                 <span class="value">{{ fc.regime_label }}</span>
                             </p>
                         </div>
@@ -79,14 +80,14 @@
                 </section>
 
                 <section class="card">
-                    <h2>🧠 심리 스냅샷</h2>
+                    <h2>🧠 심리 스냅샷<span class="en-section">Sentiment Snapshot</span></h2>
                     {% if st %}
                         <p class="stat-line">
-                            <span class="label">날짜</span>
+                            <span class="label">날짜 <span class="en-label">Date</span></span>
                             <span class="value">{{ st.base_date }}</span>
                         </p>
                         <p class="stat-line">
-                            <span class="label">평균 감성 점수</span>
+                            <span class="label">평균 감성 점수 <span class="en-label">Avg. Sentiment</span></span>
                             <span class="value">{{ '%.2f'|format(st.avg_sentiment) }}점</span>
                         </p>
                     {% else %}
@@ -95,7 +96,7 @@
                 </section>
 
                 <section class="card">
-                    <h2>📰 반도체 시장 최신 뉴스</h2>
+                    <h2>📰 반도체 시장 최신 뉴스<span class="en-section">Latest News</span></h2>
                     {% if news_list %}
                         <ul class="news-list">
                             {% for news in news_list %}
@@ -104,7 +105,7 @@
                                         {{ news.display_title }}
                                     </a>
                                     {% if news.sentiment_class %}
-                                        {% set sentiment_label = '호재' if news.sentiment_class in ['positive', '호재'] else '악재' if news.sentiment_class in ['negative', '악재'] else '중립' %}
+                                        {% set sentiment_label = '호재 (Positive)' if news.sentiment_class in ['positive', '호재'] else '악재 (Negative)' if news.sentiment_class in ['negative', '악재'] else '중립 (Neutral)' %}
                                         <span class="sentiment {{ news.sentiment_class }}">{{ sentiment_label }}</span>
                                     {% endif %}
                                 </li>
@@ -118,7 +119,7 @@
 
             <main class="community-main">
                 <section class="card post-box">
-                    <h2>💬 {{ selected_stock.name }} 인사이트 공유</h2>
+                    <h2>💬 {{ selected_stock.name }} 인사이트 공유<span class="en-section">Share Your Insights</span></h2>
                     <form action="{{ url_for('web.create_post') }}" method="POST">
                         <textarea
                             name="content"
@@ -205,8 +206,8 @@
         <div id="chat-window" class="hidden">
             <div class="chat-header">
                 <div>
-                    <strong>🤖 반도체 AI 챗봇</strong>
-                    <p>챗봇이 기존 RAG 서비스와 연동되어 답변합니다.</p>
+                    <strong>🤖 반도체 AI 챗봇 <span class="en-label" style="font-weight:400;">Semiconductor AI Chatbot</span></strong>
+                    <p>챗봇이 기존 RAG 서비스와 연동되어 답변합니다. 전문 용어를 쉬운 말로 풀어 드립니다.<br><span class="en-label">Technical terms explained in plain language.</span></p>
                 </div>
             </div>
             <div id="chat-messages" aria-live="polite"></div>
@@ -214,7 +215,7 @@
                 <input
                     type="text"
                     id="chat-input"
-                    placeholder="예시: 최근 SK하이닉스 뉴스와 리스크 요인을 요약해줘"
+                    placeholder="예시: 최근 SK하이닉스 뉴스와 리스크 요인을 요약해줘 (English also OK)"
                     autocomplete="off"
                 >
                 <button id="chat-send" type="button" onclick="sendMessage()">🚀 전송</button>
@@ -344,7 +345,7 @@
             appendMessage(
                 "bot",
                 "AI 봇",
-                "반도체 뉴스, 종목 리스크, 시장 신호를 질문해보세요. 연동된 RAG 백엔드 기준으로 답변합니다."
+                "반도체 뉴스, 종목 리스크, 시장 신호를 질문해보세요.\n전문 용어는 쉬운 일상어로 풀어 드립니다.\n\nAsk about semiconductor news, stock risks & market signals.\nTechnical jargon will be explained in plain language."
             );
             hasGreeting = true;
         }
