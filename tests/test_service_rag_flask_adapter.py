@@ -1,4 +1,4 @@
-from src.service.app.flask_adapter import (
+from src.service.rag.flask_adapter import (
     ChatRequestError,
     create_chat_http_response,
     handle_chat_request_payload,
@@ -47,7 +47,7 @@ def test_create_chat_http_response_shapes_payload(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "src.service.app.flask_adapter.build_chat_response",
+        "src.service.rag.flask_adapter.build_chat_response",
         fake_build_chat_response,
     )
 

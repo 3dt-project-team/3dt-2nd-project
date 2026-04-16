@@ -1,5 +1,5 @@
-from src.service.app.router import classify_query, extract_filters
-from src.service.app.schemas import QueryRoute
+from src.service.rag.router import classify_query, extract_filters
+from src.service.rag.schemas import QueryRoute
 
 
 def test_classify_query_as_hybrid_for_risk_with_news_evidence():
