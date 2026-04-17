@@ -34,6 +34,43 @@
 └── .env.example            # 로컬 환경 변수 템플릿
 ```
 
+## SENSE 웹 대시보드
+
+**https://sense-web.azurewebsites.net**
+
+반도체 주가 예측 및 뉴스 감성 분석 결과를 실시간으로 제공하는 Flask 웹 대시보드.
+
+| 섹션 | 내용 |
+|------|------|
+| 예측 (Forecast) | 삼성전자·SK하이닉스 20일 앙상블 예측 + Confidence Score |
+| 감성 (Sentiment) | 뉴스 감성 트렌드 + 커뮤니티 반응 |
+| 시장 국면 (Regime) | RSI/ATR 기반 레짐 (Trend-Up/Neutral/Caution) |
+| AI 챗봇 (Ask AI) | RAG 기반 질의응답 + `[한마디로 / Plain Language]` 요약 섹션 |
+
+**현재 버전**: v1.2 — 한/영 병기 레이블 + Plain Language 챗봇 적용
+
+### 로컬 실행
+
+```bash
+cp .env.example .env   # KEY_VAULT_URL 입력
+uv run python app.py
+```
+
+### 배포 (ACR + Azure App Service)
+
+```bash
+# 이미지 빌드 및 푸시
+az acr build --registry sense3dtacr --image sense-web:vX.Y .
+
+# Staging 컨테이너 이미지 업데이트
+az webapp config container set --name sense-web --resource-group 3dt-2nd-team1 \
+  --slot staging --container-image-name sense3dtacr.azurecr.io/sense-web:vX.Y
+
+# Production Slot Swap
+az webapp deployment slot swap --name sense-web --resource-group 3dt-2nd-team1 \
+  --slot staging --target-slot production
+```
+
 ## 빠른 시작
 
 ```bash
