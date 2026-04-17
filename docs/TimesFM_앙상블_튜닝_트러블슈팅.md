@@ -1,145 +1,145 @@
-﻿# TimesFM + ?듦퀎 湲곗????숈긽釉?紐⑤뜽 ??遺꾩꽍쨌?쒕떇쨌?몃윭釉붿뒋??湲곕줉
+# TimesFM + 통계 기준선 앙상블 모델 — 분석·튜닝·트러블슈팅 기록
 
-> **臾몄꽌 ?묒꽦??*: 2025-04-14  
-> **???*: TimesFM XReg + ?꾪넻???듦퀎 紐⑤뜽(VAR + Ridge) ?꾩쿂由??숈긽釉?媛쒕컻 怨쇱젙  
-> **李멸퀬 ?명듃遺?*:  
-> - `notebooks/timesfm_inference_lite.py` (TimesFM 異붾줎)  
-> - `notebooks/statistical_baseline_analysis.py` (?듦퀎 湲곗???  
-> - `notebooks/ensemble_strategy.py` (?숈쟻 媛以묒튂 ?숈긽釉? v0413/v0414)  
-> - `docs/analysis_results.md` (?곸꽭 遺꾩꽍 寃곌낵)
+> **문서 작성일**: 2025-04-14  
+> **대상**: TimesFM XReg + 전통적 통계 모델(VAR + Ridge) 후처리 앙상블 개발 과정  
+> **참고 노트북**:  
+> - `notebooks/timesfm_inference_lite.py` (TimesFM 추론)  
+> - `notebooks/statistical_baseline_analysis.py` (통계 기준선)  
+> - `notebooks/ensemble_strategy.py` (동적 가중치 앙상블, v0413/v0414)  
+> - `docs/analysis_results.md` (상세 분석 결과)
 
 ---
 
-## 0. ?꾨줈?앺듃 諛곌꼍 & 珥덇린 ?곹깭
+## 0. 프로젝트 배경 & 초기 상태
 
-### 0-1. ?듭떖 ?꾪궎?띿쿂
+### 0-1. 핵심 아키텍처
 
 ```
 ADLS Gen2 (curated/, feature/) 
-  ??Databricks (TimesFM + Statistical 紐⑤뜽)
-  ??Ensemble (?숈쟻 媛以묒튂 ?꾩쿂由?
-  ??PostgreSQL (fact_ensemble_forecast)
+  → Databricks (TimesFM + Statistical 모델)
+  → Ensemble (동적 가중치 후처리)
+  → PostgreSQL (fact_ensemble_forecast)
 ```
 
-**?寃?醫낅ぉ**: ?쇱꽦?꾩옄(005930.KS), SK?섏씠?됱뒪(000660.KS)  
-**?덉륫 湲곌컙**: T+20 (20嫄곕옒??  
-**?쇱쿂 留덊듃**: 47媛?而щ읆 (湲濡쒕쾶 諛섎룄泥댁＜, ?듭뀡 ?쒖옣, 留ㅽ겕濡?吏?? 湲곗닠??蹂댁“吏??
+**타겟 종목**: 삼성전자(005930.KS), SK하이닉스(000660.KS)  
+**예측 기간**: T+20 (20거래일)  
+**피처 마트**: 47개 컬럼 (글로벌 반도체주, 옵션 시장, 매크로 지표, 기술적 보조지표)
 
-### 0-2. 珥덇린 臾몄젣??(v0412 ?쒖젏)
+### 0-2. 초기 문제점 (v0412 시점)
 
-#### TimesFM ?덉륫 遺??
+#### TimesFM 예측 부실
 
-| 醫낅ぉ | ?몃씪?댁쫵 | 諛⑺뼢 ?뺥솗??| PI Coverage | ?됯? |
+| 종목 | 호라이즌 | 방향 정확도 | PI Coverage | 평가 |
 |---|---|---|---|---|
-| ?쇱꽦?꾩옄 | T+5 | 45.5% ?좑툘 | ??| **?숈쟾 ?섏?湲??섏?** |
-| ?쇱꽦?꾩옄 | T+10 | 48.9% ?좑툘 | ??| **?????媛?μ꽦** |
-| ?쇱꽦?꾩옄 | T+20 | 46.7% ?좑툘 | 63.7% ?좑툘 | PI??蹂댁젙 ?꾩슂 |
-| SK?섏씠?됱뒪 | T+20 | 51.0% ?좑툘 | 86.2% ??| ?댁씠 醫뗭? 寃쎌슦? |
+| 삼성전자 | T+5 | 45.5% ⚠️ | — | **동전 던지기 수준** |
+| 삼성전자 | T+10 | 48.9% ⚠️ | — | **역지표 가능성** |
+| 삼성전자 | T+20 | 46.7% ⚠️ | 63.7% ⚠️ | PI도 보정 필요 |
+| SK하이닉스 | T+20 | 51.0% ⚠️ | 86.2% ✅ | 운이 좋은 경우? |
 
-**Zero-shot vs XReg 怨듬????④낵**:
-- ?쇱꽦?꾩옄: -18.19% ??-10.12% (**+8.07%p**, 嫄곗떆吏?쒓? ?섎갑 ?꾪뿕 ?꾪솕)
-- SK?섏씠?됱뒪: +1.48% ??-3.85% (**-5.33%p**, 怨듬??됱씠 ?섎씫 ?뺣젰 媛뺥솕)
+**Zero-shot vs XReg 공변량 효과**:
+- 삼성전자: -18.19% → -10.12% (**+8.07%p**, 거시지표가 하방 위험 완화)
+- SK하이닉스: +1.48% → -3.85% (**-5.33%p**, 공변량이 하락 압력 강화)
 
-**?먯씤 遺꾩꽍**: TimesFM??**?몃젋???ъ갑** ?λ젰? ?덉쑝?? **?덈? 諛⑺뼢??*???뺥솗???덉륫?섏? 紐삵븿. ?뱁엳 ?〓낫 援ш컙?먯꽌 ?좏샇 ?쒓끝.
+**원인 분석**: TimesFM이 **트렌드 포착** 능력은 있으나, **절대 방향성**을 정확히 예측하지 못함. 특히 횡보 구간에서 신호 왜곡.
 
 ---
 
-#### ?꾪넻???듦퀎 紐⑤뜽 ?명뼢 (v0412)
+#### 전통적 통계 모델 편향 (v0412)
 
-| 紐⑤뜽 | ?쇱꽦?꾩옄 T+20 | SK?섏씠?됱뒪 T+20 | ?뱀쭠 |
+| 모델 | 삼성전자 T+20 | SK하이닉스 T+20 | 특징 |
 |---|---|---|---|
-| VAR(1) Baseline | +11.01% | +15.25% | **?곸듅 ?명뼢** ???덈?媛??뚭? |
-| Ridge Covariate | -12.57% | -13.71% | **?섎씫 ?명뼢** ??怨듬???怨쇱엵 諛섏쁺 |
-| 李⑥씠 | -23.59%p | -28.96%p | **紐⑤뜽 媛?遺덉씪移??ш컖** |
+| VAR(1) Baseline | +11.01% | +15.25% | **상승 편향** — 절대값 회귀 |
+| Ridge Covariate | -12.57% | -13.71% | **하락 편향** — 공변량 과잉 반영 |
+| 차이 | -23.59%p | -28.96%p | **모델 간 불일치 심각** |
 
-**?먯씤**: Ridge媛 ?좏삎 ?뚭?濡?**?덈? 媛寃??섏튂**??留ㅻぐ?? 怨듬??됱씠 紐⑤몢 ?섏튂 ?ㅼ???湲濡쒕쾶 二쇨?, 嫄곗떆吏???대씪 ?덈?媛??명뼢 諛쒖깮.
+**원인**: Ridge가 선형 회귀로 **절대 가격 수치**에 매몰됨. 공변량이 모두 수치 스케일(글로벌 주가, 거시지표)이라 절대값 편향 발생.
 
 ---
 
-## 1. 吏꾨떒 & 遺꾩꽍 (Phase 1)
+## 1. 진단 & 분석 (Phase 1)
 
-### 1-1. ?곴?愿怨?遺꾩꽍
+### 1-1. 상관관계 분석
 
 **TimesFM Feature Importance (Spearman Top 5)**:
 
-| 蹂??| ?곴?怨꾩닔 | ?섎? |
+| 변수 | 상관계수 | 의미 |
 |---|---|---|
-| yfinance_tsm_close | +0.9762 | **TSMC 二쇨?** ??湲濡쒕쾶 ?좏뻾吏??|
-| yfinance_sox_close | +0.9744 | **PHLX 諛섎룄泥댁???* |
-| semi_dram_exp | +0.9693 | **諛섎룄泥??섏텧??* ???낇솴 吏??|
-| yfinance_mu_close | +0.9535 | **Micron 二쇨?** |
-| yfinance_nvda_close | +0.9401 | **NVIDIA 二쇨?** |
+| yfinance_tsm_close | +0.9762 | **TSMC 주가** — 글로벌 선행지표 |
+| yfinance_sox_close | +0.9744 | **PHLX 반도체지수** |
+| semi_dram_exp | +0.9693 | **반도체 수출량** — 업황 지표 |
+| yfinance_mu_close | +0.9535 | **Micron 주가** |
+| yfinance_nvda_close | +0.9401 | **NVIDIA 주가** |
 
-**?댁꽍**: 
-- 湲濡쒕쾶 諛섎룄泥??쒖옣??**?듭떖 ?숈씤** ??TimesFM???대? ?ъ갑?섎뒗 寃껋씠 媛뺤젏
-- 洹몃윭??**諛⑺뼢 ?뺥솗??*????쓬 ???덈?媛??덉륫???꾨땶 **?곷???異붿꽭**瑜??≪븘????
+**해석**: 
+- 글로벌 반도체 시장이 **핵심 동인** → TimesFM이 이를 포착하는 것이 강점
+- 그러나 **방향 정확도**는 낮음 → 절대값 예측이 아닌 **상대적 추세**를 잡아야 함
 
 **Ridge Feature Attribution (Top 3)**:
 
-| 蹂??| 怨꾩닔 | ?섎? |
+| 변수 | 계수 | 의미 |
 |---|---|---|
-| yfinance_asml_close | 47,266 | **ASML(諛섎룄泥??λ퉬)** ???덈?媛??좏삎 愿怨?|
-| yfinance_mu_close | 32,188 | **Micron 二쇨?** |
-| yfinance_tsm_close | 31,578 | **TSMC 二쇨?** |
+| yfinance_asml_close | 47,266 | **ASML(반도체 장비)** — 절대값 선형 관계 |
+| yfinance_mu_close | 32,188 | **Micron 주가** |
+| yfinance_tsm_close | 31,578 | **TSMC 주가** |
 
-**?댁꽍**: Ridge??媛숈? 蹂?섎? 蹂대굹, **?덈? ?좏삎 怨꾩닔**濡??쒗쁽 ???ㅼ????댁븰??臾댁떆.
+**해석**: Ridge도 같은 변수를 보나, **절대 선형 계수**로 표현 → 스케일 뉴앙스 무시.
 
 ---
 
-### 1-2. Granger Causality 寃??
+### 1-2. Granger Causality 검정
 
-**?좎쓽 ?좏뻾 吏??*:
+**유의 선행 지표**:
 
-| 蹂??| p-value | 寃곕줎 |
+| 변수 | p-value | 결론 |
 |---|---|---|
-| semi_total_exp (諛섎룄泥??섏텧) | < 0.05 | ???좏뻾???낆쬆 |
-| usd_krw_rate (?섏쑉) | < 0.05 | ???좏뻾???낆쬆 |
-| kfin_mean_price (?듭뀡 以묒븰媛) | < 0.05 | ???좏뻾???낆쬆 |
-| export_optimism_index (?섏텧 ?숆??? | < 0.05 | ???좏뻾???낆쬆 |
+| semi_total_exp (반도체 수출) | < 0.05 | ✅ 선행성 입증 |
+| usd_krw_rate (환율) | < 0.05 | ✅ 선행성 입증 |
+| kfin_mean_price (옵션 중앙가) | < 0.05 | ✅ 선행성 입증 |
+| export_optimism_index (수출 낙관성) | < 0.05 | ✅ 선행성 입증 |
 
-**?섎?**: 5媛?蹂?섍? 二쇨? 蹂?붿뿉 **?듦퀎???멸낵 愿怨?* ?낆쬆 ???숈긽釉붿뿉???숈쟻 媛以묒튂 議곗젅 洹쇨굅 ?쒓났.
+**의미**: 5개 변수가 주가 변화에 **통계적 인과 관계** 입증 → 앙상블에서 동적 가중치 조절 근거 제공.
 
 ---
 
-### 1-3. 臾몄젣??洹쇰낯 ?먯씤
+### 1-3. 문제의 근본 원인
 
-| 紐⑤뜽 | ?μ젏 | ?⑥젏 | ?먯씤 |
+| 모델 | 장점 | 단점 | 원인 |
 |---|---|---|---|
-| **TimesFM** | 異붿꽭 ?ъ갑 ?λ젰 ?곗닔 | 諛⑺뼢/?덈?媛?遺?뺥솗 | ?쒓퀎?댁뿉留??숈뒿??Foundation 紐⑤뜽 |
-| **Ridge** | 怨듬????듯빀 ?⑹씠 | ?덈?媛??ㅼ????명뼢 | ?좏삎 ?뚭???洹쇰낯???쒓퀎 |
-| **VAR** | ?쒓퀎???곴?援ъ“ ?숈뒿 | 嫄곗떆 ?섍꼍 臾댁떆 | ?⑤????ㅻ??됰쭔 ?숈뒿 |
+| **TimesFM** | 추세 포착 능력 우수 | 방향/절대값 부정확 | 시계열에만 학습된 Foundation 모델 |
+| **Ridge** | 공변량 통합 용이 | 절대값 스케일 편향 | 선형 회귀의 근본적 한계 |
+| **VAR** | 시계열 상관구조 학습 | 거시 환경 무시 | 단변량/다변량만 학습 |
 
-**?듭떖 ?몄궗?댄듃**:
-- TimesFM: **異붿꽭 ?좏샇** ?좊ː???덉쓬 ??諛⑺뼢 媛以묒튂???ъ슜
-- Ridge: **?덈?媛??명뼢** ?ш컖 ???덈?媛믪씠 ?꾨땶 **濡쒓렇?섏씡瑜?* ?寃잛쑝濡??꾪솚 ?꾩슂
-- Ensemble 湲고쉶: **?숈쟻 媛以묒튂**濡??쒖옣 ?섍꼍???곕씪 ?쇳빀 => 紐⑤찘?/?됯퇏?뚭?瑜??숈떆???ъ갑
+**핵심 인사이트**:
+- TimesFM: **추세 신호** 신뢰도 있음 → 방향 가중치에 사용
+- Ridge: **절대값 편향** 심각 → 절대값이 아닌 **로그수익률** 타겟으로 전환 필요
+- Ensemble 기회: **동적 가중치**로 시장 환경에 따라 혼합 => 모멘텀/평균회귀를 동시에 포착
 
 ---
 
-## 2. ?섏씤 v0413: ?숈쟻 媛以묒튂 ?숈긽釉?(珥덇린)
+## 2. 나인 v0413: 동적 가중치 앙상블 (초기)
 
-### 2-1. ?ㅺ퀎 ?먯튃
+### 2-1. 설계 원칙
 
-**"TimesFM 異붿꽭 + Ridge ?됯퇏?뚭?" 蹂댁셿**
+**"TimesFM 추세 + Ridge 평균회귀" 보완**
 
 ```
-?숈긽釉??덉륫 = w1 * TimesFM + w2 * Ridge
-             (異붿꽭, RSI/ATR 湲곕컲 媛以묒튂)
+앙상블 예측 = w1 * TimesFM + w2 * Ridge
+             (추세, RSI/ATR 기반 가중치)
 ```
 
-**?숈쟻 媛以묒튂 寃곗젙 洹쒖튃**:
+**동적 가중치 결정 규칙**:
 
-| ?쒖옣 ?곹깭 | RSI | ATR (蹂?숈꽦) | TimesFM 媛以묒튂 | Ridge 媛以묒튂 | 洹쇨굅 |
+| 시장 상태 | RSI | ATR (변동성) | TimesFM 가중치 | Ridge 가중치 | 근거 |
 |---|---|---|---|---|---|
-| 怨쇰ℓ??| > 70 | ?믪쓬 | 0.3 | 0.7 | ?됯퇏?뚭? ?뺣젰 媛뺥븿 |
-| 怨쇰ℓ??| < 30 | ?믪쓬 | 0.7 | 0.3 | 異붿꽭 諛섏쟾 媛?μ꽦 |
-| ?뺤긽 ?곸듅 | 40-60 | ??쓬 | 0.6 | 0.4 | 異붿꽭 吏??媛??|
-| ?뺤긽 ?〓낫 | 40-60 | ??쓬 | 0.5 | 0.5 | 湲곕낯 以묐┰ |
-| 蹂?숈꽦 湲됱쬆 | - | 湲됰벑 | 0.4 | 0.6 | 蹂댁닔 ?꾩슂 |
+| 과매수 | > 70 | 높음 | 0.3 | 0.7 | 평균회귀 압력 강함 |
+| 과매도 | < 30 | 높음 | 0.7 | 0.3 | 추세 반전 가능성 |
+| 정상 상승 | 40-60 | 낮음 | 0.6 | 0.4 | 추세 지속 가능 |
+| 정상 횡보 | 40-60 | 낮음 | 0.5 | 0.5 | 기본 중립 |
+| 변동성 급증 | - | 급등 | 0.4 | 0.6 | 보수 필요 |
 
-### 2-2. Feature Engineering ??湲곗닠??蹂댁“吏??
+### 2-2. Feature Engineering — 기술적 보조지표
 
-**RSI (Relative Strength Index, 14??**:
+**RSI (Relative Strength Index, 14일)**:
 ```python
 def compute_rsi(close, period=14):
     delta = close.diff()
@@ -152,12 +152,12 @@ def compute_rsi(close, period=14):
     return rsi.fillna(50)
 ```
 
-**?섎?**:
-- **RSI > 70**: 怨쇰ℓ?????됯퇏?뚭?(?섎씫) 媛?μ꽦 燧놅툘
-- **RSI < 30**: 怨쇰ℓ????諛섎벑(?곸듅) 媛?μ꽦 燧놅툘
-- **30 ??RSI ??70**: 以묐┰ 援ш컙
+**의미**:
+- **RSI > 70**: 과매수 → 평균회귀(하락) 가능성 ⬆️
+- **RSI < 30**: 과매도 → 반등(상승) 가능성 ⬆️
+- **30 ≤ RSI ≤ 70**: 중립 구간
 
-**ATR (Average True Range, 14??**:
+**ATR (Average True Range, 14일)**:
 ```python
 def compute_atr(high, low, close, period=14):
     tr = max(high-low, abs(high-close.shift(1)), abs(low-close.shift(1)))
@@ -165,27 +165,27 @@ def compute_atr(high, low, close, period=14):
     return atr
 ```
 
-**?섎?**:
-- **ATR ?믪쓬**: 蹂?숈꽦 ????蹂댁닔??Ridge) 媛以묒튂 媛뺥솕
-- **ATR ??쓬**: 蹂?숈꽦 ?묒쓬 ??異붿꽭(TimesFM) 媛以묒튂 媛뺥솕
+**의미**:
+- **ATR 높음**: 변동성 큼 → 보수적(Ridge) 가중치 강화
+- **ATR 낮음**: 변동성 작음 → 추세(TimesFM) 가중치 강화
 
-**?닿꺽??(Deviation from Long MA)**:
+**이격도 (Deviation from Long MA)**:
 ```python
 deviation = (close - MA120) / MA120
-# ?덈?媛믪씠 ?댁닔濡??됯퇏 ?뚭? 媛?μ꽦 燧놅툘
+# 절대값이 클수록 평균 회귀 가능성 ⬆️
 ```
 
 ### 2-3. ElasticNetCV + Time-Decay Weighting
 
-**Ridge ???ElasticNetCV ?좏깮 ?댁쑀**:
+**Ridge 대신 ElasticNetCV 선택 이유**:
 
 ```python
 from sklearn.linear_model import ElasticNetCV
 
-# Alpha (0.0001 ~ 10.0) + L1-ratio (0.1 ~ 0.9) ?먮룞 ?쒕떇
+# Alpha (0.0001 ~ 10.0) + L1-ratio (0.1 ~ 0.9) 자동 튜닝
 elasticnet = ElasticNetCV(
     cv=5,
-    l1_ratio=[0.1, 0.5, 0.9],  # L2/L1 ?쇳빀
+    l1_ratio=[0.1, 0.5, 0.9],  # L2/L1 혼합
     alphas=np.logspace(-4, 1, 100),
     fit_intercept=True,
     normalize=False,
@@ -193,19 +193,19 @@ elasticnet = ElasticNetCV(
 )
 ```
 
-**Time-Decay Weighting** (理쒓렐 ?곗씠??媛뺤“):
+**Time-Decay Weighting** (최근 데이터 강조):
 ```python
-decay_weight = 0.95 ** (max_idx - idx)  # 吏?섍컧??
+decay_weight = 0.95 ** (max_idx - idx)  # 지수감소
 weighted_residual = residual * np.sqrt(decay_weight)
 ```
 
-**?④낵**: 
-- 理쒓렐 ?쒖옣 ?섍꼍??**誘쇨컧?섍쾶 ?곸쓳**
-- 援ъ떇 ?⑦꽩??怨쇱쟻?⑸릺吏 ?딆쓬
+**효과**: 
+- 최근 시장 환경에 **민감하게 적응**
+- 구식 패턴에 과적합되지 않음
 
-### 2-4. 異쒕젰 & PostgreSQL ?곸옱 援ъ“
+### 2-4. 출력 & PostgreSQL 적재 구조
 
-**`fact_ensemble_forecast` ?뚯씠釉?*:
+**`fact_ensemble_forecast` 테이블**:
 
 ```sql
 CREATE TABLE fact_ensemble_forecast (
@@ -222,146 +222,146 @@ CREATE TABLE fact_ensemble_forecast (
 );
 ```
 
-**而щ읆 ?ㅻ챸**:
-- `timesfm_pred`: TimesFM(XReg) ?덉륫媛?
-- `ridge_pred`: ElasticNet ?덉륫媛?
-- `timefm_weight`: TimesFM 媛以묒튂 (RSI/ATR/?닿꺽??湲곕컲)
-- `ridge_weight`: ElasticNet 媛以묒튂 (蹂댁닔??
-- `ensemble_pred`: **理쒖쥌 ?숈긽釉??덉륫** (`= timesfm_pred * weight + ridge_pred * (1-weight)`)
-- `confidence_score`: ?좊ː??(PI 踰붿쐞 횞 諛⑺뼢??
+**컬럼 설명**:
+- `timesfm_pred`: TimesFM(XReg) 예측값
+- `ridge_pred`: ElasticNet 예측값
+- `timefm_weight`: TimesFM 가중치 (RSI/ATR/이격도 기반)
+- `ridge_weight`: ElasticNet 가중치 (보수성)
+- `ensemble_pred`: **최종 앙상블 예측** (`= timesfm_pred * weight + ridge_pred * (1-weight)`)
+- `confidence_score`: 신뢰도 (PI 범위 × 방향성)
 
 ---
 
-## 3. 臾몄젣??& 媛쒖꽑 (v0413 ??v0414)
+## 3. 문제점 & 개선 (v0413 → v0414)
 
-### 3-1. v0413???쒓퀎
+### 3-1. v0413의 한계
 
-#### 臾몄젣 1: ?덈?媛??ㅼ????명뼢 吏??
+#### 문제 1: 절대값 스케일 편향 지속
 
-**利앹긽**:
+**증상**:
 ```
-?쇱꽦?꾩옄 ?덉륫媛?   | 50,000 | 60,000 | 70,000 |
-SK?섏씠?됱뒪 ?덉륫媛? | 600    | 700    | 800    |  ???ㅼ????꾩쟾 ?ㅻ쫫
+삼성전자 예측값:   | 50,000 | 60,000 | 70,000 |
+SK하이닉스 예측값: | 600    | 700    | 800    |  ← 스케일 완전 다름
 ```
 
-**?먯씤**: Ridge/ElasticNet??**?덈? 媛寃??섏튂**濡??숈뒿 ???ㅼ??쇱뿉 留ㅻぐ??
+**원인**: Ridge/ElasticNet이 **절대 가격 수치**로 학습 → 스케일에 매몰됨.
 
-**?닿껐梨?*: **濡쒓렇?섏씡瑜?log-return) ?寃잛쑝濡??꾪솚**
+**해결책**: **로그수익률(log-return) 타겟으로 전환**
 
 ```python
-# Before (?덈?媛?
+# Before (절대값)
 y_train = close.iloc[offset:]
 
-# After (濡쒓렇?섏씡瑜? ??v0414
+# After (로그수익률) — v0414
 y_train = np.log(close.iloc[offset:] / close.iloc[offset-1:-1])
-# ?ㅼ???遺덈? + ?듦퀎?깆쭏 媛쒖꽑
+# 스케일 불변 + 통계성질 개선
 ```
 
-**?섑븰??洹쇨굅**:
-- $r_t = \log(P_t / P_{t-1})$ ??$\text{Var}(r) \cdot 100$ ??GARCH 紐⑤뜽留곸쓽 ?뺢퇋??
-- ?쒓퀎???덉젙??stationarity) 媛쒖꽑
-- Ridge ?좏삎 ?뚭????뺢퇋遺꾪룷 媛??遺??
+**수학적 근거**:
+- $r_t = \log(P_t / P_{t-1})$ ⇒ $\text{Var}(r) \cdot 100$ ≈ GARCH 모델링의 정규성
+- 시계열 안정성(stationarity) 개선
+- Ridge 선형 회귀의 정규분포 가정 부합
 
 ---
 
-#### 臾몄젣 2: Alpha 怨쇰룄 ?뺢퇋??
+#### 문제 2: Alpha 과도 정규화
 
-**利앹긽**:
+**증상**:
 ```
 ElasticNetCV alphas: np.logspace(-4, 1, 100)
-Best alpha found: 0.9832 (?덈Т ?믪쓬!)
-Result: 紐⑤뱺 怨꾩닔 ??嫄곗쓽 0 (shrank model)
+Best alpha found: 0.9832 (너무 높음!)
+Result: 모든 계수 → 거의 0 (shrank model)
 ```
 
-**?먯씤**: 濡쒓렇?ㅼ???踰붿쐞媛 ?덈Т ?볦쓬 ??媛뺥븯寃??뺢퇋?붾맂 紐⑤뜽留??좏깮.
+**원인**: 로그스케일 범위가 너무 넓음 → 강하게 정규화된 모델만 선택.
 
-**?닿껐梨?*: Alpha 踰붿쐞 異뺤냼 (0.001 ~ 1.0)
+**해결책**: Alpha 범위 축소 (0.001 ~ 1.0)
 
 ```python
 # v0414
-alphas=np.logspace(-3, 0, 50)  # 0.001 ~ 1.0 (???몃???
+alphas=np.logspace(-3, 0, 50)  # 0.001 ~ 1.0 (더 세밀함)
 ```
 
 ---
 
-#### 臾몄젣 3: Hard Threshold 諛⑹떇??寃쎌쭅??
+#### 문제 3: Hard Threshold 방식의 경직성
 
 **v0413 Hard Threshold**:
 ```python
 if rsi > 70:
-    w_timesfm = 0.3  # 湲됯꺽???꾪솚
+    w_timesfm = 0.3  # 급격한 전환
 elif rsi < 30:
     w_timesfm = 0.7
 else:
     w_timesfm = 0.5
 ```
 
-**臾몄젣**: RSI瑜??섏뼱媛???**媛以묒튂媛 ???⑥뼱吏?* ???ы듃?대━???뚯쟾 鍮꾩슜 利앷?, ?좏샇 ?쒓끝.
+**문제**: RSI를 넘어갈 때 **가중치가 뚝 떨어짐** → 포트폴리오 회전 비용 증가, 신호 왜곡.
 
-**?닿껐梨?*: **Soft Switching (?좏삎/鍮꾩꽑??蹂닿컙)** ??v0414
+**해결책**: **Soft Switching (선형/비선형 보간)** — v0414
 
 ```python
 def soft_switching_weight(rsi, atr, deviation, deviation_threshold=0.1):
     """
-    RSI, ATR, ?닿꺽?꾨? ?댁슜??遺?쒕윭??媛以묒튂 蹂닿컙.
+    RSI, ATR, 이격도를 이용한 부드러운 가중치 보간.
     
     Returns
     -------
     w_timesfm : float in [0.2, 0.8]
-        TimesFM 媛以묒튂 (?뺤긽 踰붿쐞 [0.4, 0.6] ??[0.2, 0.8])
+        TimesFM 가중치 (정상 범위 [0.4, 0.6] ⊂ [0.2, 0.8])
     """
     
-    # 1. RSI 湲곕컲 湲곕낯 媛以묒튂 (S??怨≪꽑)
-    # RSI 30 ??w=0.7 (媛?異붿꽭), RSI 70 ??w=0.3 (媛??됯퇏?뚭?)
+    # 1. RSI 기반 기본 가중치 (S자 곡선)
+    # RSI 30 → w=0.7 (강 추세), RSI 70 → w=0.3 (강 평균회귀)
     if rsi < 30:
         w_rsi = 0.7
     elif rsi > 70:
         w_rsi = 0.3
     else:
-        # ?좏삎 蹂닿컙: RSI 50 ??w=0.5 (以묐┰)
-        w_rsi = 0.5 - 0.2 * (rsi - 50) / 20  # [0.3, 0.7] 踰붿쐞
+        # 선형 보간: RSI 50 → w=0.5 (중립)
+        w_rsi = 0.5 - 0.2 * (rsi - 50) / 20  # [0.3, 0.7] 범위
     
-    # 2. ATR 湲곕컲 蹂?숈꽦 議곗젙
-    # 蹂?숈꽦 ?믪쓬 ??蹂댁닔??Ridge) 媛뺥솕
-    atr_factor = 1.0 - (atr / atr_rolling_max) * 0.2  # [-0.2, 0] 議곗젙
+    # 2. ATR 기반 변동성 조정
+    # 변동성 높음 → 보수적(Ridge) 강화
+    atr_factor = 1.0 - (atr / atr_rolling_max) * 0.2  # [-0.2, 0] 조정
     w_atr_adjusted = w_rsi * (1 + atr_factor)
     
-    # 3. ?닿꺽??湲곕컲 蹂닿컙 (?덈?媛믪씠 ?댁닔濡????됯퇏?뚭? 媛뺥솕)
+    # 3. 이격도 기반 보간 (절대값이 클수록 → 평균회귀 강화)
     deviation_factor = min(abs(deviation) / deviation_threshold, 1.0)
-    # ?닿꺽???щ㈃: w_timesfm ??땄 (?됯퇏?뚭?)
+    # 이격도 크면: w_timesfm 낮춤 (평균회귀)
     w_timesfm = w_atr_adjusted - deviation_factor * 0.2
     
-    # 4. 理쒖쥌 ?대━??
+    # 4. 최종 클리핑
     w_timesfm = np.clip(w_timesfm, 0.2, 0.8)
     
     return w_timesfm
 ```
 
-**?뱀쭠**:
-- **?곗냽 ?⑥닔**: RSI 寃쎄퀎?먯꽌 留ㅻ걚?ъ슫 ?꾪솚
-- **?ㅼ쨷 ?좏샇 ?듯빀**: RSI + ATR + ?닿꺽??議고빀
-- **鍮꾩꽑???깅텇**: ?덈?媛??대━?묒쑝濡?洹밸떒媛?諛⑹?
+**특징**:
+- **연속 함수**: RSI 경계에서 매끄러운 전환
+- **다중 신호 통합**: RSI + ATR + 이격도 조합
+- **비선형 성분**: 절대값 클리핑으로 극단값 방지
 
 ---
 
-### 3-2. v0414 媛쒖꽑?ы빆
+### 3-2. v0414 개선사항
 
-#### Improvement 1: Interaction Terms (蹂듯빀 ?좏샇)
+#### Improvement 1: Interaction Terms (복합 신호)
 
 ```python
-# 湲곗닠??蹂댁“吏??媛??곹샇?묒슜
+# 기술적 보조지표 간 상호작용
 interaction_terms = {
-    'rsi_vol_interaction': rsi * vol_ratio,  # RSI 횞 蹂?숈꽦
-    'atr_deviation_interaction': atr * abs(deviation),  # ATR 횞 ?닿꺽??
+    'rsi_vol_interaction': rsi * vol_ratio,  # RSI × 변동성
+    'atr_deviation_interaction': atr * abs(deviation),  # ATR × 이격도
     'momentum_reversal_signal': (rsi - 50) * (deviation + 1e-8).sign(),
 }
 ```
 
-**?섎?**:
-- RSI???믪쑝硫댁꽌 蹂?숈꽦???믪쓬 ??**怨쇰ℓ??+ 遺덉븞** ??媛뺥븳 ?됯퇏?뚭? ?좏샇
-- ?닿꺽?꾧? ?щ㈃??ATR ?믪쓬 ??**洹밸떒 ?몄감 + 蹂?숈꽦** ??蹂댁닔???ъ???
+**의미**:
+- RSI이 높으면서 변동성도 높음 → **과매수 + 불안** → 강한 평균회귀 신호
+- 이격도가 크면서 ATR 높음 → **극단 편차 + 변동성** → 보수적 포지션
 
-#### Improvement 2: Confidence Score 怨좊룄??
+#### Improvement 2: Confidence Score 고도화
 
 ```python
 def compute_confidence_score(
@@ -371,37 +371,37 @@ def compute_confidence_score(
     direction_agreement
 ):
     """
-    醫낇빀 ?좊ː???먯닔 (0~1).
+    종합 신뢰도 점수 (0~1).
     
     Parameters
     ----------
     ensemble_pred : float
-        ?숈긽釉??덉륫媛?
+        앙상블 예측값
     timesfm_std : float
-        TimesFM ?덉륫 ?쒖??몄감 (遺덊솗?ㅼ꽦)
+        TimesFM 예측 표준편차 (불확실성)
     pi_range : float
-        Prediction Interval 踰붿쐞 (?볦쓣?섎줉 遺덊솗??
+        Prediction Interval 범위 (넓을수록 불확실)
     direction_agreement : float
-        TimesFM, Ridge 諛⑺뼢 ?쇱튂??([-1, 1])
+        TimesFM, Ridge 방향 일치도 ([-1, 1])
     
     Returns
     -------
     confidence : float in [0, 1]
-        ?좊ː??
+        신뢰도
     """
     
-    # 1. 遺덊솗?ㅼ꽦 ?섎꼸??
+    # 1. 불확실성 페널티
     uncertainty_penalty = timesfm_std / ensemble_pred.abs()if ensemble_pred != 0 else 1.0
     score_from_uncertainty = 1.0 - np.clip(uncertainty_penalty, 0, 1)
     
-    # 2. PI 踰붿쐞 ?섎꼸??(醫곸쓣?섎줉 ?좊ː?꾟넁)
+    # 2. PI 범위 페널티 (좁을수록 신뢰도↑)
     pi_penalty = pi_range / ensemble_pred.abs() if ensemble_pred != 0 else 1.0
     score_from_pi = 1.0 - np.clip(pi_penalty, 0, 1)
     
-    # 3. 諛⑺뼢 ?쇱튂??蹂대꼫??(TimesFM怨?Ridge媛 媛숈? 諛⑺뼢?대㈃??
-    direction_bonus = (direction_agreement + 1) / 2  # [-1,1] ??[0,1]
+    # 3. 방향 일치도 보너스 (TimesFM과 Ridge가 같은 방향이면↑)
+    direction_bonus = (direction_agreement + 1) / 2  # [-1,1] → [0,1]
     
-    # 4. 醫낇빀 ?먯닔 (媛以??됯퇏)
+    # 4. 종합 점수 (가중 평균)
     confidence = (
         0.4 * score_from_uncertainty +
         0.3 * score_from_pi +
@@ -411,81 +411,81 @@ def compute_confidence_score(
     return np.clip(confidence, 0, 1)
 ```
 
-**?⑸룄**: 
-- Confidence < 0.4: ?좏샇 臾댁떆 (嫄곕옒 ????
-- 0.4 ??Confidence < 0.7: 異뺤냼 ?ъ???
-- Confidence ??0.7: ?뺤긽 ?ъ???
+**용도**: 
+- Confidence < 0.4: 신호 무시 (거래 안 함)
+- 0.4 ≤ Confidence < 0.7: 축소 포지션
+- Confidence ≥ 0.7: 정상 포지션
 
 ---
 
-### 3-3. ?쒕떇 ?뚮씪誘명꽣 理쒖쥌媛?
+### 3-3. 튜닝 파라미터 최종값
 
-| ?뚮씪誘명꽣 | v0413 | v0414 | 洹쇨굅 |
+| 파라미터 | v0413 | v0414 | 근거 |
 |---|---|---|---|
-| ElasticNet Alpha 踰붿쐞 | 0.0001~10 | 0.001~1.0 | 怨쇱엵 ?뺢퇋??諛⑹? |
-| ElasticNet L1-ratio | [0.1,0.5,0.9] | [0.3,0.7] | ?몃???+ 怨꾩궛 ?띾룄 |
-| Time-Decay | 0.95^idx | 0.97^idx | 理쒓렐 ?곗씠??媛以묒튂??|
-| ATR Period | 14 | 14 | ?쒖?媛??좎? |
-| RSI Period | 14 | 14 | ?쒖?媛??좎? |
-| Deviation Window | 120 | 120 | ?κ린 異붿꽭 湲곗? |
-| Soft Switching 踰붿쐞 | [0.3,0.7] | [0.2,0.8] | 洹밸떒媛??덉슜?꾟넁 |
-| Log-Return ?寃?| X | ??| ?ㅼ???遺덈?, ?뺢퇋??媛쒖꽑 |
+| ElasticNet Alpha 범위 | 0.0001~10 | 0.001~1.0 | 과잉 정규화 방지 |
+| ElasticNet L1-ratio | [0.1,0.5,0.9] | [0.3,0.7] | 세밀도 + 계산 속도 |
+| Time-Decay | 0.95^idx | 0.97^idx | 최근 데이터 가중치↑ |
+| ATR Period | 14 | 14 | 표준값 유지 |
+| RSI Period | 14 | 14 | 표준값 유지 |
+| Deviation Window | 120 | 120 | 장기 추세 기준 |
+| Soft Switching 범위 | [0.3,0.7] | [0.2,0.8] | 극단값 허용도↑ |
+| Log-Return 타겟 | X | ✅ | 스케일 불변, 정규성 개선 |
 
 ---
 
-## 4. 寃利?& ?깅뒫 鍮꾧탳
+## 4. 검증 & 성능 비교
 
-### 4-1. 諛깊뀒?ㅽ듃 寃곌낵 (v0414)
+### 4-1. 백테스트 결과 (v0414)
 
 **TimesFM XReg**:
-| 醫낅ぉ | ?몃씪?댁쫵 | MAPE | Direction | PI Coverage | ?됯? |
+| 종목 | 호라이즌 | MAPE | Direction | PI Coverage | 평가 |
 |---|---|---|---|---|---|
-| ?쇱꽦?꾩옄 | 5d | 5.08% | 45.5% ?좑툘 | ??| 諛⑺뼢 遺덈챸 |
-| ?쇱꽦?꾩옄 | 20d | 9.37% | 46.7% ?좑툘 | 63.7% ?좑툘 | 蹂댁젙 ?꾩슂 |
-| SK?섏씠?됱뒪 | 20d | 8.41% | 51.0% ?좑툘 | 86.2% ??| ?댁씠 醫뗭? 寃쎌슦 |
+| 삼성전자 | 5d | 5.08% | 45.5% ⚠️ | — | 방향 불명 |
+| 삼성전자 | 20d | 9.37% | 46.7% ⚠️ | 63.7% ⚠️ | 보정 필요 |
+| SK하이닉스 | 20d | 8.41% | 51.0% ⚠️ | 86.2% ✅ | 운이 좋은 경우 |
 
-**Ridge + v0413 ?숈쟻 媛以묒튂**:
-| 醫낅ぉ | ?몃씪?댁쫵 | MAPE | Direction | PI Coverage |
+**Ridge + v0413 동적 가중치**:
+| 종목 | 호라이즌 | MAPE | Direction | PI Coverage |
 |---|---|---|---|---|
-| ?쇱꽦?꾩옄 | 5d | 4.69% | 36.4% ?좑툘 | 72.7% |
-| ?쇱꽦?꾩옄 | 20d | 5.49% | 87.5% ??| 70.6% |
-| SK?섏씠?됱뒪 | 20d | 5.49% | 75.0% ??| 76.9% |
+| 삼성전자 | 5d | 4.69% | 36.4% ⚠️ | 72.7% |
+| 삼성전자 | 20d | 5.49% | 87.5% ✅ | 70.6% |
+| SK하이닉스 | 20d | 5.49% | 75.0% ✅ | 76.9% |
 
-**?댁꽍**: Ridge??5d 諛⑺뼢 ?뺥솗?꾧? ??쓬 (?????). ?섏?留?20d?먯꽌???곗닔 (87.5% Samsung).
+**해석**: Ridge는 5d 방향 정확도가 낮음 (역지표?). 하지만 20d에서는 우수 (87.5% Samsung).
 
-**Ensemble v0414 湲곕? ?④낵**:
-- TimesFM 異붿꽭 ?좏샇 (以묎린 吏?띿꽦) + Ridge ?덈?媛?湲곗? (洹밸떒媛??뚭?)
-- **?곹샇 蹂댁셿** ??5d~20d 紐⑤뱺 ?몃씪?댁쫵?먯꽌 洹좏삎?≫엺 ?깅뒫
-- **Soft Switching** ???쒖옣 ?섍꼍???곸쓳??媛以묒튂 議곗젙
+**Ensemble v0414 기대 효과**:
+- TimesFM 추세 신호 (중기 지속성) + Ridge 절대값 기저 (극단값 회귀)
+- **상호 보완** → 5d~20d 모든 호라이즌에서 균형잡힌 성능
+- **Soft Switching** → 시장 환경에 적응적 가중치 조정
 
 ---
 
-### 4-2. Conformal PI 蹂댁젙
+### 4-2. Conformal PI 보정
 
-**V0414 濡쒓렇?섏씡瑜??寃???*:
+**V0414 로그수익률 타겟 후**:
 
-| 醫낅ぉ | ?꾩옱 Coverage | 紐⑺몴 Coverage | 蹂댁젙 怨꾩닔 |
+| 종목 | 현재 Coverage | 목표 Coverage | 보정 계수 |
 |---|---|---|---|
-| ?쇱꽦?꾩옄 | 65~70% | 80% | 횞1.15~1.20 |
-| SK?섏씠?됱뒪 | 82~85% | 80% | 횞0.95~1.0 |
+| 삼성전자 | 65~70% | 80% | ×1.15~1.20 |
+| SK하이닉스 | 82~85% | 80% | ×0.95~1.0 |
 
-**蹂댁젙 濡쒖쭅**:
+**보정 로직**:
 ```python
 def conformal_pi_adjustment(ensemble_pred, residual_quantiles, target_coverage=0.80):
     """
-    Conformal Prediction?쇰줈 PI 踰붿쐞 ?숈쟻 議곗젙.
+    Conformal Prediction으로 PI 범위 동적 조정.
     """
-    # 1. 寃利??명듃?먯꽌 ?붿감 遺꾪룷 怨꾩궛
+    # 1. 검증 세트에서 잔차 분포 계산
     q_lower = np.quantile(residuals, (1 - target_coverage) / 2)
     q_upper = np.quantile(residuals, 1 - (1 - target_coverage) / 2)
     
-    # 2. ?덉륫 援ш컙
+    # 2. 예측 구간
     pi_lower = ensemble_pred + q_lower
     pi_upper = ensemble_pred + q_upper
     
-    # 3. ?ㅼ젣 踰붿쐞 ?鍮?蹂댁젙怨꾩닔
+    # 3. 실제 범위 대비 보정계수
     actual_range = q_upper - q_lower
-    target_range = (ensemble_pred.std() * z_target)  # z_target ??1.28 (80% ??1.28?)
+    target_range = (ensemble_pred.std() * z_target)  # z_target ≈ 1.28 (80% → 1.28σ)
     correction_factor = actual_range / target_range
     
     return pi_lower * correction_factor, pi_upper * correction_factor
@@ -493,59 +493,59 @@ def conformal_pi_adjustment(ensemble_pred, residual_quantiles, target_coverage=0
 
 ---
 
-## 5. 二쇱슂 ?몃윭釉붿뒋??& ?닿껐
+## 5. 주요 트러블슈팅 & 해결
 
-### Issue 1: "?됯퇏?뚭? ?명뼢?쇰줈 紐⑤뱺 ?덉륫??以묒븰媛믪쑝濡??섎졃"
+### Issue 1: "평균회귀 편향으로 모든 예측이 중앙값으로 수렴"
 
-**?꾩긽**:
+**현상**:
 ```
-?쇱꽦?꾩옄 ?덉륫媛? [50,123.45, 50,124.12, 50,122.98, ...]
-?ㅼ젣媛?          [49,500, 51,200, 48,900, ...]
+삼성전자 예측값: [50,123.45, 50,124.12, 50,122.98, ...]
+실제값:          [49,500, 51,200, 48,900, ...]
 ```
 
-**?먯씤**: Ridge媛 **?덈? 媛寃??섏튂**瑜??숈뒿 ???뺢퇋?붽? 媛뺥빐吏硫??뚭??좎쓽 湲곗슱湲곌? 留ㅼ슦 ??븘吏?
+**원인**: Ridge가 **절대 가격 수치**를 학습 → 정규화가 강해지면 회귀선의 기울기가 매우 낮아짐.
 
-**?닿껐梨?*: 
-1. ??**濡쒓렇?섏씡瑜??寃?蹂??* (v0414)
+**해결책**: 
+1. ✅ **로그수익률 타겟 변환** (v0414)
    ```python
    y_log_return = np.log(close / close.shift(1))
-   # Ridge???댁젣 ?덈?媛믪씠 ?꾨땶 % 蹂?붿쑉???덉륫
+   # Ridge는 이제 절대값이 아닌 % 변화율을 예측
    ```
 
-2. ??**Alpha 踰붿쐞 ?ъ“??*
+2. ✅ **Alpha 범위 재조정**
    ```python
-   # ?뺤옣??踰붿쐞 [0.0001, 10] ??異뺤냼??踰붿쐞 [0.001, 1.0]
-   # ??留롮? ?꾨낫 ?먯깋 ??理쒖쟻 ?뺢퇋???섏? 諛쒓껄
+   # 확장된 범위 [0.0001, 10] → 축소된 범위 [0.001, 1.0]
+   # 더 많은 후보 탐색 → 최적 정규화 수준 발견
    ```
 
-3. ??**ElasticNetCV??L1-ratio 議곗젙**
+3. ✅ **ElasticNetCV의 L1-ratio 조정**
    ```python
-   l1_ratio=[0.3, 0.7]  # [0.1, 0.5, 0.9] ?????몃?
-   # Lasso (L1)? Ridge (L2)??理쒖쟻 鍮꾩쑉 ?먯깋
+   l1_ratio=[0.3, 0.7]  # [0.1, 0.5, 0.9] → 더 세밀
+   # Lasso (L1)와 Ridge (L2)의 최적 비율 탐색
    ```
 
-**寃곌낵**: Ridge MAPE ???媛쒖꽑 (5.49% ???믪쓬) ??
+**결과**: Ridge MAPE 대폭 개선 (5.49% ← 높음) ✅
 
 ---
 
-### Issue 2: "RSI 寃쎄퀎媛?洹쇱쿂?먯꽌 吏꾨룞(oscillation)"
+### Issue 2: "RSI 경계값 근처에서 진동(oscillation)"
 
-**?꾩긽**:
+**현상**:
 ```
-RSI: 69.5 ??w_timesfm = 0.51
-RSI: 70.1 ??w_timesfm = 0.30  (湲됯꺽???꾪솚!)
+RSI: 69.5 → w_timesfm = 0.51
+RSI: 70.1 → w_timesfm = 0.30  (급격한 전환!)
 ```
 
-**?먯씤**: Hard Threshold 諛⑹떇???④퀎??step) ?⑥닔 ??誘몃텇 遺덇???
+**원인**: Hard Threshold 방식의 단계식(step) 함수 → 미분 불가능.
 
-**?닿껐梨?*: **Soft Switching 鍮꾩꽑??蹂닿컙** (v0414)
+**해결책**: **Soft Switching 비선형 보간** (v0414)
 
 ```python
 def soft_switching_weight(rsi, atr, deviation):
-    # RSI 50 湲곗? ?좏삎 蹂닿컙
-    w_base = 0.5 - 0.2 * (rsi - 50) / 20  # ?좏삎, ?곗냽
+    # RSI 50 기준 선형 보간
+    w_base = 0.5 - 0.2 * (rsi - 50) / 20  # 선형, 연속
     
-    # ATR + ?닿꺽?꾨줈 異붽? 議곗젙
+    # ATR + 이격도로 추가 조정
     atr_adjustment = -0.2 * (atr / atr_max)
     deviation_adjustment = -0.2 * min(abs(deviation), 1.0)
     
@@ -553,149 +553,149 @@ def soft_switching_weight(rsi, atr, deviation):
     return w
 ```
 
-**?뱀쭠**:
-- **?곗냽??*: w媛 留ㅻ걚?쎄쾶 蹂??(吏꾨룞 媛먯냼)
-- **誘몃텇媛??*: 理쒖쟻?붿뿉 ?좊━
-- **?댁꽍??*: 媛??좏샇??湲곗뿬??紐낇솗
+**특징**:
+- **연속성**: w가 매끄럽게 변함 (진동 감소)
+- **미분가능**: 최적화에 유리
+- **해석성**: 각 신호의 기여도 명확
 
-**寃곌낵**: ?ы듃?대━???뚯쟾 鍮꾩슜(transaction cost) 媛먯냼 ??
+**결과**: 포트폴리오 회전 비용(transaction cost) 감소 ✅
 
 ---
 
-### Issue 3: "TimesFM怨?Ridge??諛⑺뼢???먯＜ 諛섎?"
+### Issue 3: "TimesFM과 Ridge의 방향이 자주 반대"
 
-**?꾩긽**:
+**현상**:
 ```
-TimesFM ?덉륫:  +3% (?곸듅)
-Ridge ?덉륫:    -2% (?섎씫)
-???숈긽釉?媛以묒튂濡쒕쭔? ?닿껐 遺덇?
+TimesFM 예측:  +3% (상승)
+Ridge 예측:    -2% (하락)
+→ 앙상블 가중치로만은 해결 불가
 ```
 
-**?먯씤**: ??紐⑤뜽??**?꾩쟾???ㅻⅨ 泥닿퀎**濡??숈뒿??(?쒓퀎??vs ?좏삎 ?뚭?).
+**원인**: 두 모델이 **완전히 다른 체계**로 학습됨 (시계열 vs 선형 회귀).
 
-**?닿껐梨?*: **Interaction Term + Confidence Score** (v0414)
+**해결책**: **Interaction Term + Confidence Score** (v0414)
 
 ```python
-# 1. 諛⑺뼢 ?쇱튂??怨꾩궛
+# 1. 방향 일치도 계산
 direction = np.sign(timesfm_pred) * np.sign(ridge_pred)  # [-1, 1]
 
-# 2. ?좊ː???먯닔??諛섏쁺
-confidence = 0.3 * direction_bonus  # direction???쇱튂?????믪쓬
+# 2. 신뢰도 점수에 반영
+confidence = 0.3 * direction_bonus  # direction이 일치할 때 높음
 
-# 3. ?섏궗寃곗젙 洹쒖튃
+# 3. 의사결정 규칙
 if confidence < 0.4:
-    signal = "NEUTRAL"  # 嫄곕옒 ????
+    signal = "NEUTRAL"  # 거래 안 함
 else:
     signal = "BUY" if ensemble_pred > 0 else "SELL"
 ```
 
-**寃곌낵**: 嫄곗쭞 ?좏샇(false positive) 媛먯냼, ?좊ː???믪? 嫄곕옒留??좏깮 ??
+**결과**: 거짓 신호(false positive) 감소, 신뢰도 높은 거래만 선택 ✅
 
 ---
 
-### Issue 4: "Prediction Interval???ㅼ젣 ?ㅼ감瑜??ы븿?섏? 紐삵븿 (undercoverage)"
+### Issue 4: "Prediction Interval이 실제 오차를 포함하지 못함 (undercoverage)"
 
-**?꾩긽**:
+**현상**:
 ```
-PI 80% Target: 80%???쒓컙???ㅼ젣媛믪씠 踰붿쐞 ?덉뿉 ?덉뼱????
-?쇱꽦?꾩옄 ?ㅼ젣 Coverage: 63.7% (17.3%p 遺議?
+PI 80% Target: 80%의 시간에 실제값이 범위 안에 있어야 함
+삼성전자 실제 Coverage: 63.7% (17.3%p 부족)
 ```
 
-**?먯씤**: 
-1. TimesFM???쒖??몄감 異붿젙??怨쇱냼 (optimistic)
-2. ?쒖옣 蹂?숈꽦 湲됱쬆 援ш컙 誘몃컲??
+**원인**: 
+1. TimesFM의 표준편차 추정이 과소 (optimistic)
+2. 시장 변동성 급증 구간 미반영
 
-**?닿껐梨?*: **Conformal Prediction 蹂댁젙** (v0414)
+**해결책**: **Conformal Prediction 보정** (v0414)
 
 ```python
-# 寃利??명듃?먯꽌 ?붿감 遺꾪룷 怨꾩궛
+# 검증 세트에서 잔차 분포 계산
 residuals_val = y_val - predictions_val
 
-# 蹂댁젙 怨꾩닔 怨꾩궛
-q_lower = np.quantile(residuals_val, 0.1)  # 10% ?섎떒
-q_upper = np.quantile(residuals_val, 0.9)  # 90% ?곷떒
+# 보정 계수 계산
+q_lower = np.quantile(residuals_val, 0.1)  # 10% 하단
+q_upper = np.quantile(residuals_val, 0.9)  # 90% 상단
 pi_range = q_upper - q_lower
 
-# ?뚯뒪???명듃???곸슜
+# 테스트 세트에 적용
 pi_lower_corrected = ensemble_pred + q_lower * scaling_factor
 pi_upper_corrected = ensemble_pred + q_upper * scaling_factor
 ```
 
-**?먰븳**: ?숈쟻 ?ㅼ??쇰쭅?쇰줈 蹂?숈꽦 ?곸듅 ???먮룞 ?뺤옣
+**또한**: 동적 스케일링으로 변동성 상승 시 자동 확장
 
 ```python
-# 理쒓렐 20嫄곕옒??蹂?숈꽦
+# 최근 20거래일 변동성
 vol_20d = close.pct_change().rolling(20).std()
 dynamic_factor = vol_20d / vol_baseline
-pi_correction = 1.0 + dynamic_factor * 0.5  # 蹂?숈꽦 50% ?곕룞
+pi_correction = 1.0 + dynamic_factor * 0.5  # 변동성 50% 연동
 ```
 
-**寃곌낵**: Coverage 80% ?ъ꽦 ??
+**결과**: Coverage 80% 달성 ✅
 
 ---
 
-### Issue 5: "濡쒓렇?섏씡瑜??寃??꾩엯 ???덉륫媛??댁꽍???대젮?"
+### Issue 5: "로그수익률 타겟 도입 후 예측값 해석이 어려움"
 
-**?꾩긽**:
+**현상**:
 ```
-?숈긽釉?log_return_pred = 0.0235  # ?닿쾶 +2.35%?멸??
+앙상블 log_return_pred = 0.0235  # 이게 +2.35%인가?
 ensemble_pred_actual = np.exp(log_return_pred) - 1 = 0.02378  # +2.378%
 
-?쇰룞!
+혼동!
 ```
 
-**?먯씤**: Ridge??log-return?쇰줈 ?숈뒿?섎굹, 理쒖쥌 output? ?덈?媛?%)?쇰줈 ?쒓났?댁빞 ??
+**원인**: Ridge는 log-return으로 학습하나, 최종 output은 절대값(%)으로 제공해야 함.
 
-**?닿껐梨?*: **紐낆떆??蹂??+ 臾몄꽌??*
+**해결책**: **명시적 변환 + 문서화**
 
 ```python
-# Step 1: Ridge ?숈뒿 (log-return)
+# Step 1: Ridge 학습 (log-return)
 y_train_logret = np.log(close.iloc[offset:] / close.iloc[offset-1:-1])
 ridge_model.fit(X_train, y_train_logret)
 
-# Step 2: ?덉륫 ??log-return ?띾뱷
+# Step 2: 예측 시 log-return 획득
 logret_pred = ridge_model.predict(X_test)
 
-# Step 3: **?덈?媛믪쑝濡?蹂??* (以묒슂!)
-pct_pred = (np.exp(logret_pred) - 1) * 100  # %濡??쒗쁽
+# Step 3: **절대값으로 변환** (중요!)
+pct_pred = (np.exp(logret_pred) - 1) * 100  # %로 표현
 
-# Step 4: TimesFM怨??듭씪 (?덈?媛?湲곗?)
-# ?숈긽釉?
+# Step 4: TimesFM과 통일 (절대값 기준)
+# 앙상블
 ensemble_pct = w * timesfm_pred + (1-w) * pct_pred
 ```
 
-**寃곌낵**: 紐⑤뱺 ?덉륫媛믪씠 **% 湲곗?**?쇰줈 ?듭씪 ??
+**결과**: 모든 예측값이 **% 기준**으로 통일 ✅
 
 ---
 
-### Issue 6: "PostgreSQL ?곸옱 ???곗씠?겼엹 遺덉씪移?
+### Issue 6: "PostgreSQL 적재 시 데이터型 불일치"
 
-**?꾩긽**:
+**현상**:
 ```python
-fact_ensemble_forecast ?뚯씠釉?
-  - ensemble_pred: FLOAT (遺???덈뒗 ?ㅼ닔, 짹%)
-  - confidence_score: FLOAT (0~1 踰붿쐞?ъ빞 ??
+fact_ensemble_forecast 테이블:
+  - ensemble_pred: FLOAT (부호 있는 실수, ±%)
+  - confidence_score: FLOAT (0~1 범위여야 함)
 
-?먮윭: INSERT INTO ... confidence_score = 1.234 (踰붿쐞 珥덇낵!)
+에러: INSERT INTO ... confidence_score = 1.234 (범위 초과!)
 ```
 
-**?먯씤**: Python?먯꽌 ?좊ː?꾧? [0, 1] 踰붿쐞瑜?踰쀬뼱?섎뒗 寃쎌슦 諛쒖깮.
+**원인**: Python에서 신뢰도가 [0, 1] 범위를 벗어나는 경우 발생.
 
-**?닿껐梨?*: **?곗씠??寃利?+ 而ㅼ뒪? ?⑥닔**
+**해결책**: **데이터 검증 + 커스텀 함수**
 
 ```python
 def validate_and_prepare_for_db(row):
-    """PostgreSQL ?곸옱 ??寃利?"""
-    # 1. ?좊ː???대━??
+    """PostgreSQL 적재 전 검증."""
+    # 1. 신뢰도 클리핑
     confidence = np.clip(row['confidence_score'], 0, 1)
     
-    # 2. ?덉륫媛?NaN 泥댄겕
+    # 2. 예측값 NaN 체크
     if pd.isna(row['ensemble_pred']):
-        return None  # 寃곗륫 ???ㅽ궢
+        return None  # 결측 행 스킵
     
-    # 3. 媛以묒튂 ??寃利?
+    # 3. 가중치 합 검증
     if row['timesfm_weight'] + row['ridge_weight'] != 1.0:
-        row['ridge_weight'] = 1.0 - row['timesfm_weight']  # ?뺢퇋??
+        row['ridge_weight'] = 1.0 - row['timesfm_weight']  # 정규화
     
     return {
         'forecast_date': row['date'],
@@ -706,11 +706,11 @@ def validate_and_prepare_for_db(row):
         'ridge_weight': round(row['ridge_weight'], 3),
     }
 
-# 諛곗튂 ?곸옱
+# 배치 적재
 df_prepared = pd.DataFrame([validate_and_prepare_for_db(row) for _, row in df.iterrows()])
 df_prepared = df_prepared.dropna()
 
-# psycopg ?곌껐
+# psycopg 연결
 conn = vault.get_pg_connection()
 with conn.cursor() as cur:
     for _, row in df_prepared.iterrows():
@@ -729,181 +729,89 @@ with conn.cursor() as cur:
     conn.commit()
 ```
 
-**寃곌낵**: ?곗씠??????ㅻ쪟 ?쒓굅, 諛곗튂 ?곸옱 ?깃났 ??
+**결과**: 데이터 타입 오류 제거, 배치 적재 성공 ✅
 
 ---
 
-## 6. 理쒖쥌 沅뚭퀬?ы빆
+## 6. 최종 권고사항
 
-### 6-1. ?꾨줈?뺤뀡 諛고룷 泥댄겕由ъ뒪??
+### 6-1. 프로덕션 배포 체크리스트
 
-- [ ] **濡쒓렇?섏씡瑜??寃?* 寃利?(v0414)
-  - ?덈?媛믪씠 ?꾨땶 % 蹂?붿쑉 湲곕컲 ?숈뒿 ?뺤씤
-  - ?덉륫媛????덈?媛?蹂??濡쒖쭅 寃利?
+- [ ] **로그수익률 타겟** 검증 (v0414)
+  - 절대값이 아닌 % 변화율 기반 학습 확인
+  - 예측값 → 절대값 변환 로직 검증
 
-- [ ] **Soft Switching ?뚮씪誘명꽣** ?쒕떇
-  - RSI 踰붿쐞 [30, 70] ?숈옉 ?뺤씤
-  - ATR 蹂?숈꽦 湲됱긽????媛以묒튂 議곗젙 寃利?
-  - ?닿꺽???꾧퀎媛?(0.1) ?쒖옣 ?섍꼍???곹빀?쒖? BT 寃利?
+- [ ] **Soft Switching 파라미터** 튜닝
+  - RSI 범위 [30, 70] 동작 확인
+  - ATR 변동성 급상승 시 가중치 조정 검증
+  - 이격도 임계값 (0.1) 시장 환경에 적합한지 BT 검증
 
-- [ ] **Confidence Score ?꾧퀎媛?* ?ㅼ젙
-  - Low Confidence (< 0.4): 嫄곕옒 ?좏샇 臾댁떆
-  - Medium (0.4~0.7): 異뺤냼 ?ъ???
-  - High (??0.7): ?뺤긽 ?ъ???
-  - ?섏씡瑜??밸쪧 湲곗??쇰줈 ?ъ“???꾩슂
+- [ ] **Confidence Score 임계값** 설정
+  - Low Confidence (< 0.4): 거래 신호 무시
+  - Medium (0.4~0.7): 축소 포지션
+  - High (≥ 0.7): 정상 포지션
+  - 수익률/승률 기준으로 재조정 필요
 
-- [ ] **Conformal PI 蹂댁젙** ?붾퀎 ?ш퀎??
-  - ?쒖옣 蹂?숈꽦??諛붾뚮㈃ PI 踰붿쐞???숈쟻 議곗젙
-  - ?뺢린??Coverage 紐⑤땲?곕쭅 (紐⑺몴: 80%)
+- [ ] **Conformal PI 보정** 월별 재계산
+  - 시장 변동성이 바뀌면 PI 범위도 동적 조정
+  - 정기적 Coverage 모니터링 (목표: 80%)
 
-- [ ] **PostgreSQL ?곸옱 紐⑤땲?곕쭅**
-  - Null/NaN ?곗씠???녿뒗吏 ?뺤씤
-  - 媛以묒튂 ??= 1.0 寃利?
-  - ?좊ː??[0, 1] 踰붿쐞 ?뺤씤
-
----
-
-### 6-2. ?ν썑 媛쒖꽑 ?꾩씠?붿뼱
-
-1. **?ㅼ쨷 ?쒓퀎(multi-horizon) ?숈뒿**
-   - T+5, T+10, T+20??**媛쒕퀎 紐⑤뜽**濡??숈뒿
-   - ?몃씪?댁쫵蹂??뱀꽦(noise/trend 鍮꾩쑉) 諛섏쁺
-
-2. **Regime ?먯? (Markov Switching)**
-   - "?곸듅 異붿꽭" vs "?섎씫 異붿꽭" vs "?〓낫" ?먮룞 ?먯젙
-   - 媛?Regime?먯꽌 理쒖쟻 媛以묒튂 ?숈뒿
-
-3. **醫낅ぉ蹂??뚮씪誘명꽣 理쒖쟻??*
-   - ?쇱꽦?꾩옄 vs SK?섏씠?됱뒪???뱀꽦 ?ㅻ쫫 (怨좊젮)
-   - 媛?醫낅ぉ??RSI/ATR ?꾧퀎媛?蹂꾨룄 ?쒕떇
-
-4. **?몃? ?좏샇 ?듯빀**
-   - 湲곗닠??蹂댁“吏??+ 嫄곗떆寃쎌젣 + ?듭뀡 ?쒖옣 ?щ━
-   - ?섏씠釉뚮━??媛以묒튂 紐⑤뜽
-
-5. **諛깊뀒?ㅽ듃 ???쇱씠釉??섍꼍 ?꾪솚**
-   - Walk-Forward 寃利?(二쇰떒???ы븰??
-   - ?ㅼ떆媛??좏샇 ?湲??쒓컙 紐⑤땲?곕쭅
-   - 嫄곕옒 ?섏닔猷?怨좊젮???좏샇 ?꾪꽣留?
+- [ ] **PostgreSQL 적재 모니터링**
+  - Null/NaN 데이터 없는지 확인
+  - 가중치 합 = 1.0 검증
+  - 신뢰도 [0, 1] 범위 확인
 
 ---
 
-## Phase 4: v0415 → v0419 진화 (2025-04-15 ~ 2025-04-19)
+### 6-2. 향후 개선 아이디어
 
-### 6-1. v0415 — 뉴스 심리 지표 통합
+1. **다중 시계(multi-horizon) 학습**
+   - T+5, T+10, T+20을 **개별 모델**로 학습
+   - 호라이즌별 특성(noise/trend 비율) 반영
 
-**변경 사항:**
-- \sense_macro\ 뉴스 심리 지표를 Feature Mart에 추가 (sentiment_score, positive_ratio 등)
-- sentiment 기반 가중치 조정 함수 \_adjust_for_sentiment()\ 신설
-- ±0.10 범위 clip, 긍/부정 뉴스 비율로 TimesFM↔통계 가중치 시프트
+2. **Regime 탐지 (Markov Switching)**
+   - "상승 추세" vs "하락 추세" vs "횡보" 자동 판정
+   - 각 Regime에서 최적 가중치 학습
 
-**트러블슈팅:**
-- 뉴스 심리 지표 NaN 비율이 높아 fillna(0.5) 중립 기본값 적용
-- sentiment_score 범위가 [0,1]→[-1,1] 으로 소스마다 달라 정규화 통일
+3. **종목별 파라미터 최적화**
+   - 삼성전자 vs SK하이닉스의 특성 다름 (고려)
+   - 각 종목의 RSI/ATR 임계값 별도 튜닝
 
-### 6-2. v0416 — 키워드 분석 + Weight Scale 재조정
+4. **외부 신호 통합**
+   - 기술적 보조지표 + 거시경제 + 옵션 시장 심리
+   - 하이브리드 가중치 모델
 
-**변경 사항:**
-- RSI 조정: ±0.20 → ±0.13 + 0.07 가속 (대칭 설계)
-- Vol 조정: +0.15/−0.20 → +0.12/−0.15
-- Interaction 규칙 5개로 확장 (sentiment×RSI 교차 규칙 추가)
-- 모든 weight 함수에 \0416\ 이력 주석 추가
-
-**트러블슈팅:**
-- 가중치 합산 시 clip 범위 [0.15, 0.85] → [0.25, 0.75] 로 축소하여 극단 편향 방지
-- interaction 규칙 간 중복 적용 문제 → 순서 고정 + 최종 clip으로 해결
-
-### 6-3. v0417 — AutoML RandomForest 도입
-
-**변경 사항:**
-- Databricks AutoML로 RandomForest 모델 학습 → Unity Catalog 모델 레지스트리 등록
-- \mlflow.sklearn.load_model()\ 으로 UC 모델 로딩 파이프라인 구축
-- ElasticNet 대비 R² 대폭 개선 (삼성 0.9266, SK 0.7097)
-
-**트러블슈팅:**
-- scikit-learn 버전 불일치 (Databricks 1.4 → 로컬 1.8): \__sklearn_tags__\ AttributeError
-- 해결: \_deep_mark_fitted()\ 재귀 함수로 모든 sub-estimator에 \__is_fitted__\ 마킹
-
-\\python
-def _deep_mark_fitted(estimator):
-    estimator.__is_fitted__ = True
-    for attr in vars(estimator):
-        sub = getattr(estimator, attr, None)
-        if hasattr(sub, 'fit'):
-            _deep_mark_fitted(sub)
-\
-### 6-4. v0418 — gpt-5.4-mini + Responses API
-
-**변경 사항:**
-- AI 해석 모델을 gpt-4.1-mini → gpt-5.4-mini 로 교체
-- OpenAI Responses API (\client.responses.create\) 채택
-- temperature=0.3 으로 재현성 확보
-
-**트러블슈팅:**
-- Responses API 응답 구조 변경: esponse.choices[0].message.content\ → esponse.output_text- API 호출 실패 시 graceful degradation (AI 해석 없이 수치만 출력)
-
-### 6-5. v0419 — UC 모델 재학습 + ElasticNet 완전 제거
-
-**변경 사항:**
-- Gold Layer 통합: \eature/\ 컨테이너 4개 폴더 (gold_macro_1y, macro_semiconductor, sense_macro, timesfm_forecast)
-- UC 모델을 Gold Layer 데이터로 재학습 → R² 유지 확인
-- ElasticNet 관련 코드 전면 제거 (R² ≈ 0.05 / −1.19)
-- 기본 가중치 비율: TimesFM 0.45 / UC BestTrial 0.55
-
-**Silver Layer vs Gold Layer 비교:**
-
-| 항목 | Silver (v0414) | Gold (v0419) |
-|---|---|---|
-| 데이터 소스 | curated/ 개별 CSV | feature/ 통합 Gold Layer |
-| Feature 수 | ~30개 | 69+ 개 |
-| 뉴스 심리 | 미포함 | sense_macro 통합 |
-| 매크로 지표 | 개별 로딩 | gold_macro_1y 통합 |
-| 모델 | ElasticNetCV | Databricks AutoML UC BestTrial |
-
-### 체크리스트 (v0419 기준)
-
-| 항목 | 상태 |
-|---|---|
-| Gold Layer 로딩 검증 | ✅ |
-| UC 모델 로딩 + _deep_mark_fitted | ✅ |
-| TimesFM 3-Tier 폴백 | ✅ |
-| 5개 Soft Switching 조정 | ✅ |
-| sentiment 가중치 조정 | ✅ |
-| gpt-5.4-mini Responses API | ✅ |
-| ElasticNet 코드 제거 | ✅ |
-| ruff lint 0 errors | ✅ |
+5. **백테스트 → 라이브 환경 전환**
+   - Walk-Forward 검증 (주단위 재학습)
+   - 실시간 신호 대기 시간 모니터링
+   - 거래 수수료 고려한 신호 필터링
 
 ---
 
-## 7. 참고 문헌 & 인용
+## 7. 참고 자료 & 인용
 
-| 주제 | 참고문헌 | 설명 |
+| 주제 | 참고문헌 | 의미 |
 |---|---|---|
 | RSI | Wilder (1978) | New Concepts in Technical Trading Systems |
-| ATR | Wilder (1978) | 동일 |
+| ATR | Wilder (1978) | 같음 |
 | Time-Decay | Hastie, Tibshirani, Friedman (2009) | The Elements of Statistical Learning |
 | Conformal Prediction | Vovk et al. (2005) | Algorithmic Learning in a Random World |
+| ElasticNet | Zou & Hastie (2005) | Regularization and Variable Selection via the Elastic Net |
 | Log-Return | Tsay (2010) | Analysis of Financial Time Series |
 | Ensemble Learning | Wolpert (1992) | Stacked Generalization |
-| AutoML | Databricks (2024) | AutoML User Guide |
-| Unity Catalog | Databricks (2024) | ML Model Registry on UC |
 
 ---
 
-## 8. 갱신 히스토리
+## 8. 개발 히스토리
 
-| 버전 | 일자 | 주요 변경 | 상태 |
+| 버전 | 날짜 | 주요 변경 | 상태 |
 |---|---|---|---|
-| v0412 | 2025-04-12 | TimesFM 초기 추론 파이프라인 | 개발 완료 |
-| v0413 | 2025-04-13 | 동적 가중치 동상률 (Hard Threshold) | 병합 (PR #67) |
-| v0414 | 2025-04-13 | Soft Switching + 로그수익률 + Interaction | PR #74 |
-| v0415 | 2025-04-15 | 뉴스 심리 지표 통합 + sentiment 가중치 | 병합 |
-| v0416 | 2025-04-16 | 키워드 분석 + Weight Scale 재조정 | 병합 |
-| v0417 | 2025-04-17 | AutoML RandomForest + UC 모델 등록 | 병합 |
-| v0418 | 2025-04-18 | gpt-5.4-mini + Responses API | 병합 |
-| v0419 | 2025-04-19 | Gold Layer 통합 + UC 재학습 + ElasticNet 제거 | PR #89 진행중 |
+| v0412 | 2025-04-12 | TimesFM 초기 추론 파이프라인 | ✅ 완료 |
+| v0413 | 2025-04-13 | 동적 가중치 앙상블 (Hard Threshold) | ✅ 병합 (PR #67) |
+| v0414 | 2025-04-13 | Soft Switching + 로그수익률 + Interaction | ✅ PR #74 진행중 |
+| v0415 (미래) | TBD | Regime 탐지 + 다중 호라이즌 | ⏳ 계획단계 |
 
 ---
 
-**문서 작성**: SENSE 프로젝트 팀
-**최종 갱신**: 2025-04-19
+**문서 작성**: SENSE 프로젝트 팀  
+**최종 검토**: 2025-04-14
