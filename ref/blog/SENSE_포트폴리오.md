@@ -3,28 +3,29 @@
 > **프로젝트명**: SENSE — Semiconductor Economic News & Sentiment Engine  
 > **기간**: 2025년 4월 (2주)  
 > **팀 규모**: 6인  
-> **역할**: 클라우드 인프라·데이터 파이프라인 아키텍처 설계 및 구현
+> **역할**: 클라우드 인프라·아키텍처 설계 + ML 모델·앙상블 전략 (페어 담당 2개 파트)
 
 ---
 
 ## Key Point
 
-> **Azure 기반 엔터프라이즈급 MLOps 파이프라인 설계** — 6개 외부 데이터 소스를 하나의 자동화 파이프라인으로 통합하고, ADF·ADLS·Databricks·ML Studio를 연결한 Medallion 아키텍처 구축. 단일 실패점 없는 7단계 순차 체인 설계 및 클러스터 환경 변경에 대응하는 sklearn 역직렬화 호환성 패치 개발.
+> **Azure Medallion 파이프라인 설계 + 동적 가중치 앙상블 모델 개발** — ADF 7단계 자동화 파이프라인과 Databricks Medallion 아키텍처를 직접 설계하고, TimesFM 2.5 XReg + AutoML Random Forest를 결합한 Soft Switching 앙상블로 T+20 예측 R² 초기 −1.19 → 0.82/0.77 달성. sklearn 1.4→1.8 역직렬화 호환성 패치를 직접 개발하여 무중단 배포 유지.
 
-**Tech Stack**: Python 3.11 · Azure Data Factory · ADLS Gen2 · Azure Databricks · Azure ML Studio · Azure Functions · Azure Container Instances · Azure Key Vault · PostgreSQL · Docker · Flask · uv
+**Tech Stack**: Python 3.11 · Azure Data Factory · ADLS Gen2 · Azure Databricks · Azure ML Studio · Azure Key Vault · PostgreSQL · TimesFM 2.5 · scikit-learn · MLflow · Docker · Flask · uv
 
 ---
 
 ## Description
 
-반도체 주가(삼성전자·SK하이닉스)에 영향을 미치는 **뉴스 감성**, **거시경제 지표**, **수급·파생 데이터** 세 가지 축을 통합하여 T+20일 예측과 근거를 함께 제공하는 AI 시스템.
+반도체 주가(삼성전자·SK하이닉스)에 영향을 미치는 **뉴스 감성**, **거시경제 지표**, **수급·파생 데이터** 세 가지 축을 통합하여 T+20일 예측과 근거를 함께 제공하는 AI 시스템. 6인 팀, 페어 단위로 파트 분담.
 
-**팀 내 역할 (이은서 — 인프라·아키텍처 파트)**
-- Azure 클라우드 전체 아키텍처 설계 및 기술 스택 선정
-- ADF 파이프라인 오케스트레이션 구성 (7단계 의존성 체인, 타이머 트리거 자동화)
-- ADLS Gen2 Medallion 아키텍처(Raw → Curated → Feature) 레이어 설계
-- Azure Key Vault 기반 자격증명 중앙화 (`DefaultAzureCredential` 통합)
-- Databricks 노트북 환경 관리 및 Custom Activity Docker 환경 구성
+**팀 내 역할 (김건동 — 인프라·아키텍처 + ML·데이터 분석)**
+- **[아키텍처]** Azure 클라우드 전체 설계: ADF → ADLS Gen2(Medallion) → Databricks → ML Studio → PostgreSQL
+- **[아키텍처]** ADF 7단계 순차 파이프라인 구성, 타이머 트리거 완전 자동화
+- **[아키텍처]** Azure Key Vault 기반 `DefaultAzureCredential` 자격증명 중앙화
+- **[ML]** 47개 피처 엔지니어링 설계 (기술적 지표·거시경제 리스크·ABSA 뉴스 감성)
+- **[ML]** TimesFM 2.5 XReg + AutoML UC BestTrial 기반 Soft Switching 동적 앙상블 개발
+- **[ML]** Confidence Score 시스템 및 레짐 분류(TREND/MEAN_REV/NEUTRAL) 설계
 
 ---
 
@@ -32,89 +33,99 @@
 
 ---
 
-### [경험 1] ADF vs Databricks 전처리 환경 이원화 설계
+### [경험 1] ADF vs Databricks 전처리 이원화 — 기술 선택의 근거
 
 **Problem**  
-데이터 전처리를 ADF Data Flow로 단일화하려 했으나, 10만 건 이상의 뉴스 JSON 처리와 ABSA 피처 엔지니어링 코드를 ADF에서 수행하기에 성능·유연성 한계 발생.
+데이터 전처리를 ADF Data Flow 단일화로 설계했으나, 10만 건 이상의 뉴스 JSON 처리와 Python 기반 복잡한 피처 엔지니어링을 ADF에서 수행하기에 성능·유연성 한계 발생.
 
 **Solution**  
-세 가지 기준(데이터 크기, 변환 복잡도, ML 연동 필요성)으로 역할을 이원화:
+세 가지 기준(데이터 크기, 변환 복잡도, ML 연동 필요성)으로 역할 이원화:
 - **ADF Data Flow**: 환율·금리 등 소규모 정형 데이터 변환 (GUI 기반, 운영 접근성 우수)
-- **Databricks**: 대용량 뉴스 JSON, Parquet 피처 마트 생성, Unity Catalog 기반 ML 모델 연동
+- **Databricks**: 대용량 뉴스 JSON·Parquet 처리 + Unity Catalog 기반 ML 모델 연동 필수
 
 **Result**  
-- 파이프라인 전체 처리 시간 단축. 툴 특성에 맞는 하이브리드 아키텍처로 운영 안정성 확보
-- 심사위원 "ADF vs Databricks 비교 분석이 우수하다" 평가 → 근거 있는 기술 선택이 면접/발표 어필 포인트로 활용됨
+- 하이브리드 아키텍처로 파이프라인 안정성 확보
+- 심사위원 "ADF vs Databricks 비교 분석이 우수하다" 평가 — 기술 선택의 근거를 명확히 설명하는 것이 면접·발표에서 강력한 어필 포인트임을 확인
 
 ---
 
-### [경험 2] 7단계 ADF 파이프라인 — 트리거 충돌 및 중복 적재 해결
+### [경험 2] 7단계 ADF 파이프라인 — 트리거 충돌과 중복 적재 해결
 
 **Problem**  
-ADF 멀티 파이프라인 동시 실행 시 트리거 타이밍 충돌로 동일 날짜 데이터 중복 적재 발생. 팀 내 파이프라인 JSON 편집 시 Git 병합 충돌로 덮어쓰기 위험도 상존.
+멀티 파이프라인 동시 실행 시 트리거 타이밍 충돌로 동일 날짜 데이터 중복 적재 발생. 팀 간 ADF JSON 편집 시 Git 병합 충돌로 파이프라인 덮어쓰기 위험 상존.
 
 **Solution**  
-- Activity 간 명시적 의존성(Success/Failure) 설정으로 **7단계 순차 체인** 구성
-- 타이머 트리거 시점을 장 마감 후 1시간(16:30 KST)으로 단일화하여 중복 실행 원천 차단
-- 팀 내 파이프라인 편집 협의 프로토콜 수립 (ADF JSON 편집 전 팀 채팅 알림 의무화)
+- Activity 간 명시적 의존성(Success/Failure) 체인으로 **7단계 순차 실행** 보장
+- 타이머 트리거를 장 마감 후 1시간(16:30 KST) 단일 시점으로 통일
+- 팀 내 파이프라인 JSON 편집 협의 프로토콜 수립 (편집 전 팀 채팅 알림 의무화)
 
 **Result**  
-- 2주 운영 기간 중 중복 적재 0건
-- 전체 파이프라인 완전 자동화 — 매일 16:30 ADF 타이머 트리거로 데이터 수집 → 전처리 → 예측 → PostgreSQL 적재 무인 운영
+- 2주 운영 중 중복 적재 0건
+- 매일 16:30 ADF 타이머 트리거 기반 **완전 무인 자동화** 달성 (수집→전처리→예측→PostgreSQL 적재)
 
 ---
 
-### [경험 3] sklearn 역직렬화 오류 — 클러스터 환경 변경 대응
+### [경험 3] 초기 R² = −1.19 → 0.82 달성 — 피처 설계가 모델보다 중요하다
 
 **Problem**  
-Databricks Runtime 업그레이드(13.3 LTS → 15.4 ML LTS) 후 AutoML 등록 모델 추론 시 `AttributeError: 'SimpleImputer' object has no attribute '_fill_dtype'` 발생. 모델 직렬화 환경(sklearn 1.4.2)과 추론 환경(sklearn 1.8.0) 버전 불일치가 원인.
+초기 모델(ElasticNet + OHLCV 단순 피처)에서 삼성전자 R²=0.05, SK하이닉스 R²=−1.19 기록. 음수 R²은 모델이 단순 평균 예측보다 못하다는 의미.
+
+**Cause 분석**
+- 변수 간 스케일 불일치 (삼성전자 주가 ~60,000원 vs FRED 금리 ~4.5%)
+- 타겟 변수를 절대 주가로 설정 → 비정상(Non-stationary) 시계열 학습 오류
+- 선형 모델의 비선형 관계 포착 불가
 
 **Solution**  
-프로덕션 공유 클러스터 환경을 제어할 수 없는 상황에서, AutoML 재실행(60분+) 대신 **재귀적 패치 함수 `_deep_mark_fitted()`** 개발:
+세 가지 근본적 재설계:
+
+1. **타겟 재정의**: 절대 주가 → `log(P_{t+20} / P_t)` T+20 누적 로그수익률 (정상성 확보)
+2. **피처 47개 설계**: RSI·ATR·120일 이격도·`vol_ratio` 등 기술 지표 + `macro_stress_score`·`fear_composite` 거시 리스크 + ABSA 뉴스 감성 점수
+3. **모델 교체**: ElasticNet → Databricks AutoML BestTrial (Random Forest, 비선형 관계 자동 학습)
+
+```python
+# RSI 기반 Soft Switching 가중치 — 시장 국면별 동적 배합
+def compute_dynamic_weights(rsi, vol_ratio, disparity_120d, avg_sentiment, news_vol_surge):
+    adj = 0.0
+    if rsi > 70:   # 과매수 → AutoML(평균회귀) 강화
+        adj -= 0.20 * ((rsi - 70) / 30) ** 1.5
+    elif rsi < 30: # 과매도 → TimesFM(추세) 강화
+        adj += 0.20 * ((30 - rsi) / 30) ** 1.5
+    # vol_ratio, 이격도, 감성, 뉴스 급증 신호 추가 반영
+    ...
+    return np.clip(0.45 + adj, 0.25, 0.75), ...  # 클리핑으로 극단 편향 방지
+```
+
+**Result**  
+- 삼성전자 R² 0.05 → **0.82**, SK하이닉스 R² −1.19 → **0.77**
+- Hard Threshold 가중치(불연속 Spike) → Soft Switching 연속 보간으로 일별 예측값 안정화
+
+---
+
+### [경험 4] sklearn 역직렬화 오류 — 무중단 배포를 위한 호환성 패치
+
+**Problem**  
+Databricks Runtime 업그레이드 후 AutoML UC 등록 모델 추론 시 `AttributeError: 'SimpleImputer' object has no attribute '_fill_dtype'` 발생. 직렬화 환경(sklearn 1.4.2) ↔ 추론 환경(sklearn 1.8.0) 버전 불일치가 원인.
+
+**Solution**  
+공유 클러스터 환경을 제어할 수 없는 상황 → AutoML 재실행(60분+) 대신 **재귀적 호환성 패치 함수** 직접 개발:
 
 ```python
 def _deep_mark_fitted(estimator):
-    """sklearn 1.4.x → 1.8.x 역직렬화 호환성 패치"""
-    # 1) __sklearn_is_fitted__ 속성 사후 주입
+    """sklearn 1.4.x → 1.8.x 역직렬화 호환성 패치 (Pipeline/ColumnTransformer 재귀 처리)"""
     if not hasattr(estimator, "__sklearn_is_fitted__"):
         object.__setattr__(estimator, "__sklearn_is_fitted__", lambda: True)
-    # 2) SimpleImputer._fill_dtype 복원
     if (estimator.__class__.__name__ == "SimpleImputer"
             and hasattr(estimator, "statistics_")
             and not hasattr(estimator, "_fill_dtype")):
         estimator._fill_dtype = estimator.statistics_.dtype
-    # 3) Pipeline·ColumnTransformer 하위 추정기 재귀 처리
     for attr in ["steps", "estimators_", "transformers_"]:
         for item in (getattr(estimator, attr, None) or []):
             _deep_mark_fitted(item[1] if isinstance(item, tuple) else item)
 ```
 
 **Result**  
-- AutoML 재학습 없이 기존 모델 즉시 복구. 재처리 대기 시간 제로
-- 환경 불변 조건(Immutable Infrastructure) 원칙의 한계와 호환성 패치의 실무 가치 체득
-
----
-
-### [경험 4] Azure Key Vault 기반 자격증명 중앙화
-
-**Problem**  
-6인 팀이 각자 `.env` 파일로 자격증명을 관리 → 시크릿 노출 위험, 배포 환경(Databricks·Functions·App Service)마다 중복 설정 필요.
-
-**Solution**  
-`DefaultAzureCredential` 기반 `vault_manager.py` 모듈 설계:
-- 로컬: `az login` → Managed Identity 없이 동일 코드 동작
-- Databricks: 런타임 감지 후 Spark 세션 OAuth 자동 설정
-- App Service: System-assigned Managed Identity → AcrPull + Key Vault Secrets User 권한
-
-```python
-vault.get_secret("pg-connection-string")   # PostgreSQL 접속 문자열
-vault.get_storage_client()                  # ADLS Gen2 클라이언트
-vault.get_pg_connection("sqlalchemy")       # SQLAlchemy Engine
-```
-
-**Result**  
-- `.env` 파일 커밋 0건, 코드 내 하드코딩 시크릿 0건
-- 단일 코드베이스로 로컬·Databricks·App Service 세 환경 동일 인증 처리
+- AutoML 재학습 없이 기존 모델 즉시 복구 — 다운타임 0
+- 클러스터 환경이 바뀌어도 코드 한 줄로 대응 가능한 범용 패치로 발전
 
 ---
 
@@ -124,17 +135,18 @@ vault.get_pg_connection("sqlalchemy")       # SQLAlchemy Engine
 |---|---|---|
 | **Azure** | Key Vault 중앙 인증 + ADF-Databricks 네이티브 연동 + 관리형 ML Studio | AWS (연동 복잡도, 팀 학습 곡선 불리) |
 | **PostgreSQL** | 오픈소스 활용도 + 동시 다중 조회 성능 | ADLS Gen2 단독 (분산 조회 한계), Azure SQL (오픈소스 생태계 열세) |
-| **Databricks** | 대용량 Parquet·JSON 처리 + Unity Catalog ML 연동 | ADF Data Flow (소규모 정형 데이터에만 적합) |
-| **Docker (Custom Activity)** | yfinance 의존성 충돌 격리, 재현 가능 환경 | Azure Functions (런타임 패키지 제약) |
+| **TimesFM 2.5** | Foundation Model XReg 공변량 주입 → 매크로 컨텍스트 반영 추세 예측 | LSTM (학습 데이터 부족 시 과적합), Prophet (외부 변수 주입 한계) |
+| **AutoML UC BestTrial** | 비선형 관계 자동 탐색 + Unity Catalog 모델 버전 관리 자동화 | 수동 하이퍼파라미터 튜닝 (시간·인력 비용) |
+| **Soft Switching** | 연속 보간으로 예측값 Spike 제거, 클리핑으로 극단 편향 방지 | Hard Threshold (불연속 가중치 점프 문제) |
 
 ---
 
 ## 결과 및 성과
 
-- 6개 외부 소스(Yahoo Finance·FRED·네이버뉴스·Google News·관세청·KFinance) **완전 자동 수집 파이프라인** 구축
-- ADF 타이머 트리거 기반 **매일 16:30 무인 실행** — 수동 개입 불필요
-- 삼성전자·SK하이닉스 T+20 예측 R² 삼성 0.82 / SK하이닉스 0.77 달성 (초기 대비 대폭 개선)
-- 심사위원 총평: "공연을 본 것 같다" — 발표 완성도·기술 깊이·비즈니스 가치 전방위 호평
+- 6개 외부 소스 완전 자동 수집 파이프라인 — **매일 16:30 ADF 타이머 트리거 무인 운영**
+- T+20 예측 성능: 삼성전자 R² **0.82**, SK하이닉스 R² **0.77** (초기 −1.19 대비)
+- Confidence Score + 레짐 분류(TREND/MEAN_REV/NEUTRAL) 기반 **사용자 투자 판단 보조 시스템** 완성
+- 심사위원 총평: "공연을 본 것 같다" — 기술 깊이·비즈니스 가치·Responsible AI 전방위 호평
 
 ---
 
